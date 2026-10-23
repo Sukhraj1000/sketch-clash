@@ -3,11 +3,18 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Camera, Check, Crop, ImageUp, RotateCcw, ScanLine, X } from 'lucide-react'
 import { cameraFailureMessage, captureVideoFrame, clampImageCrop, normalizeImage } from '../lib/imageInput'
 import type { ImageCrop, NormalizedImage } from '../lib/imageInput'
+import type { FeedbackInput, CorrectionInput } from '../lib/api'
+import type { WorldCharacter } from './WorldView'
+import FighterReview from './FighterReview'
 import './SketchCanvas.css'
 import './CaptureStudio.css'
 
 export type CaptureResponse = {
   capture_id: string
+  output_id?: string
+  pipeline_version_id?: string
+  observed_object?: {canonical_type_id:string;label:string;visible_features?:string[]}
+  saved_resident_preview?: Pick<WorldCharacter, 'visual_spec'|'image_ref'|'display_name'|'object_type'> | null
   status: 'recognized' | 'needs_selection' | 'needs_recapture'
   image_url: string
   width: number
@@ -27,6 +34,9 @@ export type CaptureStudioProps = {
   onPrepare: (input: CaptureInput, signal: AbortSignal) => Promise<CaptureResponse>
   onConfirm: (fighter: any) => void | Promise<void>
   onCancel: () => void
+  initialResponse?: CaptureResponse | null
+  onFeedback: (captureId:string, input:FeedbackInput) => Promise<unknown>
+  onCorrect: (captureId:string, input:CorrectionInput) => Promise<CaptureResponse>
 }
 
 type Stage = 'handoff' | 'idle' | 'permission' | 'camera' | 'normalizing' | 'processing' | 'selection' | 'recognized' | 'recapture' | 'error'
@@ -51,7 +61,7 @@ function EvidenceDetails({ response }: { response: CaptureResponse }) {
   </details>
 }
 
-export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel }: CaptureStudioProps) {
+export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel, initialResponse, onFeedback, onCorrect }: CaptureStudioProps) {
   const [stage, setStage] = useState<Stage>('handoff')
   const [remaining, setRemaining] = useState(duration)
   const remainingMs = useRef(duration * 1000)
@@ -336,12 +346,12 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
   const detections = stage === 'selection' && !cropMode ? response?.detections ?? [] : []
   const displayBox = (box: ImageCrop) => ({ left: `${100 * box.x / (original?.width || 1)}%`, top: `${100 * box.y / (original?.height || 1)}%`, width: `${100 * box.width / (original?.width || 1)}%`, height: `${100 * box.height / (original?.height || 1)}%` })
 
-  return <section className={`sketch-screen sketch-player-${player} capture-screen`} aria-label={`Player ${player} capture studio`}>
+  return <section className={`sketch-screen sketch-player-${player} capture-screen ${stage === 'recognized' ? 'capture-reviewing' : ''}`} aria-label={`Player ${player} capture studio`}>
     <div className="sketch-heading">
       <div className="sketch-heading-copy">
-        <span className="sketch-eyebrow"><span /> ROUND 01 / THE SKETCHBOOK</span>
-        <h1>CAPTURE YOUR <em>WILD SIDE.</em></h1>
-        <p>Everyday objects. Extraordinary attitude. Pick your fighter.</p>
+        <span className="sketch-eyebrow"><span /> PLAYER {player} / {stage === 'recognized' ? 'THE REVIEW' : 'CAPTURE STUDIO'}</span>
+        <h1>{stage === 'recognized' ? <>A LITTLE MORE <em>YOU.</em></> : <>FIND YOUR <em>CHAMPION.</em></>}</h1>
+        <p>{stage === 'recognized' ? 'A real object. A fictional fighter. Give it your seal of approval.' : 'One everyday object. A whole new personality.'}</p>
       </div>
       <div className={`sketch-clock ${remaining <= 10 && started ? 'sketch-clock-urgent' : ''}`} aria-label={`${remaining} seconds of active capture time remaining`} title="Paused while permission or recognition is pending. Nothing submits automatically.">
         <Camera size={20} aria-hidden="true" /><span>{String(remaining).padStart(2, '0')}<small>s</small></span>
@@ -369,14 +379,14 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
           {stage === 'permission' && <div className="capture-processing"><Camera size={32} /><strong>CAMERA PERMISSION</strong><span>Choose Allow in your browser. Your timer is paused.</span><button type="button" className="capture-text-button" onClick={() => { discard(); setStage('idle'); inputRef.current?.click() }}>Use an uploaded photo instead</button></div>}
           {busy && <div className="capture-processing" role="status"><span className="capture-loading-mark" aria-hidden="true">✳</span><strong>{stage === 'normalizing' ? 'DEVELOPING YOUR PHOTO…' : 'MEET YOUR NEW FIGHTER…'}</strong><span>{stage === 'normalizing' ? 'Making a clean, correctly oriented image.' : 'Reading the object. Checking the configuration.'}</span><small>The timer is paused.</small></div>}
           {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> READY TO BATTLE</span>}
-          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : 'Find one object. Take its photo. Give the ordinary a fighting chance.'}</p><button type="button" className="sketch-start-button" onClick={() => setStage('idle')}>I'M READY <span aria-hidden="true">↗</span></button><small>Your timer runs only while framing or selecting.</small></div>}
+          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : 'Find one object. Take its photo. Give the ordinary a fighting chance.'}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>Your timer runs only while framing or selecting.</small></div>}
         </div>
         <div className="sketch-paper-bottom"><span>ORIGINAL PHOTO. UNLIMITED ATTITUDE.</span><span>CAPTURE No. 00{player}</span></div>
       </div>
       <span className="sketch-star-doodle" aria-hidden="true">✳</span>
     </div>
 
-    {stage === 'recognized' && response?.fighter && <div className="capture-fighter-summary" aria-label="Recognised fighter"><span>MEET YOUR FIGHTER</span><strong>{response.fighter.display_name ?? 'Your fighter'}</strong><small>{response.fighter.object_type} <span aria-hidden="true">·</span> {response.fighter.archetype} style</small></div>}
+    {stage === 'recognized' && response?.fighter && <FighterReview key={response.output_id ?? response.fighter.output_id ?? response.capture_id} response={response} onFeedback={onFeedback} onCorrect={onCorrect} onRevised={revised=>{setResponse(revised);setStage(revised.status==='recognized'?'recognized':revised.status==='needs_selection'?'selection':'recapture');setMessage(revised.message??'Revised proposal ready. Review the new result before locking it in.')}} onConfirm={confirm} onBusy={setConfirming} onRetake={()=>{discard();setStage('idle')}} onCrop={originalRef.current?startCropping:undefined}/> }
 
     <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="capture-file-input" aria-label="Upload a fighter photograph" tabIndex={-1} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void upload(file) }} />
     <div className="sketch-bottom-bar">
@@ -388,7 +398,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
         <ToolbarButton label="Retake" disabled={!started || stage === 'idle' || confirming} onClick={() => { discard(); setStage('idle') }}><RotateCcw size={18} /></ToolbarButton>
         <ToolbarButton label="Crop" disabled={!canCrop} selected={cropMode} onClick={startCropping}><Crop size={18} /></ToolbarButton>
       </div>
-      <button type="button" className="sketch-submit-button" disabled={stage !== 'recognized' || !response?.fighter || confirming || cropMode} onClick={() => void confirm()}>{confirming ? 'LOCKING IN…' : 'LOCK IN MY FIGHTER'}<span aria-hidden="true">→</span></button>
+      {stage !== 'recognized' && <span className="capture-next-step">{busy ? 'Preparing your fighter…' : 'Capture → review → clash'}</span>}
     </div>
 
     {cropMode && crop && original && <div className="capture-crop-tools">
@@ -399,7 +409,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
     </div>}
     {stage === 'selection' && !cropMode && detections.length > 0 && <div className="capture-selection-list" aria-label="Choose one detected object">{detections.map((item, index) => <button key={item.id} type="button" onClick={() => selectCrop(item.box)}>{index + 1}. {item.label} <span aria-hidden="true">↗</span></button>)}</div>}
     {stage === 'error' && captureRef.current && <button type="button" className="capture-retry" onClick={() => captureRef.current && void prepare(captureRef.current)}><RotateCcw size={16} /> Retry this photograph</button>}
-    <div className="sketch-footnote"><button type="button" onClick={() => { discard(); onCancel() }}>← Back to lobby</button><span role="status" aria-live="polite">{message || (remaining === 0 ? 'Time is up. Nothing submits automatically; finish choosing your photograph when ready.' : 'One object becomes one fighter. Confirm it before passing the laptop.')}</span><span className="sketch-counter">{player} / 2 FIGHTERS</span></div>
+    <div className="sketch-footnote"><button type="button" disabled={confirming} onClick={() => { discard(); onCancel() }}>← Back to lobby</button><span role="status" aria-live="polite">{message || (remaining === 0 ? 'Time is up. Nothing submits automatically; finish choosing your photograph when ready.' : 'One object becomes one fighter. Confirm it before passing the laptop.')}</span><span className="sketch-counter">{player} / 2 FIGHTERS</span></div>
     {response && <EvidenceDetails response={response} />}
   </section>
 }

@@ -5,6 +5,17 @@ export type PendingFighter = {
   canonical_type_id:string; object_type:string; display_name:string; image_ref:string;
   archetype:'Quick'|'Power'|'Guard'; stats:{health:100;attack:number;defense:number;speed:number};
   visual_spec:Record<string,unknown>; validation:Record<string,unknown>[]; config_versions:Record<string,string>;
+  output_id?:string; pipeline_version_id?:string; parent_output_id?:string;
+  observed_object?:{canonical_type_id:string;label:string;visible_features?:string[]};
+};
+export type FeedbackInput = {
+  idempotency_key:string; output_id:string; pipeline_version_id:string;
+  recognition_verdict:'correct'|'corrected'|'unsure'; creative_verdict:'keep'|'change'|'skipped';
+  correction_label?:string; reasons:string[]; comment?:string; shared_consent:boolean;
+};
+export type CorrectionInput = {
+  idempotency_key:string; output_id:string; pipeline_version_id:string;
+  kind:'factual'|'style'; canonical_label?:string; details?:string; reasons:string[];
 };
 export type BattleRecord = {
   id:string;request_id:string;world_id:string;status:'draft'|'ready'|'running'|'completed'|'cancelled'|'failed';
@@ -13,6 +24,7 @@ export type BattleRecord = {
   eligible_at:string|null;playback_mode:'normal'|'reduced'|'quick'|null;seed:number|null;engine_version:string|null;
   completion:{resident_ids:string[];new_resident_ids:string[];durable:boolean}|null;
   persistence:'mongodb'|'development_memory';
+  pipeline_version_id?:string;
 };
 export type Health = {status:string;persistence:string;persistent:boolean;gemini:{configured:boolean;model:string};message?:string;world_id:string};
 export class ApiError extends Error { constructor(message:string, public code:string, public status:number){super(message);} }

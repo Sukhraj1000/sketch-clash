@@ -1,17 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useTransform, type MotionValue } from 'motion/react';
-import { ArrowRight, ArrowUpRight, ChevronLeft, Pencil, Play, RotateCcw, Sparkles, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Camera, CheckCircle2, Globe2, Pencil, Play, RotateCcw, SlidersHorizontal, Sparkles, Swords, X } from 'lucide-react';
 import type { Fighter, Phase } from './types';
 import { PRESET_FIGHTERS } from './game/fixtures';
 import { useTimeline } from './game/director';
 import { CaptureStudio, type CaptureInput, type CaptureResponse } from './components/CaptureStudio';
-import { api, post, asFighter, asPair, type BattleRecord, type Health, type PendingFighter } from './lib/api';
+import { api, post, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
 import './LiveFlow.css';
 const WorldView = lazy(()=>import('./components/WorldView'));
+const QualityConsole = lazy(()=>import('./components/QualityConsole'));
+const CharacterPreview = lazy(()=>import('./components/CharacterPreview'));
 import BattleArena from './components/BattleArena';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 21 };
-const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE OBJECT ISLAND' };
+const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE OBJECT ISLAND', QUALITY:'RECOGNITION & WORLD QUALITY' };
 
 function Star({ className = '', color = 'currentColor' }: { className?: string; color?: string }) {
   return <svg className={className} viewBox="0 0 100 100" fill={color} aria-hidden="true"><path d="M51 3 62 35 96 31 73 54 89 88 54 72 25 96 28 61 2 43 37 36Z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" /></svg>;
@@ -26,35 +28,35 @@ function ActionButton({children,onClick,className='',label,disabled=false}:{chil
   return <motion.button type="button" className={`arcade-button ${className}`} onClick={onClick} aria-label={label} disabled={disabled} whileHover={{y:-3,rotate:-1}} whileTap={{y:4,x:3,boxShadow:'0px 0px 0px var(--ink)'}} transition={spring}>{children}</motion.button>;
 }
 
+const ILLUSTRATIVE_FIGHTER = {
+  display_name:'A mug with a little ambition',object_type:'mug',image_ref:'',
+  visual_spec:{template_id:'mug' as const,palette:['#FFB7A3','#CBEAD7','#243A31'],scale:1,proportions:{width:1,height:1},accessories:['eyes','arms','feet'],animation_style:'bouncy' as const,schema_version:'1',appearance_seed:21},
+};
 function LandingScreen({onPlay,onDemo,quick,setQuick}:{onPlay:()=>void;onDemo:()=>void;quick:boolean;setQuick:(value:boolean)=>void}) {
-  const reduced=useReducedMotion();
-  return <motion.main className="landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,y:-22}}>
-    <div className="landing-note note-left">a little imagination.<br/>a lot of chaos.<svg viewBox="0 0 100 70" aria-hidden="true"><path d="M5 8q66-4 65 45m-13-9 13 15 13-17"/></svg></div>
-    <div className="landing-note note-right">your mug<br/>could be a legend.<Star /></div>
-    <div className="hero-eyebrow"><span className="tiny-star">✳</span> ORDINARY OBJECTS. EXTRAORDINARY GRUDGES. <span className="tiny-star">✳</span></div>
-    <div className="hero-grid">
-      <motion.div className="hero-fighter hero-fighter-left" initial={{x:-60,opacity:0,rotate:-14}} animate={{x:0,opacity:1,rotate:-8}} transition={{...spring,delay:.18}}>
-        <div className="fighter-paper coral-paper"><span className="tape tape-top"/><div className="paper-grid"/>
-          <motion.img src={PRESET_FIGHTERS[0].image} alt="Scratch, a mischievous hand-drawn cat" animate={reduced?{}:{y:[0,-8,0],rotate:[-3,1,-3]}} transition={{duration:4,repeat:Infinity,ease:'easeInOut'}} draggable={false}/>
-          <div className="mini-player">P1 <span>SCRATCH</span></div><div className="paper-caption">HAS CLAWS. WILL DOODLE.</div>
-        </div><Star className="fighter-star star-one" color="var(--yellow)"/>
-      </motion.div>
-      <div className="hero-center">
-        <h1 className="hero-logo" aria-label="Sketch Clash"><motion.span className="logo-sketch" initial={{y:-50,rotate:-9,opacity:0}} animate={{y:0,rotate:-4,opacity:1}} transition={{...spring,delay:.05}}>SKETCH</motion.span><motion.span className="logo-clash" initial={{scale:.6,rotate:8,opacity:0}} animate={{scale:1,rotate:-5,opacity:1}} transition={{...spring,delay:.2}}>CLASH<span className="logo-period">!</span></motion.span></h1>
-        <motion.p className="hero-tagline" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:.4}}>CAPTURE IT. DEFEND IT. BATTLE IT.</motion.p>
-        <p className="hero-description">Your everyday objects. Their problem.<br/>Turn a photograph into an arcade legend.</p>
-        <div className="hero-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={27}/></ActionButton><motion.button className="demo-button" onClick={onDemo} whileHover={{x:3}} whileTap={{scale:.97}}><Play size={15} fill="currentColor"/> WATCH THE SHOWDOWN <ArrowUpRight size={15}/></motion.button></div>
-        <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SEC / PLAYER</span></label>
+  return <motion.main className="landing studio-landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+    <div className="studio-hero">
+      <div className="studio-hero-copy">
+        <span className="studio-kicker"><span/> AN OBJECT EXPERIMENT, DISGUISED AS A GAME</span>
+        <h1>SMALL OBJECTS.<br/><em>BIG PERSONALITIES.</em></h1>
+        <p className="studio-intro">That thing on your desk?<br/>It has main character energy.</p>
+        <p className="studio-description">Photograph it. Shape its alter ego. Challenge a friend.<br/>Then give your everyday champions a world of their own.</p>
+        <div className="studio-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={22}/></ActionButton><button className="demo-button" onClick={onDemo}><Play size={13}/> WATCH THE SHOWDOWN</button></div>
+        <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SECONDS / PLAYER</span></label>
+        <div className="studio-game-facts"><span><span className="fact-dot"/> TWO PLAYERS</span><span>ONE DEVICE</span><span>EVERYDAY OBJECTS</span></div>
       </div>
-      <motion.div className="hero-fighter hero-fighter-right" initial={{x:60,opacity:0,rotate:13}} animate={{x:0,opacity:1,rotate:7}} transition={{...spring,delay:.28}}>
-        <div className="fighter-paper mint-paper"><span className="tape tape-top"/><div className="paper-grid"/>
-          <motion.img src={PRESET_FIGHTERS[1].image} alt="Chomps, a goofy hand-drawn dinosaur" animate={reduced?{}:{y:[-5,3,-5],rotate:[2,-2,2]}} transition={{duration:4.6,repeat:Infinity,ease:'easeInOut'}} draggable={false}/>
-          <div className="mini-player">P2 <span>CHOMPS</span></div><div className="paper-caption">SMALL ARMS. BIG ENERGY.</div>
-        </div><Star className="fighter-star star-two" color="var(--coral)"/>
-      </motion.div>
+      <div className="studio-specimen">
+        <div className="specimen-top"><span><Sparkles size={13}/> THE PERSONALITY LAB</span><span>No. 001</span></div>
+        <div className="specimen-canvas"><Suspense fallback={<div className="specimen-loading">Opening the studio…</div>}><CharacterPreview fighter={ILLUSTRATIVE_FIGHTER} presentation="hero" scope="Illustrative character · your object creates its own fighter"/></Suspense></div>
+        <div className="specimen-note"><span className="specimen-orbit-dot"/><p><b>Ordinary mug. Extraordinary ambition.</b><span>Procedural character • live 3D preview</span></p><ArrowUpRight size={22}/></div>
+        <div className="specimen-tag"><span>100</span><small>HP<br/>ALL HEART</small></div>
+      </div>
     </div>
-    <div className="no-skills-stamp">ZERO ART SKILLS<br/><b>REQUIRED</b><span>JUST BRING THE ATTITUDE</span></div>
-    <div className="how-strip"><div><span className="step-number">01</span><p><b>FIND AN OBJECT</b><span>A mug. A bottle. Your everyday champion.</span></p></div><div><span className="step-number">02</span><p><b>SNAP YOUR FIGHTER</b><span>Two players. Camera or photo upload.</span></p></div><div><span className="step-number">03</span><p><b>LET ’EM CLASH</b><span>Your exact photographs. Fully unleashed.</span></p></div></div>
+    <div className="studio-path" aria-label="How to play">
+      <div><span className="studio-step-icon"><Camera size={20}/></span><p><small>01 / CAPTURE</small><b>Bring the real world in.</b><span>One clear object. Camera or upload.</span></p></div>
+      <div><span className="studio-step-icon"><CheckCircle2 size={20}/></span><p><small>02 / MAKE IT YOURS</small><b>Your eye. AI’s imagination.</b><span>Check the identity. Refine its personality.</span></p></div>
+      <div><span className="studio-step-icon"><Swords size={20}/></span><p><small>03 / CLASH & COLLECT</small><b>A rivalry. Then a home.</b><span>Both fighters join your persistent island.</span></p></div>
+    </div>
+    <p className="studio-research">Can human feedback make AI’s view of real objects more reliable? <span>Play is how we explore it.</span></p>
   </motion.main>;
 }
 
@@ -97,6 +99,10 @@ function VictoryScreen({fighters,onAgain,onReplay,winner=0}:{fighters:[Fighter,F
   return <motion.main className="victory-screen" initial={{opacity:0}} animate={{opacity:1}}><div className="victory-rays"/><div className="victory-topline"><span>THE INK HAS SETTLED</span><span>PLAYER 0{winner+1} WINS</span></div><motion.div className="victory-title" initial={reduced?{}:{scale:1.6,rotate:-7}} animate={{scale:1,rotate:-4}} transition={spring}>VICTORY<span>!</span></motion.div><div className="victory-stage"><Burst className="victory-burst"/><motion.div className={`victory-hero ${fighters[winner].kind==='photo'?'photo-winner':''}`} initial={{y:40,opacity:0}} animate={reduced?{y:0,opacity:1}:{y:[0,-15,0],opacity:1,rotate:[-3,3,-3]}} transition={{y:{duration:1.9,repeat:Infinity,ease:'easeInOut'},rotate:{duration:1.9,repeat:Infinity,ease:'easeInOut'},opacity:{duration:.3}}}><Crown className="winner-crown"/><img src={fighters[winner].image} alt={`${fighters[winner].name}, the winning original fighter`}/></motion.div><div className={`victory-loser ${fighters[1-winner].kind==='photo'?'photo-loser':''}`}><img src={fighters[1-winner].image} alt="The defeated fighter folded into a paper ball"/><span>…rematch?</span></div>{Array.from({length:16},(_,i)=><motion.div key={i} className={`confetti confetti-${i%3}`} style={{left:`${10+(i*37)%80}%`,top:`${10+(i*23)%70}%`,rotate:i*31}} initial={{scale:0}} animate={reduced?{scale:1}:{scale:[0,1,1],y:[-25,0,30],rotate:[i*31,i*31+80]}} transition={{duration:2.5,delay:(i%5)*.12,repeat:reduced?0:Infinity,repeatType:'reverse'}}>{i%3===0?'✦':''}</motion.div>)}</div><div className="victory-name"><span>THE UNDISPUTED SKETCHBOOK CHAMPION</span><h2>{fighters[winner].name}</h2><p>A masterpiece? Debatable. A winner? Absolutely.</p></div><div className="victory-actions"><ActionButton onClick={onAgain}>PLAY AGAIN <Pencil size={23}/></ActionButton><button className="text-button" onClick={onReplay}><RotateCcw size={16}/> RUN IT BACK</button></div><div className="bottom-caption">ALL GLORY. NO ERASER.</div></motion.main>;
 }
 
+function captureResponse(result:any):CaptureResponse {
+  return {capture_id:result.capture_id,status:result.status,image_url:result.image_ref,width:result.crop?.width??result.width,height:result.crop?.height??result.height,detections:result.candidates,fighter:result.pending_fighter??undefined,evidence:result.evidence,message:result.uncertainty?.join(' '),trace:result.pending_fighter?.validation,degraded:Object.values(result.evidence??{}).some((value:any)=>['failed','unavailable'].includes(value?.status)),output_id:result.output_id,pipeline_version_id:result.pipeline_version_id,observed_object:result.observed_object,saved_resident_preview:result.saved_resident_preview};
+}
+
 const ACTIVE_KEY='sketch-clash-active-battle';
 const readActive=()=>{try{return localStorage.getItem(ACTIVE_KEY)}catch{return null}};
 const saveActive=(id:string|null)=>{try{if(id)localStorage.setItem(ACTIVE_KEY,id);else localStorage.removeItem(ACTIVE_KEY)}catch{/* Server record remains the source of truth. */}};
@@ -112,7 +118,7 @@ export default function App() {
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [recovery,setRecovery]=useState<string|null>(readActive);
-  const [reviewPending,setReviewPending]=useState<PendingFighter|null>(null);
+  const [reviewPending,setReviewPending]=useState<CaptureResponse|null>(null);
   const [confirming,setConfirming]=useState(false);
   const [saveState,setSaveState]=useState<'idle'|'saving'|'saved'|'error'>('idle');
   const currentBattle=useRef<BattleRecord|null>(null);
@@ -120,6 +126,7 @@ export default function App() {
   const createRequest=useRef<string|null>(null);
   const actionBusy=useRef(false);
   const reduced=!!useReducedMotion();
+  useEffect(()=>{window.scrollTo({top:0,left:0,behavior:'instant'});},[phase]);
   const remember=useCallback((record:BattleRecord)=>{currentBattle.current=record;setBattle(record);saveActive(record.id)},[]);
   useEffect(()=>{let alive=true;api<Health>('/health').then(value=>{if(alive)setHealth(value)}).catch(()=>{});return()=>{alive=false}},[]);
   const home=useCallback(async()=>{
@@ -153,8 +160,16 @@ export default function App() {
     const form=new FormData();form.append('image',input.file);form.append('capture_id',input.captureId);form.append('slot',String(slot));form.append('source',input.source);if(input.crop)form.append('crop',JSON.stringify(input.crop));
     const result=await api<any>(`/battles/${record.id}/captures`,{method:'POST',body:form,signal});
     if(result.stale)throw new Error('This photograph was replaced. Please use the latest capture.');
-    return {capture_id:result.capture_id,status:result.status,image_url:result.image_ref,width:result.crop?.width??result.width,height:result.crop?.height??result.height,detections:result.candidates,fighter:result.pending_fighter??undefined,evidence:result.evidence,message:result.uncertainty?.join(' '),trace:result.pending_fighter?.validation,degraded:Object.values(result.evidence??{}).some((value:any)=>['failed','unavailable'].includes(value?.status))};
+    return captureResponse(result);
   },[phase]);
+  const feedback=useCallback((captureId:string,input:FeedbackInput)=>{
+    const record=currentBattle.current;if(!record)throw new Error('This round is no longer active.');
+    return post(`/battles/${record.id}/captures/${captureId}/feedback`,input);
+  },[]);
+  const correct=useCallback(async(captureId:string,input:CorrectionInput):Promise<CaptureResponse>=>{
+    const record=currentBattle.current;if(!record)throw new Error('This round is no longer active.');
+    return captureResponse(await post(`/battles/${record.id}/captures/${captureId}/correct`,input));
+  },[]);
   async function confirm(fighter:PendingFighter){
     const active=currentBattle.current;if(!active)throw new Error('This round is no longer available. Return home and start again.');
     if(actionBusy.current)throw new Error('Another round action is finishing. Please retry.');
@@ -197,29 +212,29 @@ export default function App() {
       remember(record);setIsDemo(false);setRecovery(null);setRoundKey(k=>k+1);
       if(record.fighters.length===2){setFighters(asPair(record.fighters));setPhase(record.status==='completed'||(record.eligible_at&&Date.now()>=Date.parse(record.eligible_at))?'RESULTS':'BATTLE');setSaveState(record.status==='completed'?'saved':'idle')}
       else if(record.pending_fighters.every((fighter,index)=>fighter&&record.confirmed_capture_ids?.[index]===fighter.capture_id)){setFighters(asPair(record.pending_fighters as PendingFighter[]));setPhase('REVEAL')}
-      else {const first=record.pending_fighters[0];const firstConfirmed=first&&record.confirmed_capture_ids?.[0]===first.capture_id;if(firstConfirmed)setFighters([asFighter(first),PRESET_FIGHTERS[1]]);const slot=firstConfirmed?1:0;setReviewPending(record.pending_fighters[slot]);setPhase(slot===0?'DRAW_P1':'DRAW_P2')}
+      else {const first=record.pending_fighters[0];const firstConfirmed=first&&record.confirmed_capture_ids?.[0]===first.capture_id;if(firstConfirmed)setFighters([asFighter(first),PRESET_FIGHTERS[1]]);const slot=firstConfirmed?1:0;const pending=record.pending_fighters[slot];let restored:CaptureResponse|null=null;if(pending){try{restored=captureResponse(await api(`/battles/${record.id}/captures/${pending.capture_id}`))}catch{restored={capture_id:pending.capture_id,status:'recognized',image_url:pending.image_ref,width:800,height:600,fighter:pending,output_id:pending.output_id,pipeline_version_id:'legacy-unknown'}}}if(generation!==epoch.current)return;setReviewPending(restored);setPhase(slot===0?'DRAW_P1':'DRAW_P2')}
     }catch(e){setError((e as Error).message)}finally{actionBusy.current=false;setBusy('')}
   }
   const stage=phase==='DRAW_P1'||phase==='DRAW_P2'?0:phase==='REVEAL'?1:2;
   const memory=battle?.persistence==='development_memory'||health?.persistence==='development_memory';
   return <div className={`game-shell phase-${phase.toLowerCase()}`}><div className="paper-noise" aria-hidden="true"/>
-    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<button className="text-button" onClick={()=>setPhase('WORLD')}>YOUR ISLAND <ArrowUpRight size={15}/></button>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
+    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>setPhase('WORLD')}><Globe2 size={15}/> YOUR ISLAND <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
     {memory&&<div className="service-note">LOCAL MEMORY PREVIEW · Your island disappears when the backend restarts. MongoDB is not connected.</div>}
     {!memory&&health?.status==='configuration_required'&&phase==='HOME'&&<div className="service-note">Camera battles need your Atlas connection. The cinematic demo remains available.</div>}
     {busy&&<div className="flow-message" role="status">{busy}</div>}
     {error&&<div className="flow-message flow-error" role="alert">{error}<button onClick={()=>setError('')} aria-label="Dismiss message"><X size={16}/></button>{phase==='REVEAL'&&!isDemo&&<button onClick={()=>void startBattle()}>Retry arena</button>}</div>}
     {phase==='HOME'&&recovery&&<div className="recovery-card"><b>A round is waiting in your sketchbook.</b><button onClick={()=>void resume()}>RESUME ROUND</button><button onClick={()=>{saveActive(null);setRecovery(null);createRequest.current=null}}>DISMISS RECOVERY</button></div>}
-    {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
+    {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
     <AnimatePresence mode="wait" initial={false}><motion.div key={`${roundKey}-${phase}`} className="screen-wrap" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:.18}}>
       {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} quick={quick} setQuick={setQuick}/>}
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
-      {(phase==='DRAW_P1'||phase==='DRAW_P2')&&reviewPending&&<div className="pending-review"><span className="eyebrow">RECOVERED PHOTOGRAPH · PLAYER {reviewPending.player_slot+1}</span><img src={reviewPending.image_ref} alt={`Recovered ${reviewPending.object_type}`}/><h1>{reviewPending.display_name}</h1><p>{reviewPending.object_type} · {reviewPending.archetype}</p><ActionButton disabled={confirming} onClick={()=>void confirm(reviewPending).catch(e=>setError(e.message))}>CONFIRM THIS FIGHTER <ArrowRight size={20}/></ActionButton><button className="text-button" disabled={confirming} onClick={()=>{if(!actionBusy.current){epoch.current++;setReviewPending(null)}}}>RETAKE PHOTOGRAPH</button></div>}
-      {(phase==='DRAW_P1'||phase==='DRAW_P2')&&!reviewPending&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} onPrepare={prepare} onConfirm={confirm} onCancel={()=>void home()}/>}
+      {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
       {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?.duration_ms&&battle.winner_slot!==null?{events:battle.events,duration_ms:battle.duration_ms,winner_slot:battle.winner_slot}:undefined}/>}
       {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>{memory?'Added to this temporary island':'Your fighters have joined the island'} ✦</b><p>{battle?.completion?.new_resident_ids.length??0} new residents. Returning types keep their first appearance.</p><ActionButton onClick={()=>setPhase('WORLD')}>ENTER YOUR ISLAND <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
+      {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>setPhase('HOME')}/></Suspense>}
       {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening your island…</div>}><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></Suspense>}
     </motion.div></AnimatePresence>
-    <footer className="game-footer"><span><span className="footer-asterisk">✳</span> MADE OF PAPER. BUILT FOR CHAOS.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">A LITTLE ROUGH AROUND THE EDGES. BY DESIGN.</span></footer>
+    <footer className="game-footer"><span><span className="footer-asterisk">✳</span> REAL OBJECTS. A WORLD OF POSSIBILITY.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">CAPTURE · CREATE · CLASH · COLLECT</span></footer>
   </div>;
 }
