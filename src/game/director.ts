@@ -1,33 +1,61 @@
 import { useEffect, useRef } from 'react';
 import { useMotionValue, type MotionValue } from 'motion/react';
 
-/** One clock owns a complete scene. StrictMode, replay and unmount all cancel it. */
+type TimelineEnvironment = {
+  requestFrame: (callback: (now: number) => void) => number;
+  cancelFrame: (id: number) => void;
+  isHidden: () => boolean;
+  subscribeVisibility: (callback: () => void) => () => void;
+};
+
+/** The small imperative driver also lets us test pause, resume and cancellation without a browser clock. */
+export function startTimeline(durationMs: number, onTick: (elapsed: number) => void, onComplete?: () => void,
+  environment: TimelineEnvironment = {
+    requestFrame: callback => requestAnimationFrame(callback),
+    cancelFrame: id => cancelAnimationFrame(id),
+    isHidden: () => document.hidden,
+    subscribeVisibility: callback => {
+      document.addEventListener('visibilitychange', callback);
+      return () => document.removeEventListener('visibilitychange', callback);
+    },
+  }): () => void {
+  let frame = 0;
+  let previous: number | undefined;
+  let accumulated = 0;
+  let cancelled = false;
+  let completed = false;
+  onTick(0);
+  const tick = (now: number) => {
+    if (cancelled || completed) return;
+    if (environment.isHidden()) { previous = undefined; return; }
+    if (previous !== undefined) accumulated += Math.max(0, now - previous);
+    previous = now;
+    const next = Math.min(accumulated, durationMs);
+    onTick(next);
+    if (cancelled) return;
+    if (next >= durationMs) {
+      completed = true;
+      onComplete?.();
+    } else frame = environment.requestFrame(tick);
+  };
+  const unsubscribe = environment.subscribeVisibility(() => {
+    environment.cancelFrame(frame);
+    previous = undefined;
+    if (!environment.isHidden() && !cancelled && !completed) frame = environment.requestFrame(tick);
+  });
+  if (!environment.isHidden()) frame = environment.requestFrame(tick);
+  return () => {
+    cancelled = true;
+    environment.cancelFrame(frame);
+    unsubscribe();
+  };
+}
+
+/** One clock owns a scene. Hidden pages pause playback; unmount cancels both RAF and listeners. */
 export function useTimeline(durationMs: number, onComplete?: () => void): MotionValue<number> {
   const elapsed = useMotionValue(0);
   const completion = useRef(onComplete);
   completion.current = onComplete;
-
-  useEffect(() => {
-    let frame = 0;
-    let start: number | undefined;
-    let cancelled = false;
-    let completed = false;
-    elapsed.set(0);
-    const tick = (now: number) => {
-      if (cancelled) return;
-      start ??= now;
-      const next = Math.min(now - start, durationMs);
-      elapsed.set(next);
-      if (next >= durationMs) {
-        if (!completed) {
-          completed = true;
-          completion.current?.();
-        }
-      } else frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => { cancelled = true; cancelAnimationFrame(frame); };
-  }, [durationMs, elapsed]);
-
+  useEffect(() => startTimeline(durationMs, value => elapsed.set(value), () => completion.current?.()), [durationMs, elapsed]);
   return elapsed;
 }
