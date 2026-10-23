@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .config import Settings
-from .contracts import Battle, ConfirmCapture, CreateBattle, Crop, Observation, SelectCapture, StartBattle
+from .contracts import Battle, ConfirmCapture, CreateBattle, Crop, Observation, SelectCapture, StartBattle, FeedbackSubmission, CorrectionRequest
 from .images import ImageError
 from .repository import Repository, StoreError, create_repository
 from .service import BattleService
@@ -34,6 +34,10 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.settings = settings
+        from .quality_api import OperatorGate
+        app.state.operator_gate = OperatorGate()
+        app.state.quality = None
+        app.state.quality_worker = None
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:
@@ -59,7 +63,30 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             catalog.retriever = AtlasRetriever(collection=catalog.collection, client=app.state.recognizer.client,
                 config=RetrievalConfig(model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
         app.state.service = BattleService(settings, app.state.repository, app.state.recognizer) if app.state.repository else None
+        if app.state.repository:
+            try:
+                from .quality import QualityStore
+                from .quality_jobs import QualityWorker
+                app.state.quality = QualityStore(app.state.repository)
+                app.state.quality.catalog_settings = settings
+                await asyncio.to_thread(app.state.quality.ensure_indexes)
+                app.state.quality_worker = QualityWorker(app.state.quality, settings)
+                await app.state.quality_worker.start()
+                from .quality_references import ApprovedReferences
+                app.state.references = ApprovedReferences(app.state.repository, settings)
+                app.state.service.reference_provider = app.state.references.retrieve
+            except Exception as exc:
+                logger.warning('quality_startup_unavailable category=%s', type(exc).__name__)
+                if app.state.quality_worker is None: app.state.quality = None
+                # Optional quality services never break a valid live round.
         yield
+        if app.state.quality_worker:
+            await app.state.quality_worker.close()
+        if getattr(app.state, 'references', None):
+            close_references = getattr(app.state.references, 'close', None)
+            if close_references:
+                value = close_references()
+                if inspect.isawaitable(value): await value
         close_recognizer = getattr(app.state.recognizer, 'close', None)
         if close_recognizer:
             result = close_recognizer()
@@ -70,7 +97,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
 
     app = FastAPI(title='Sketch Clash local API', version='2.0.0', lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],
-                       allow_methods=['GET', 'POST', 'PATCH'], allow_headers=['Content-Type', 'X-Request-ID'])
+                       allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type', 'X-Request-ID'], allow_credentials=True)
 
     @app.middleware('http')
     async def request_context(request: Request, call_next):
@@ -122,6 +149,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 'world_id': settings.world_id,
                 'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
                 'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index},
+                'quality': {'available': app.state.quality is not None, 'operator_required': True},
                 'message': str(app.state.store_error) if app.state.store_error else ('Development memory mode: records disappear on restart.' if settings.repository == 'memory' else None)}
 
     @app.post('/api/battles', response_model=Battle)
@@ -164,6 +192,27 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             logger.warning('selection_failed battle_id=%s capture_id=%s category=%s', battle_id, capture_id, type(exc).__name__)
             raise StoreError('The selected object could not be checked. Retry this selection.', 502, 'recognition_failed') from exc
 
+    @app.get('/api/battles/{battle_id}/captures/{capture_id}', response_model=Observation)
+    async def capture_observation(battle_id: str, capture_id: str):
+        capture = await asyncio.to_thread(repo().get_capture, battle_id, capture_id)
+        if not capture.get('observation'):
+            raise StoreError('This capture is still being prepared.', 409, 'capture_processing')
+        return await app.state.service._recover_observation(battle_id, capture)
+
+    @app.post('/api/battles/{battle_id}/captures/{capture_id}/feedback')
+    async def feedback(battle_id: str, capture_id: str, body: FeedbackSubmission):
+        return await asyncio.to_thread(repo().submit_feedback, battle_id, capture_id, body.model_dump())
+
+    @app.post('/api/battles/{battle_id}/captures/{capture_id}/correct', response_model=Observation)
+    async def correct(battle_id: str, capture_id: str, body: CorrectionRequest):
+        repo()
+        try:
+            return await app.state.service.correct_capture(battle_id, capture_id, body.model_dump())
+        except (StoreError, ImageError): raise
+        except Exception as exc:
+            logger.warning('correction_failed battle_id=%s category=%s', battle_id, type(exc).__name__)
+            raise StoreError('Correction could not finish. Your original proposal is retained; retry when ready.', 502, 'correction_failed') from exc
+
     @app.post('/api/battles/{battle_id}/confirm', response_model=Battle)
     async def confirm(battle_id: str, body: ConfirmCapture):
         return await asyncio.to_thread(repo().confirm_capture, battle_id, body.player_slot, body.capture_id)
@@ -199,6 +248,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         item = await asyncio.to_thread(repo().get_media, media_id)
         return Response(bytes(item['data']), media_type=item['mime_type'],
                         headers={'Cache-Control': 'private, max-age=31536000, immutable', 'ETag': f'"{media_id}"'})
+    from .quality_api import register_quality_routes
+    register_quality_routes(app)
     return app
 
 app = create_app()

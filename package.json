@@ -10,6 +10,7 @@
     "test:combat": "node scripts/verify-battle.mjs",
     "setup:gemini": "node scripts/setup-gemini.mjs",
     "setup:mongodb": "node scripts/setup-mongodb.mjs",
+    "operator:token": "node scripts/operator-token.mjs",
     "dev:demo": "node scripts/dev.mjs --demo",
     "dev:frontend": "vite --host 127.0.0.1",
     "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000",
