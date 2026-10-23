@@ -97,6 +97,11 @@ class ActivationBody(Body):
     expected_revision: int = Field(ge=1)
     reviewer: str = Field(min_length=1, max_length=80)
     reason: str = Field(min_length=1, max_length=600)
+class DecisionBody(Body):
+    reviewer: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=600)
+class RetireGroupBody(DecisionBody):
+    group_id: str = Field(min_length=1, max_length=100, pattern=r'^[a-zA-Z0-9_:-]+$')
 
 def register_quality_routes(app):
     async def operator(request: Request):
@@ -167,6 +172,14 @@ def register_quality_routes(app):
     @app.post('/api/quality/results/{identifier}/render')
     async def render(identifier: str, body: RenderBody, store=Depends(operator)):
         return await asyncio.to_thread(store.render, identifier, body.model_dump())
+
+    @app.post('/api/quality/jobs/{identifier}/reject')
+    async def reject(identifier: str, body: DecisionBody, store=Depends(operator)):
+        return await asyncio.to_thread(store.reject_job, identifier, body.model_dump())
+
+    @app.post('/api/quality/groups/retire')
+    async def retire_group(body: RetireGroupBody, store=Depends(operator)):
+        return await asyncio.to_thread(store.retire_group, body.model_dump())
 
     @app.get('/api/quality/jobs/{identifier}/comparison')
     async def comparison(identifier: str, store=Depends(operator)):

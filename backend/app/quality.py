@@ -85,6 +85,7 @@ class QualityStore:
             'qualityComparisons': [([('world_id', 1), ('job_id', 1), ('case_id', 1)], True)],
             'qualityActivation': [([('world_id', 1), ('created_at', -1)], False)],
             'qualityReservedUse': [([('world_id', 1), ('group_id', 1)], True)],
+            'qualityGroupTransitions': [([('world_id', 1), ('group_id', 1)], True)],
         }
         for collection, definitions in indexes.items():
             for keys, unique in definitions: self.repo.db[collection].create_index(keys, unique=unique)
@@ -123,12 +124,27 @@ class QualityStore:
                 job['gate'] = self.gates(job['id'], tx)
             versions = [public(v) for v in self.rows(tx, 'pipelineVersions')]
             activations = self.rows(tx, 'qualityActivation')
+            by_version = {version['id']: version for version in versions}
+            by_job = {job['id']: job for job in jobs}
             for version in versions:
-                version['activation_eligible'] = any(j['id'] == version.get('job_id') and j['gate']['passing'] for j in jobs)
-                version['rollback_eligible'] = version['id'] == BASELINE_VERSION or any(h['version_id'] == version['id'] for h in activations)
+                job = by_job.get(version.get('job_id'))
+                version['human_decision'] = deepcopy((job or {}).get('human_decision'))
+                rejected = (version['human_decision'] or {}).get('decision') == 'rejected'
+                version['activation_eligible'] = bool(job and job['gate']['passing'] and not rejected)
+                version['rollback_eligible'] = not rejected and (version['id'] == BASELINE_VERSION or any(h['version_id'] == version['id'] for h in activations))
+                parent = by_version.get(version.get('parent_id'))
+                version['config_diff'] = ([{'field': key, 'before': deepcopy(parent['config'].get(key)),
+                                            'after': deepcopy(version['config'].get(key))}
+                    for key in sorted(set(parent['config']) | set(version['config']))
+                    if parent['config'].get(key) != version['config'].get(key)] if parent else [])
+            exposed = self.rows(tx, 'qualityReservedUse')
+            exposed_groups = [{'group_id': use['group_id'], 'case_ids': sorted(c['id'] for c in cases
+                if c['group_id'] == use['group_id'] and c['role'] == 'reserved')} for use in exposed]
+            exposed_groups = [group for group in exposed_groups if group['case_ids']]
             return {'active': public(tx.get('qualityState', active_key(self.world_id))),
                     'versions': versions, 'queue': queue[:100],
                     'cases': [public(c) for c in cases], 'jobs': [self.public_job(j) for j in jobs][-50:][::-1],
+                    'exposed_reserved_groups': exposed_groups,
                     'readiness': readiness, 'policy': POLICY, 'reference_retrieval': {'mode': 'reviewed visual references', 'status': 'no approved references' if not readiness['reference'] else 'approved references available'}}
         return self.repo.read(read)
 
@@ -151,6 +167,10 @@ class QualityStore:
             if body.get('expected_revision', 0) != revision:
                 raise StoreError('This review changed. Refresh before reviewing again.', 409, 'stale_review')
             group = body['group_id'].strip()
+            if prior and prior['group_id'] != group and tx.get('qualityReservedUse', key_for(self.world_id, 'reserved-use', prior['group_id'])):
+                raise StoreError('An exposed physical-object group cannot be renamed to become a fresh test group.', 409, 'group_exposed')
+            if body['role'] == 'reserved' and tx.get('qualityReservedUse', key_for(self.world_id, 'reserved-use', group)):
+                raise StoreError('An exposed group cannot return to reserved testing. Use development data and collect a fresh final group.', 409, 'reserved_exposed')
             phash = perceptual_hash(media['data'])
             consent = bool(feedback.get('shared_consent') and body.get('shared_consent'))
             if body.get('shared_consent') and not feedback.get('shared_consent'):
@@ -227,6 +247,80 @@ class QualityStore:
                    'error': 'Needs human review: approve consented development cases before paid evaluation.' if needs_review else None}
             tx.put('qualityJobs', job)
             return self.public_job(job)
+        return self.repo.transaction(operation)
+
+    @staticmethod
+    def _human_reason(body):
+        reviewer, reason = str(body.get('reviewer', '')).strip(), str(body.get('reason', '')).strip()
+        if not reviewer or not reason or len(reviewer) > 80 or len(reason) > 600:
+            raise StoreError('Provide a reviewer name and concise decision reason.', 422, 'human_reason_required')
+        return {'reviewer': reviewer, 'reason': reason}
+
+    def reject_job(self, identifier, body):
+        decision = self._human_reason(body)
+        def operation(tx):
+            job = self.get(tx, 'qualityJobs', identifier)
+            prior = job.get('human_decision')
+            if prior:
+                if prior.get('decision') == 'rejected' and all(prior.get(key) == value for key, value in decision.items()):
+                    return self.public_job(job)
+                raise StoreError('This job already has an immutable human decision.', 409, 'decision_exists')
+            if job['kind'] != 'candidate' or not job.get('candidate_id'):
+                raise StoreError('This job has no frozen candidate to reject.', 409, 'no_candidate')
+            pointer = tx.get('qualityState', active_key(self.world_id))
+            if pointer['active_version_id'] == job['candidate_id']:
+                raise StoreError('Roll back the active version before rejecting its candidate.', 409, 'rollback_required')
+            if job['status'] not in TERMINAL:
+                raise StoreError('Finish or cancel the running comparison before recording rejection.', 409, 'job_in_progress')
+            # Adoption also writes this pointer: serialize rejection against concurrent activation
+            # without changing the active version or its optimistic-concurrency revision.
+            pointer['human_decision_sequence'] = pointer.get('human_decision_sequence', 0) + 1
+            tx.put('qualityState', pointer)
+            job['human_decision'] = {'decision': 'rejected', **decision, 'kind': 'human_operator', 'created_at': self.repo.clock()}
+            tx.put('qualityJobs', job)
+            return self.public_job(job)
+        return self.repo.transaction(operation)
+
+    def retire_group(self, body):
+        decision = self._human_reason(body)
+        group = body['group_id']
+        transition_id = key_for(self.world_id, 'reserved-to-development', group)
+        def operation(tx):
+            prior = tx.get('qualityGroupTransitions', transition_id)
+            if prior:
+                if all(prior.get(key) == value for key, value in decision.items()):
+                    return {'transition': public(prior), 'already_applied': True}
+                raise StoreError('This group already has an immutable retirement decision.', 409, 'transition_exists')
+            exposed = tx.get('qualityReservedUse', key_for(self.world_id, 'reserved-use', group))
+            if not exposed:
+                raise StoreError('Only groups already used in final evaluation can be retired through this action.', 409, 'group_not_exposed')
+            cases = tx.find('qualityCases', {'world_id': self.world_id, 'group_id': group}, limit=501)
+            if not cases or len(cases) > 500 or any(case['role'] != 'reserved' for case in cases):
+                raise StoreError('The complete group must still contain reserved cases. Refresh its dataset state.', 409, 'stale_group')
+            jobs = self.rows(tx, 'qualityJobs')
+            if len(jobs) > 500:
+                raise StoreError('The bounded active-job safety scan is full.', 409, 'quality_scan_limit')
+            if any(job['status'] not in TERMINAL and any(case.get('group_id') == group
+                for case in job.get('snapshot', {}).get('cases', []) + job.get('snapshot', {}).get('references', [])) for job in jobs):
+                raise StoreError('A queued or running comparison still uses this group. Finish or cancel it first.', 409, 'group_in_use')
+            timestamp = self.repo.clock()
+            transitions = []
+            for case in cases:
+                previous_revision = case['revision']
+                case.update(role='development', revision=previous_revision + 1, reserved_retired_at=timestamp,
+                            dataset_transition_id=transition_id)
+                revision_id = key_for(case['id'], str(case['revision']))
+                if tx.get('qualityCaseRevisions', revision_id):
+                    raise StoreError('A case revision already exists. Refresh the group before retrying.', 409, 'revision_conflict')
+                tx.put('qualityCases', case)
+                tx.put('qualityCaseRevisions', {**deepcopy(case), '_id': revision_id})
+                transitions.append({'case_id': case['id'], 'from_revision': previous_revision, 'to_revision': case['revision']})
+            audit = {'_id': transition_id, 'id': transition_id, 'world_id': self.world_id, 'group_id': group,
+                     'from_role': 'reserved', 'to_role': 'development', 'case_ids': sorted(case['id'] for case in cases),
+                     'case_revisions': transitions, 'exposed_by_job_id': exposed['job_id'], **decision,
+                     'kind': 'human_operator', 'created_at': timestamp}
+            tx.put('qualityGroupTransitions', audit)
+            return {'transition': public(audit), 'already_applied': False}
         return self.repo.transaction(operation)
 
     def create_reference_job(self, body):
@@ -331,6 +425,7 @@ class QualityStore:
         final = [c for c in job['snapshot']['cases'] if c['role'] == 'reserved']
         development = [c for c in job['snapshot']['cases'] if c['role'] == 'development']
         reasons = []
+        if (job.get('human_decision') or {}).get('decision') == 'rejected': reasons.append('The operator rejected this candidate.')
         if job['kind'] != 'candidate' or not job.get('candidate_id'): reasons.append('No frozen candidate comparison.')
         if job['status'] != 'completed': reasons.append('The comparison did not complete successfully.')
         budget = job['budget']
@@ -378,6 +473,9 @@ class QualityStore:
                 raise StoreError('The active version changed. Refresh before approving.', 409, 'stale_activation')
             version = tx.get('pipelineVersions', version_key(self.world_id, body['version_id']))
             if not version: raise StoreError('Pipeline version not found.', 404, 'not_found')
+            source_job = tx.get('qualityJobs', version['job_id']) if version.get('job_id') else None
+            if ((source_job or {}).get('human_decision') or {}).get('decision') == 'rejected':
+                raise StoreError('This candidate has an immutable human rejection.', 409, 'candidate_rejected')
             history = self.rows(tx, 'qualityActivation')
             if rollback:
                 if version['id'] != BASELINE_VERSION and not any(h['version_id'] == version['id'] for h in history):
