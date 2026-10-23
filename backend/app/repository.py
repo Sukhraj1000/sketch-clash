@@ -15,6 +15,9 @@ import json
 
 from .config import Settings
 from .engine import simulate_match
+from .contracts import FeedbackSubmission
+from .pipeline import (BASELINE_VERSION, LEGACY_VERSION, BASELINE_CONFIG, BASE_PROMPT_HASH,
+                       BASE_SYSTEM_INSTRUCTION, active_key, version_key)
 
 
 def now_iso() -> str:
@@ -73,7 +76,31 @@ class Repository:
         if not battle or battle['world_id'] != self.world_id:
             raise StoreError('Battle not found in this world.', 404, 'not_found')
         battle.setdefault('confirmed_capture_ids', [None, None])
+        # Historical accepted fighters remain unchanged; only their provenance is unknown.
+        battle.setdefault('pipeline_version_id', LEGACY_VERSION)
         return battle
+
+    def initialize_pipeline(self) -> None:
+        def operation(tx):
+            baseline_key = version_key(self.world_id, BASELINE_VERSION)
+            if not tx.get('pipelineVersions', baseline_key):
+                tx.put('pipelineVersions', {'_id': baseline_key, 'id': BASELINE_VERSION, 'world_id': self.world_id,
+                    'config': deepcopy(BASELINE_CONFIG), 'parent_id': None, 'created_at': self.clock(),
+                    'immutable': True, 'system_instruction': BASE_SYSTEM_INSTRUCTION,
+                    'base_prompt_hash': BASE_PROMPT_HASH, 'provenance': 'Inspected existing recognition baseline'})
+            pointer_key = active_key(self.world_id)
+            if not tx.get('qualityState', pointer_key):
+                tx.put('qualityState', {'_id': pointer_key, 'id': 'active-pipeline', 'world_id': self.world_id,
+                    'active_version_id': BASELINE_VERSION, 'revision': 1, 'updated_at': self.clock()})
+        self.transaction(operation)
+
+    def get_pipeline(self, version_id: str) -> dict:
+        # Legacy rounds can finish with the inspected baseline, without relabelling old outputs.
+        actual = BASELINE_VERSION if version_id == LEGACY_VERSION else version_id
+        version = self.read(lambda tx: tx.get('pipelineVersions', version_key(self.world_id, actual)))
+        if not version:
+            raise StoreError('The round’s pinned pipeline is unavailable.', 503, 'pipeline_unavailable')
+        return public(version)
 
     def create_battle(self, request_id: str) -> dict:
         battle_id = key_for(self.world_id, request_id)[:32]
@@ -82,7 +109,11 @@ class Repository:
             if existing:
                 return existing
             timestamp = self.clock()
+            pointer = tx.get('qualityState', active_key(self.world_id))
+            if not pointer or not tx.get('pipelineVersions', version_key(self.world_id, pointer['active_version_id'])):
+                raise StoreError('The active recognition pipeline is unavailable.', 503, 'pipeline_unavailable')
             battle = {'_id': battle_id, 'id': battle_id, 'request_id': request_id, 'world_id': self.world_id,
+                      'pipeline_version_id': pointer['active_version_id'],
                       'status': 'draft', 'created_at': timestamp, 'updated_at': timestamp,
                       'active_capture_ids': [None, None], 'confirmed_capture_ids': [None, None], 'pending_fighters': [None, None],
                       'fighters': [], 'events': [], 'seed': None, 'engine_version': None,
@@ -116,7 +147,7 @@ class Repository:
             battle = self._battle(tx, battle_id)
             existing = tx.get('captures', capture_key)
             if existing:
-                immutable_fields = ('image_hash', 'source', 'player_slot', 'crop', 'canonical_media_id', 'width', 'height')
+                immutable_fields = ('image_hash', 'source', 'player_slot', 'crop', 'canonical_media_id', 'width', 'height', 'parent_output_id', 'correction')
                 if any(existing.get(k) != capture.get(k) for k in immutable_fields):
                     raise StoreError('This capture ID is already locked to a different image or selection.', 409, 'capture_mismatch')
                 return existing
@@ -124,9 +155,17 @@ class Repository:
                 raise StoreError('New captures are allowed only before the battle starts.')
             if expected_capture_id is not None and battle['active_capture_ids'][capture['player_slot']] != expected_capture_id:
                 raise StoreError('The photograph was replaced before this selection arrived.', 409, 'stale_capture')
+            if capture.get('correction'):
+                previous = tx.get('captures', key_for(battle_id, expected_capture_id or ''))
+                if not previous or previous.get('correction_count', 0) >= 2:
+                    raise StoreError('Two corrections have already been tried. Select or retake the photo.', 409, 'correction_limit')
+                if battle['confirmed_capture_ids'][capture['player_slot']] is not None:
+                    raise StoreError('A confirmed fighter cannot be revised.', 409, 'fighter_locked')
+                capture['correction_count'] = previous.get('correction_count', 0) + 1
             if battle['capture_count'] >= 20:
                 raise StoreError('This battle has reached its retake limit. Start a new round.', 409, 'capture_limit')
             capture_doc = {'_id': capture_key, **capture, 'battle_id': battle_id, 'world_id': self.world_id,
+                           'pipeline_version_id': battle['pipeline_version_id'],
                            'status': 'processing', 'created_at': self.clock(), 'observation': None,
                            'error': None}
             slot = capture['player_slot']
@@ -184,6 +223,48 @@ class Repository:
                 capture.update({'status': 'failed', 'error': code})
                 tx.put('captures', capture)
         self.transaction(operation)
+
+    def submit_feedback(self, battle_id: str, capture_id: str, body: dict) -> dict:
+        data = FeedbackSubmission.model_validate(body).model_dump()
+        feedback_id = key_for(self.world_id, battle_id, data['idempotency_key'])[:32]
+        def operation(tx):
+            battle = self._battle(tx, battle_id)
+            previous = tx.get('qualityFeedback', feedback_id)
+            if previous:
+                if previous['capture_id'] != capture_id or previous['submission'] != data:
+                    raise StoreError('This feedback request already refers to a different review.', 409, 'feedback_mismatch')
+                return public(previous)
+            capture = tx.get('captures', key_for(battle_id, capture_id))
+            if not capture or not capture.get('observation'):
+                raise StoreError('A prepared proposal is required for feedback.', 409, 'proposal_missing')
+            observation = capture['observation']
+            slot = capture['player_slot']
+            if battle['status'] not in ('draft', 'ready') or battle['active_capture_ids'][slot] != capture_id:
+                raise StoreError('Feedback must be recorded on the current proposal before battle.', 409, 'feedback_closed')
+            if battle['confirmed_capture_ids'][slot] is not None:
+                raise StoreError('Feedback must be recorded before this fighter is confirmed.', 409, 'fighter_locked')
+            if observation.get('output_id') != data['output_id'] or observation.get('pipeline_version_id') != data['pipeline_version_id']:
+                raise StoreError('The feedback does not match the exact proposal shown.', 409, 'proposal_mismatch')
+            if data['recognition_verdict'] == 'corrected' and not (data['correction_label'] or data['selected_target']):
+                raise StoreError('A correction needs an object label or selected target.', 422, 'correction_missing')
+            value = {'_id': feedback_id, 'id': feedback_id, 'world_id': self.world_id, 'battle_id': battle_id,
+                     'capture_id': capture_id, 'player_slot': slot, **data, 'submission': data,
+                     'image_ref': observation['image_ref'], 'image_hash': observation['image_hash'],
+                     'parent_output_id': observation.get('parent_output_id'), 'created_at': self.clock(),
+                     'review_status': 'unreviewed', 'provenance': {'kind': 'player', 'session_id': battle_id},
+                     'interaction_scope': 'corrected_retry' if observation.get('parent_output_id') else 'first_preview',
+                     'shared_use': 'consented_pending_review' if data['shared_consent'] else 'private'}
+            tx.put('qualityFeedback', value)
+            return public(value)
+        return self.transaction(operation)
+
+    def saved_resident_preview(self, canonical_type_id: str) -> dict | None:
+        resident = self.read(lambda tx: tx.get('worldCharacters', key_for(self.world_id, canonical_type_id)[:32]))
+        if not resident:
+            return None
+        # The public island's already saved resident only, never another player's pending capture.
+        return {key: deepcopy(resident.get(key)) for key in
+                ('id', 'canonical_type_id', 'object_type', 'display_name', 'image_ref', 'visual_spec', 'archetype')}
 
     def confirm_capture(self, battle_id: str, slot: int, capture_id: str) -> dict:
         def operation(tx):
@@ -343,6 +424,7 @@ class MemoryRepository(Repository):
         self._data: dict[str, dict] = {}
         self._lock = RLock()
         self.initialize_world()
+        self.initialize_pipeline()
     def transaction(self, operation: Callable) -> Any:
         with self._lock:
             staged = deepcopy(self._data)
@@ -374,7 +456,11 @@ class MongoRepository(Repository):
             self.db.captures.create_index([('battle_id', ASCENDING), ('capture_id', ASCENDING)], unique=True)
             self.db.encounters.create_index([('world_id', ASCENDING), ('character_id', ASCENDING), ('battle_id', ASCENDING)], unique=True)
             self.db.encounters.create_index([('world_id', ASCENDING), ('character_id', ASCENDING), ('completed_at', -1)])
+            self.db.pipelineVersions.create_index([('world_id', ASCENDING), ('id', ASCENDING)], unique=True)
+            self.db.qualityFeedback.create_index([('world_id', ASCENDING), ('battle_id', ASCENDING), ('idempotency_key', ASCENDING)], unique=True)
+            self.db.qualityFeedback.create_index([('world_id', ASCENDING), ('created_at', -1)])
             self.initialize_world()
+            self.initialize_pipeline()
         except StoreError:
             self.client.close()
             raise

@@ -49,7 +49,37 @@ class VisualSpec(Contract):
             raise ValueError('Colours must be six-digit hexadecimal values.')
         return value
 
+class ObservedObject(Contract):
+    canonical_type_id: str | None = Field(default=None, max_length=100)
+    label: str | None = Field(default=None, max_length=100)
+    visible_features: list[str] = Field(default_factory=list, max_length=24)
+
+class FeedbackSubmission(Contract):
+    idempotency_key: Identifier
+    output_id: Identifier
+    pipeline_version_id: Identifier
+    recognition_verdict: Literal['correct', 'corrected', 'unsure']
+    creative_verdict: Literal['keep', 'change', 'skipped'] = 'skipped'
+    correction_label: str | None = Field(default=None, min_length=1, max_length=80)
+    selected_target: Crop | None = None
+    reasons: list[Literal['resemblance', 'colour_proportions', 'name', 'style_accessory', 'rendering_defect']] = Field(default_factory=list, max_length=5)
+    comment: str = Field(default='', max_length=600)
+    shared_consent: bool = False
+
+class CorrectionRequest(Contract):
+    idempotency_key: Identifier
+    output_id: Identifier
+    pipeline_version_id: Identifier
+    kind: Literal['factual', 'style']
+    canonical_label: str | None = Field(default=None, min_length=1, max_length=80)
+    details: str = Field(default='', max_length=600)
+    reasons: list[Literal['resemblance', 'colour_proportions', 'name', 'style_accessory', 'rendering_defect']] = Field(default_factory=list, max_length=5)
+
 class PendingFighter(Contract):
+    output_id: str | None = None
+    pipeline_version_id: str = 'legacy-unknown'
+    parent_output_id: str | None = None
+    observed_object: ObservedObject | None = None
     battle_id: Identifier
     player_slot: Slot
     capture_id: Identifier
@@ -65,6 +95,11 @@ class PendingFighter(Contract):
     config_versions: dict[str, str] = Field(default_factory=dict)
 
 class Observation(Contract):
+    output_id: str | None = None
+    pipeline_version_id: str = 'legacy-unknown'
+    parent_output_id: str | None = None
+    observed_object: ObservedObject | None = None
+    saved_resident_preview: dict[str, Any] | None = None
     capture_id: Identifier
     source: Literal['camera', 'upload']
     image_ref: str
@@ -104,6 +139,7 @@ class BattleEvent(Contract):
     word: str
 
 class Battle(Contract):
+    pipeline_version_id: str = 'legacy-unknown'
     id: Identifier
     request_id: Identifier
     world_id: Identifier
