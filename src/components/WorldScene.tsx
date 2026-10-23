@@ -29,12 +29,12 @@ function Arms({ color, width = .52 }: { color: string; width?: number }) {
 }
 
 /** Only a durable, same-origin media reference becomes a texture; it is never executable model output. */
-function PhotoBadge({ image }: { image: string }) {
+function PhotoBadge({ image, onAssetState }: { image: string; onAssetState?: (state: 'ready' | 'failed') => void }) {
   const [texture, setTexture] = useState<Texture | null>(null)
   const [ratio, setRatio] = useState(1)
   const invalidate = useThree(state => state.invalidate)
   useEffect(() => {
-    if (!/^\/api\/media\/[a-f0-9]{64}$/.test(image)) return
+    if (!/^\/api\/media\/[a-f0-9]{64}$/.test(image)) { onAssetState?.('failed'); return }
     let alive = true
     let owned: Texture | null = null
     const loader = new TextureLoader()
@@ -45,16 +45,19 @@ function PhotoBadge({ image }: { image: string }) {
       const source = loaded.image as { width?: number; height?: number }
       setRatio(clamp((source.width || 1) / (source.height || 1), .25, 4))
       setTexture(loaded)
+      onAssetState?.('ready')
       invalidate()
-    }, undefined, () => { if (alive) invalidate() })
+    }, undefined, () => { if (alive) { onAssetState?.('failed'); invalidate() } })
     return () => { alive = false; owned?.dispose() }
-  }, [image, invalidate])
+  }, [image, invalidate, onAssetState])
   const width = Math.min(.65, .62 * ratio)
   const height = width / ratio
   return <group position={[0, .68, .302]}><mesh><planeGeometry args={[.74, .73]} /><meshBasicMaterial color={PAPER} /></mesh>{texture && <mesh position={[0, 0, .004]}><planeGeometry args={[width, height]} /><meshBasicMaterial map={texture} toneMapped={false} /></mesh>}</group>
 }
 
-function CharacterShape({ character }: { character: WorldCharacter }) {
+export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type'>>
+
+export function CharacterShape({ character, onAssetState }: { character: CharacterVisual; onAssetState?: (state: 'ready' | 'failed') => void }) {
   const spec = character.visual_spec
   const palette = spec.palette.filter(color => /^#[0-9A-Fa-f]{6}$/.test(color))
   const color = palette[0] ?? '#66E0D4'
@@ -96,10 +99,22 @@ function CharacterShape({ character }: { character: WorldCharacter }) {
       {eyes && <Face y={.93} z={.56} />}{arms && <Arms color={accent} width={.66} />}
     </group> : <group>
       <mesh position={[0, .83, 0]} castShadow><boxGeometry args={[.93, 1.3, .6]} /><Material color={color} /></mesh>
-      <PhotoBadge image={character.image_ref} />
+      <PhotoBadge image={character.image_ref} onAssetState={onAssetState} />
       {eyes && <Face y={1.29} z={.31} />}{arms && <Arms color={accent} width={.58} />}
     </group>}
   </group>
+}
+
+export type CharacterActivity = 'idle' | 'rest' | 'wander'
+/** Shared, bounded pose code. This only changes the local scene graph, never game records. */
+export function animateCharacterBody(body: Group, style: WorldCharacter['visual_spec']['animation_style'], activity: CharacterActivity, time: number, phase = 0, reducedMotion = false) {
+  const moving = activity === 'wander' && !reducedMotion
+  const breathing = reducedMotion ? 0 : Math.sin(time * 1.4 + phase) * .009
+  const step = Math.sin(time * 5.2 + phase)
+  body.position.y = moving ? (style === 'bouncy' ? Math.abs(step) * .055 : Math.abs(step) * .025) : breathing
+  body.rotation.z = moving ? step * (style === 'wobbly' ? .065 : .022) : 0
+  body.rotation.x = activity === 'rest' ? -.07 : 0
+  body.scale.set(1, activity === 'rest' ? .96 + breathing : 1, 1)
 }
 
 function Resident({ character, selected, onSelect, active, reducedMotion, arriving, onArrived }: { character: WorldCharacter; selected: boolean; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arriving: boolean; onArrived: (id: string) => void }) {
@@ -134,14 +149,16 @@ function Resident({ character, selected, onSelect, active, reducedMotion, arrivi
     const wander = character.state.activity === 'wander'
     root.current.position.x = safeHomeX + (wander ? Math.sin(time * .2 + phase) * .36 : 0)
     root.current.position.z = safeHomeZ + (wander ? Math.cos(time * .17 + phase) * .36 : 0)
-    root.current.rotation.y = Math.sin(time * .15 + phase) * (wander ? .2 : .035)
+    // Follow the local path with short, soft turns; saved home positions stay unchanged.
+    const heading = wander ? Math.atan2(Math.cos(time * .2 + phase) * .2, -Math.sin(time * .17 + phase) * .17) : .15
+    const angleDelta = Math.atan2(Math.sin(heading - root.current.rotation.y), Math.cos(heading - root.current.rotation.y))
+    root.current.rotation.y += angleDelta * Math.min(1, delta * 1.5)
     const arrival = arriving ? Math.min(1, time / 1.15) : 1
     if (arriving && arrival === 1 && !arrivalReported.current) { arrivalReported.current = true; onArrived(character.id) }
     const lift = (1 - arrival) * .75
-    const bounce = spec.animation_style === 'bouncy' ? Math.abs(Math.sin(time * 2.4 + phase)) * .035 : Math.sin(time * 1.3 + phase) * .015
-    body.current.position.y = lift + (wander ? bounce : 0)
-    body.current.rotation.z = spec.animation_style === 'wobbly' && wander ? Math.sin(time * 1.8 + phase) * .04 : 0
-    body.current.scale.setScalar(.92 + arrival * .08)
+    animateCharacterBody(body.current, spec.animation_style, wander ? 'wander' : 'rest', time, phase)
+    body.current.position.y += lift
+    body.current.scale.multiplyScalar(.92 + arrival * .08)
   })
 
   const choose = (event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); onSelect(character.id) }
@@ -152,18 +169,41 @@ function Resident({ character, selected, onSelect, active, reducedMotion, arrivi
   </group>
 }
 
+function Water({ active }: { active: boolean }) {
+  const ripples = useRef<Group>(null)
+  useFrame(({ clock }) => {
+    if (!ripples.current || !active) return
+    ripples.current.children.forEach((ring, index) => {
+      const phase = (clock.elapsedTime * .07 + index / 3) % 1
+      ring.scale.setScalar(1 + phase * .2)
+      const material = (ring as import('three').Mesh).material as import('three').MeshBasicMaterial
+      material.opacity = (1 - phase) * .2
+    })
+  })
+  return <group position={[0, -.83, 0]}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><circleGeometry args={[45, 64]} /><meshStandardMaterial color="#B4DCD4" roughness={.65} metalness={.08} /></mesh>
+    <group ref={ripples}>{[0, 1, 2].map(index => <mesh key={index} rotation={[-Math.PI / 2, 0, 0]} position={[0, .018 + index * .002, 0]}><ringGeometry args={[5.5 + index * .4, 5.54 + index * .4, 64]} /><meshBasicMaterial color="#F8FFF5" transparent opacity={.16} depthWrite={false} /></mesh>)}</group>
+  </group>
+}
+
 function Island({ seed }: { seed: number }) {
   const decorations = useMemo(() => Array.from({ length: 13 }, (_, index) => {
     const angle = index / 13 * Math.PI * 2 + seedValue(seed, index) * .15
     return { x: Math.cos(angle) * (4.55 + seedValue(seed, index + 20) * .25), z: Math.sin(angle) * (4.55 + seedValue(seed, index + 20) * .25), scale: .16 + seedValue(seed, index + 40) * .18, angle }
   }), [seed])
   return <group>
+    <mesh position={[0, -.27, 0]} receiveShadow><cylinderGeometry args={[5.42, 5.18, .25, 48]} /><Material color="#F0DAB1" /></mesh>
     <mesh position={[0, -.48, 0]} receiveShadow castShadow><cylinderGeometry args={[5.18, 4.65, .8, 12]} /><Material color="#C9B69A" /></mesh>
-    <mesh position={[0, -.095, 0]} receiveShadow><cylinderGeometry args={[5.25, 5.18, .19, 12]} /><Material color="#CFE7C4" /></mesh>
+    <mesh position={[0, -.095, 0]} receiveShadow><cylinderGeometry args={[5.25, 5.18, .19, 48]} /><Material color="#CFE7C4" /></mesh>
     <mesh position={[0, -.96, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[6.12, 36]} /><meshBasicMaterial color="#66E0D4" transparent opacity={.22} /></mesh>
     <mesh position={[0, .009, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[1.25, 1.7, 32]} /><Material color="#E9DCC2" /></mesh>
     <mesh position={[0, .01, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.7, 14]} /><Material color="#E9DCC2" /></mesh>
     {decorations.map((item, index) => <group key={index} position={[item.x, 0, item.z]} rotation={[0, item.angle, 0]}>{index % 3 === 0 ? <><mesh position={[0, .23, 0]} castShadow><cylinderGeometry args={[.035, .045, .46, 5]} /><Material color="#6C6B52" /></mesh><mesh position={[.08, .36, 0]} rotation={[0, 0, -.5]} scale={[.8, 1, .25]} castShadow><octahedronGeometry args={[.22]} /><Material color="#79AA89" /></mesh><mesh position={[-.07, .24, 0]} rotation={[0, 0, .5]} scale={[.8, 1, .25]} castShadow><octahedronGeometry args={[.17]} /><Material color="#66B3A0" /></mesh></> : <mesh position={[0, item.scale * .4, 0]} scale={[1.4, .6, 1]} castShadow><icosahedronGeometry args={[item.scale, 0]} /><Material color={index % 2 === 0 ? '#B7C4B0' : '#DFD8C3'} /></mesh>}</group>)}
+    <group position={[4.3, -.08, 1.5]} rotation={[0, -.3, 0]}>
+      {Array.from({ length: 6 }, (_, index) => <mesh key={index} position={[index * .2, 0, 0]} castShadow receiveShadow><boxGeometry args={[.18, .1, .8]} /><Material color={index % 2 ? '#B59B76' : '#C5AC87'} /></mesh>)}
+      {[-.32, .32].map(z => <mesh key={z} position={[.82, -.25, z]}><cylinderGeometry args={[.055, .07, .6, 6]} /><Material color="#847050" /></mesh>)}
+    </group>
+    {Array.from({ length: 28 }, (_, index) => { const angle = index * 2.399; const radius = 2.1 + seedValue(seed, index + 60) * 2.7; return <group key={`grass-${index}`} position={[Math.cos(angle) * radius, .03, Math.sin(angle) * radius]} rotation={[0, angle, 0]}>{[-1, 1].map(side => <mesh key={side} position={[side * .035, .075, 0]} rotation={[0, 0, side * -.3]}><coneGeometry args={[.025, .17, 3]} /><Material color={index % 3 ? '#83B18C' : '#A8C58B'} /></mesh>)}</group> })}
     <group position={[-3.6, 0, -2.2]} rotation={[0, .25, 0]}><mesh position={[0, .55, 0]} castShadow><cylinderGeometry args={[.045, .06, 1.1, 6]} /><Material color={INK} /></mesh><mesh position={[.3, .94, 0]}><boxGeometry args={[.65, .33, .04]} /><Material color="#FF596E" /></mesh><mesh position={[0, 1.14, 0]}><sphereGeometry args={[.08, 8, 6]} /><Material color="#FFD166" /></mesh></group>
   </group>
 }
@@ -185,10 +225,11 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   // R3F renders fallback as HTML canvas children even when WebGL works. It must have no effects.
   return <Canvas orthographic camera={{ position: [8, 9, 11], zoom: 45, near: .1, far: 60 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved object characters. Use Collection for accessible resident details.</span>} aria-label="3D island with saved object characters">
     <CameraAndContext onFailure={onFailure} />
-    <ambientLight intensity={1.5} />
-    <hemisphereLight args={['#FFF9EB', '#A6C3B3', 1.4]} />
+    <ambientLight intensity={.65} />
+    <fog attach="fog" args={['#D9ECE6', 22, 47]} />
+    <hemisphereLight args={['#FFF9EB', '#759E87', 1.15]} />
     <directionalLight position={[-3, 8, 5]} intensity={2.1} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-7} shadow-camera-right={7} shadow-camera-top={7} shadow-camera-bottom={-7} shadow-normalBias={.035} />
-    <Island seed={layoutSeed} />
+    <Water active={active && !reducedMotion} /><Island seed={layoutSeed} />
     {characters.map(character => <Resident key={character.id} character={character} selected={selectedId === character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}
     <OrbitControls makeDefault target={[0, .1, 0]} enabled={active} enablePan={false} enableZoom minZoom={12} maxZoom={90} minPolarAngle={.45} maxPolarAngle={1.22} enableDamping={!reducedMotion && active} dampingFactor={.08} />
   </Canvas>

@@ -131,3 +131,48 @@
   .world-state p { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .world-state-star { animation: none; } .world-resident { transition: none; } }
+/* Softer paper diorama: the live world stays small, tactile and clearly readable. */
+.world-screen { width:min(1280px,92%); }
+.world-heading { margin-bottom:24px; }
+.world-heading p { font-size:12px; }
+.world-heading h1 { font-size:clamp(40px,4.9vw,60px); }
+.world-back-button { border-color:#bfb8a5; border-radius:8px; box-shadow:none; transform:none; background:#fffdf7; font-size:10px; }
+.world-view-bar { padding:15px 0; border-top:1px solid #d9d8c9; margin-bottom:8px; }
+.world-view-buttons { border-color:#c2c5b5; border-radius:8px; overflow:hidden; }
+.world-view-buttons button { border-right-color:#d1d3c3; padding:10px 13px; }
+.world-diorama { border:1px solid #a8b9a9; border-radius:20px; box-shadow:0 14px 35px #38514512; background:linear-gradient(165deg,#e7f0e4,#c7e0d8 68%,#c2d8cf); height:min(59vw,590px); }
+.world-diorama::after { inset:12px; border:1px solid #eef4e54a; border-radius:12px; }
+.world-map-label { top:24px; left:25px; color:#648372; font-size:9px; letter-spacing:1.6px; line-height:1.8; }
+.world-map-label b { font-size:6px; letter-spacing:.9px; font-weight:600; opacity:.65; }
+.world-map-compass { top:65px; right:27px; font-size:23px; color:#5b816e; opacity:.6; }
+.world-environment-label { position:absolute; right:22px; top:22px; display:flex; align-items:center; gap:6px; border:1px solid #90ad9940; padding:7px 10px; border-radius:20px; background:#ecf4e5b3; color:#688271; font-size:8px; z-index:1; pointer-events:none; }
+.world-environment-label > span { width:5px; height:5px; background:#729b71; border-radius:50%; }
+.world-map-caption { font-size:7px; color:#5c7c69; bottom:20px; }
+.world-collection-heading h2 { font-size:27px; }
+.world-collection-heading { border-bottom-color:#d7d7c9; }
+.world-resident-grid { gap:14px; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); }
+.world-resident { border:1px solid #d0d2c1; border-radius:12px; background:#fffdf7; padding:10px 10px 13px; box-shadow:0 3px 12px #293a2e06; }
+.world-resident:hover { transform:translateY(-3px); box-shadow:0 7px 18px #293a2e12; }
+.world-resident.is-selected { border:1px solid #6e8d75; background:#f0f4e7; box-shadow:0 0 0 2px #90ad9940; }
+.world-resident > div { border-radius:7px; overflow:hidden; background:#eaece0; padding:8px; aspect-ratio:1.25; }
+.world-resident img { border-radius:4px; }
+.world-resident > div > span { bottom:3px; right:5px; font-size:18px; -webkit-text-stroke:0; color:#708a70; transform:none; }
+.world-resident > strong { font-size:22px; margin:1px 2px 0; }
+.world-resident > small,.world-resident-count { margin-left:2px; color:#7c8473; }
+.world-character-detail { border:1px solid #cbd0bd; border-radius:14px; box-shadow:0 8px 24px #293a2e08; background:#fffdf7; padding:15px; }
+.world-detail-model { margin:0 0 15px; }
+.world-detail-model .character-preview-stage { height:190px; }
+.world-detail-model .character-preview-heading { font-size:8px; padding:9px; }
+.world-detail-model .preview-verdict { font-size:7px; }
+.world-character-photo { margin:0 0 16px; transform:none; border:1px solid #d3d0bf; border-radius:8px; padding:8px; box-shadow:none; background:#eeeee4; aspect-ratio:1.7; }
+.world-photo-tape { display:none; }
+.world-detail-topline { margin-bottom:14px; border-bottom-color:#d6dacb; }
+.world-character-detail h2 { font-size:34px; }
+.world-detail-description { font-size:10px; color:#7d826e; }
+.world-activity-button { border:1px solid #97b39a; border-radius:7px; box-shadow:none; color:#385d45; padding:12px; }
+.world-detail-stats,.world-history { border-color:#d4d9c8; }
+.world-footnote { border-color:#d4d9c8; color:#7d8675; }
+.world-collection.is-full { border:1px solid #c9cebd; border-radius:14px; background:#fffdf77a; box-shadow:none; }
+.world-state { border:1px solid #c9cebd; border-radius:16px; box-shadow:none; background:#fffdf7; }
+@media(max-width:790px) { .world-detail-model { grid-column:1; grid-row:2 / 6; } .world-character-photo { grid-column:1; grid-row:6; aspect-ratio:1.8; } .world-detail-stats { grid-column:2; grid-row:5; } .world-diorama { height:460px; } }
+@media(max-width:560px) { .world-screen { width:91%; } .world-diorama { height:390px; border-radius:14px; } .world-map-label { top:19px; left:19px; font-size:7px; } .world-map-label b { font-size:5px; } .world-environment-label { right:17px; top:17px; font-size:6px; padding:6px 8px; } .world-map-compass { top:58px; right:22px; font-size:19px; } .world-resident-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .world-detail-model .character-preview-stage { height:170px; } .world-detail-model .character-preview-heading { flex-wrap:wrap; gap:3px; } .world-character-detail h2 { font-size:28px; } .world-detail-stats { grid-column:1 / -1; grid-row:auto; } .world-character-photo { grid-row:6; } }
