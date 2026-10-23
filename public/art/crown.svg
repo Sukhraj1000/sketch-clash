@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 110" fill="none" role="img" aria-label="A scribbled winner’s crown">
+  <g stroke="#1E1C29" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M27 78L16 28L53 49L80 12L99 47L143 26L128 82L27 78Z" fill="#FFD166" stroke-width="5"/>
+    <path d="M25 83L128 87L125 98L30 94Z" fill="#FFD166" stroke-width="4.5"/>
+    <path d="M34 62L40 73M43 58L49 74M54 60L62 75M112 62L108 76M121 55L115 73" stroke-width="2"/>
+    <path d="M77 48L86 58L78 69L69 59Z" fill="#F5EDDC" stroke-width="3"/>
+    <path d="M6 12L11 20M79 0L80 5M152 12L147 20M39 99L105 104" stroke-width="2.5"/>
+    <path d="M29 80L20 37M128 83L138 39M31 96L118 100" stroke-width="1.2"/>
+  </g>
+</svg>
