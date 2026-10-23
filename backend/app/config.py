@@ -1,0 +1,58 @@
+"""Explicit local settings. Secret values are excluded from representations and logs."""
+from dataclasses import dataclass, field
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+@dataclass(frozen=True)
+class Settings:
+    gemini_api_key: str = field(default='', repr=False)
+    gemini_model: str = 'gemini-4-argon'
+    mongodb_uri: str = field(default='', repr=False)
+    mongodb_database: str = 'sketch_clash'
+    world_id: str = 'shared-demo'
+    repository: str = 'mongodb'
+    max_upload_bytes: int = 5 * 1024 * 1024
+    max_image_pixels: int = 24_000_000
+    inference_max_edge: int = 1600
+    api_timeout_seconds: int = 60
+    evidence_timeout_seconds: int = 30
+    recognition_concurrency: int = 2
+    repair_attempts: int = 2
+    transport_retries: int = 1
+    yolo_model: str = 'yolo11n.pt'
+    yolo_enabled: bool = True
+    ocr_enabled: bool = True
+    embedding_model: str = ''
+    embedding_dimensions: int = 768
+    vector_index: str = 'character_types_vector'
+    frontend_origin: str = 'http://127.0.0.1:5173'
+
+    @classmethod
+    def load(cls) -> 'Settings':
+        load_dotenv(PROJECT_ROOT / '.env.local', override=False)
+        def boolean(key: str, default: str = 'true') -> bool:
+            return os.getenv(key, default).lower() in {'1', 'true', 'yes'}
+        return cls(
+            gemini_api_key=os.getenv('GEMINI_API_KEY', ''),
+            gemini_model=os.getenv('GEMINI_MODEL', 'gemini-4-argon'),
+            mongodb_uri=os.getenv('MONGODB_URI', ''),
+            mongodb_database=os.getenv('MONGODB_DATABASE', 'sketch_clash'),
+            world_id=os.getenv('SKETCH_WORLD_ID', 'shared-demo'),
+            repository=os.getenv('SKETCH_REPOSITORY', 'mongodb'),
+            max_upload_bytes=int(os.getenv('MAX_UPLOAD_BYTES', str(5 * 1024 * 1024))),
+            max_image_pixels=int(os.getenv('MAX_IMAGE_PIXELS', '24000000')),
+            inference_max_edge=int(os.getenv('INFERENCE_MAX_EDGE', '1600')),
+            api_timeout_seconds=int(os.getenv('GEMINI_TIMEOUT_SECONDS', '60')),
+            evidence_timeout_seconds=int(os.getenv('EVIDENCE_TIMEOUT_SECONDS', '30')),
+            recognition_concurrency=int(os.getenv('RECOGNITION_CONCURRENCY', '2')),
+            yolo_model=os.getenv('YOLO_MODEL', 'yolo11n.pt'),
+            yolo_enabled=boolean('YOLO_ENABLED'),
+            ocr_enabled=boolean('OCR_ENABLED'),
+            embedding_model=os.getenv('EMBEDDING_MODEL', ''),
+            embedding_dimensions=int(os.getenv('EMBEDDING_DIMENSIONS', '768')),
+            vector_index=os.getenv('MONGODB_VECTOR_INDEX', 'character_types_vector'),
+            frontend_origin=os.getenv('FRONTEND_ORIGIN', 'http://127.0.0.1:5173'),
+        )
