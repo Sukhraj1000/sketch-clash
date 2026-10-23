@@ -1,0 +1,39 @@
+import type { BattleEvent } from '../game/battle';
+import type { Fighter } from '../types';
+export type PendingFighter = {
+  battle_id:string; player_slot:0|1; capture_id:string; image_hash:string;
+  canonical_type_id:string; object_type:string; display_name:string; image_ref:string;
+  archetype:'Quick'|'Power'|'Guard'; stats:{health:100;attack:number;defense:number;speed:number};
+  visual_spec:Record<string,unknown>; validation:Record<string,unknown>[]; config_versions:Record<string,string>;
+};
+export type BattleRecord = {
+  id:string;request_id:string;world_id:string;status:'draft'|'ready'|'running'|'completed'|'cancelled'|'failed';
+  pending_fighters:[PendingFighter|null,PendingFighter|null];confirmed_capture_ids:[string|null,string|null];active_capture_ids:[string|null,string|null];
+  fighters:PendingFighter[];events:BattleEvent[];winner_slot:0|1|null;duration_ms:number|null;
+  eligible_at:string|null;playback_mode:'normal'|'reduced'|'quick'|null;seed:number|null;engine_version:string|null;
+  completion:{resident_ids:string[];new_resident_ids:string[];durable:boolean}|null;
+  persistence:'mongodb'|'development_memory';
+};
+export type Health = {status:string;persistence:string;persistent:boolean;gemini:{configured:boolean;model:string};message?:string;world_id:string};
+export class ApiError extends Error { constructor(message:string, public code:string, public status:number){super(message);} }
+export async function api<T>(path:string,init:RequestInit={}):Promise<T>{
+  const controller=new AbortController();
+  const abort=()=>controller.abort();
+  if(init.signal?.aborted) controller.abort();
+  init.signal?.addEventListener('abort',abort,{once:true});
+  const timeout=window.setTimeout(abort,125000);
+  try {
+    const response=await fetch(`/api${path}`,{...init,signal:controller.signal,headers:{...(init.body instanceof FormData?{}:{'Content-Type':'application/json'}),...init.headers}});
+    let data:any;
+    try{data=await response.json();}catch{throw new ApiError('The local API is not responding. Start both servers with npm run dev.','api_unavailable',response.status);}
+    if(!response.ok)throw new ApiError(data.error?.message??'The request could not be completed.',data.error?.code??'request_failed',response.status);
+    return data as T;
+  } catch(error){
+    if(error instanceof ApiError)throw error;
+    if(init.signal?.aborted)throw new DOMException('Cancelled','AbortError');
+    throw new ApiError(controller.signal.aborted?'The request took too long. Retry the same photo.':'Could not reach the local API. Check that the backend is running.','connection_failed',0);
+  } finally {window.clearTimeout(timeout);init.signal?.removeEventListener('abort',abort);}
+}
+export const post=<T,>(path:string,body:unknown={})=>api<T>(path,{method:'POST',body:JSON.stringify(body)});
+export const asFighter=(fighter:PendingFighter):Fighter=>({id: `${fighter.battle_id}-${fighter.player_slot}`,name:fighter.display_name,image:fighter.image_ref,subtitle:`${fighter.object_type.toUpperCase()} · ${fighter.archetype.toUpperCase()}`,side:fighter.player_slot,color:fighter.player_slot===0?'var(--coral)':'var(--mint)',kind:'photo',archetype:fighter.archetype});
+export const asPair=(fighters:PendingFighter[]):[Fighter,Fighter]=>[asFighter(fighters[0]),asFighter(fighters[1])];
