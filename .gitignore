@@ -3,3 +3,13 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .openai/*.local.*
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/models/
+backend/data/
+work/

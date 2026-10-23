@@ -1,0 +1,69 @@
+import { chmod, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+
+const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+
+export async function saveGeminiKey(value, directory = projectRoot) {
+  const key = value.trim();
+  if (key.length < 20 || key.length > 4096 || !/^[A-Za-z0-9_.:\/+=-]+$/.test(key)) {
+    throw new Error('Paste the API key only, without quotes, spaces, or extra lines.');
+  }
+  const path = join(directory, '.env.local');
+  let previous = '';
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error('The local environment path must be a regular file.');
+    previous = await readFile(path, 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  // Keep other local settings. The key is never passed in process arguments or logs.
+  const retained = previous.split(/\r?\n/).filter(line => !/^\s*(?:export\s+)?GEMINI_API_KEY\s*=/.test(line)).join('\n').trimEnd();
+  const temporary = join(directory, `.env.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, `${retained ? retained + '\n' : ''}GEMINI_API_KEY=${key}\n`, { mode: 0o600, flag: 'wx' });
+    await chmod(temporary, 0o600);
+    await rename(temporary, path);
+  } finally {
+    await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  }
+}
+
+async function main() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Run npm run setup:gemini in your local terminal. Do not pass the key as an argument.');
+  }
+  if (process.argv.length !== 2) throw new Error('Do not pass the key as an argument. Use the hidden prompt.');
+  // Discard readline's echo and terminal redraws, including pasted characters.
+  const mutedOutput = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  const prompt = createInterface({ input: process.stdin, output: mutedOutput, terminal: true, historySize: 0 });
+  prompt.once('SIGINT', () => {
+    prompt.close();
+    process.stdout.write('\nCancelled. Nothing saved.\n');
+    process.exitCode = 130;
+  });
+  process.stdout.write('Paste your Gemini API key (input is hidden), then press Enter: ');
+  let key;
+  try {
+    key = await prompt.question('');
+  } finally {
+    prompt.close();
+    process.stdout.write('\n');
+  }
+  await saveGeminiKey(key);
+  key = undefined;
+  process.stdout.write('Saved locally to .env.local with owner-only read/write permissions. No request was sent to Google.\n');
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(() => {
+    if (process.exitCode === 130) return;
+    // Never print exception objects: filesystem or parser errors could contain private input.
+    process.stderr.write('Key was not saved. Run this command in a local terminal and paste only the API key.\n');
+    process.exitCode = 1;
+  });
+}
