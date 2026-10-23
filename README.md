@@ -1,27 +1,84 @@
 # Sketch Clash
 
-A local two-player camera battle game. Photograph or upload one everyday object per player, confirm Gemini's checked fighter, watch the existing paper-and-ink showdown, then visit the characters in a separate island.
+**Making AI’s view of the physical world more reliable through human feedback and interactive play.**
 
-**Local only.** The frontend and backend bind to `127.0.0.1`. No hosted preview, sign-in or deployment is involved. Recognition sends the selected still image and supporting evidence to Google's Gemini API; persistent mode stores game records and compact images in your MongoDB Atlas database.
+Sketch Clash is a local two-player object battle game with a persistent 3D island. Photograph an everyday object, review its identity and fictional character, challenge a friend, then give both fighters a home. A separate creator lab investigates failures, compares bounded pipeline changes and requires human approval before adoption.
+
+The research question is **“Can human feedback help AI create more reliable and useful digital representations of real-world objects?”** Storing feedback changes neither Gemini’s weights nor the active pipeline automatically. Intended benefits remain things to measure, not demonstrated improvements.
+
+**Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public deployment or public account system.
 
 ## Start on this computer
 
-Dependencies and local vision weights have already been installed. Gemini and Atlas credentials are configured in ignored, owner-only `.env.local` and are read only by the backend. The current app uses **durable MongoDB Atlas storage**, with genuine Atlas Vector Search also verified.
+Dependencies, vision weights and backend credentials are already configured. Preserve the ignored `.env.local`.
 
 ```sh
 cd /Users/sukhrajkalon/Documents/Codex/2026-10-23/i-w/outputs/sketch-clash
 npm run dev
 ```
 
-Open [Sketch Clash locally](http://127.0.0.1:5173/). The configured Atlas cluster is `cluster0.hgrpk3.mongodb.net`, database `sketch_clash`, world `shared-demo`. A real uploaded mug/bottle round completed with durable unlocks for both residents. A full backend restart preserved the exact world, saved rest choice, battle, histories and photograph bytes; browser reload restored both 3D residents. Detailed verification and the remaining physical-camera check are in [HANDOVER.md](HANDOVER.md).
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The API listens on port 8000. Use the existing server if those ports are already occupied. `npm run dev:frontend` and `npm run dev:api` start the services separately.
 
-The owner has already entered the Atlas password through the hidden `npm run setup:mongodb` prompt. Run that helper again only when updating credentials for database user `sketch_clash_app`; it URL-encodes the password, preserves Gemini and other local settings, and selects MongoDB mode. It does not test connectivity or restart the running server. For another cluster, configure `MONGODB_URI` and `MONGODB_DATABASE` in `.env.local` directly.
+The MacBook can use the same URL through the existing SSH tunnel over Tailscale. Open it in the **MacBook’s own browser** to use its camera. Atlas connections originate from the home Mac, so the home connection’s public egress IP belongs in the Atlas allowlist; the remote MacBook’s IP and Tailscale address do not replace it.
 
-Leave `SKETCH_REPOSITORY=mongodb` for durable play. Default mode never silently falls back to memory. Missing or inaccessible Atlas configuration produces a clear service error, while the preset cinematic remains available. `npm run dev:demo` is an optional **temporary memory mode** for development: its battles, images and residents disappear on backend restart, and its UI marks them as nonpersistent. Stop previous servers before switching modes. Both commands launch Vite on port 5173 and FastAPI on port 8000. `npm run dev:frontend` and `npm run dev:api` run them individually for troubleshooting.
+The default repository is MongoDB and fails clearly if unavailable. `npm run dev:demo` explicitly selects temporary memory for development, labelled in the UI; its island disappears on backend restart. It is not a persistence demonstration.
 
-## Fresh setup
+## Play and give feedback
 
-Use Node 22.18+ and Python 3.12. The tested Python environment is pinned in `backend/requirements.lock.txt`.
+1. Choose **LET’S PLAY**. The current brief is **Everyday Objects**; this does not implement rotating themes or theme disqualification.
+2. Pass the device privately to each player. Use camera or upload, select one object and crop or retake if needed. JPEG, PNG and WebP are supported; input limits remain 5 MiB and 24 megapixels, with a 1,600-pixel normalized image. Convert HEIC first.
+3. Review the **source photograph beside the actual procedural 3D preview**. Answer **Correct**, **Correct it**, or **Not sure**. Factual corrections re-examine the photograph; they are suggestions, not unquestioned ground truth.
+4. Optionally choose **Keep** or **Change details**, with reasons and a short comment. Skipping creative feedback is not a negative rating. Style revisions preserve the identity, class and fixed combat stats. The original proposal and correction lineage remain recorded.
+5. Optionally opt in to reviewed evaluation/reference use of this object photo and feedback. This checkbox starts **off**. Declining does not affect gameplay. Player consent alone does not approve a dataset case.
+6. **Lock in my fighter**, then pass the device. Feedback is tied to the exact output and pipeline version before the winner is known. Failed feedback saves are labelled honestly; a valid fighter can continue without a false saved claim.
+7. Watch the recorded battle and enter the island after completion is confirmed. Both valid participants qualify, including the loser. Returning object types retain their original appearance, home and history. The review screen labels a distinct battle proposal and lets you inspect the saved resident separately.
+
+Normal capture time is 60 seconds per player; Quick Clash uses 20. Permission, normalization, recognition and saving pause active timing. Expiry never submits automatically. The camera stops when leaving capture. Refresh recovery includes a private handoff before showing the recovered photograph.
+
+Quick, Power and Guard still have fixed presets and 100 HP. The server owns attacks, damage and winner; replay shows the same recorded outcome without extra unlocks. Normal/reduced battles last 12.8 seconds; Quick Clash lasts 6.4 seconds. **WATCH THE SHOWDOWN** is the original scripted cinematic, with no recognition or island progression.
+
+## Recognition & World Quality
+
+Choose **QUALITY LAB** from the home screen. This entry is absent during a round. To unlock it, run this yourself in a private terminal on the home Mac after starting the backend:
+
+```sh
+npm run operator:token
+```
+
+Paste the displayed local operator key into the lab. Do not put it in chat, screenshots or source. The key is generated into ignored, owner-only `backend/data/operator-token`; it is never bundled into the frontend. The server checks an expiring HTTP-only, SameSite cookie for review, jobs, render reports, exports, activation and rollback. Failed key attempts are rate-limited. This is a local operator gate, not a public authentication system.
+
+The lab contains:
+
+- **Review queue:** completed/closed rounds only, original evidence, proposal, player feedback and actual rendered preview. Record your own reviewer name, reason and factual/creative judgement; acceptance alone is not human-reviewed truth.
+- **Baseline and dataset readiness:** separate reference, development and reserved-final roles, case revisions, physical-object/session grouping, consent and ambiguity. Unreviewed or disputed cases are ineligible.
+- **Evaluation jobs:** fixed baseline runs and one-candidate improvement jobs, with estimates, progress, cancellation, usage and failures. No usable reviewed data produces **Needs human review**, without spending on a purported evaluation.
+- **Comparison:** independent factual counts, technical checks and blinded A/B creative review. Ties, neither acceptable and pending review are valid outcomes. Load the actual scene to record render checks; fallback images are not a pass.
+- **Active version and rollback:** inspect the configuration diff and gate reasons. Only the operator can activate a passing candidate. Rollback selects the baseline or a previously active version. Existing rounds keep their pinned version; saved residents are not redesigned.
+
+Current baseline: `baseline-v1`. Its visual-reference limit starts at zero to preserve the inspected configuration. **There are currently no approved evaluation/reference cases and no supported improvement claim.** The 21 catalogue descriptions used for type search are not a human-reviewed photo dataset. The full policy, scoring and implementation limits are in [Design.md](Design.md); actual evidence and pending checks are in [HANDOVER.md](HANDOVER.md).
+
+## Budgets and human authority
+
+Each operator-triggered improvement job may propose **one** candidate. Policy ceilings are 60 provider requests, 600,000 aggregate reserved tokens, 48,000 input tokens and 4,096 output tokens per request, and a 10-minute deadline. The current durable worker processes requests sequentially, below the concurrency ceiling of two. These are limits, not targets; the UI can select a smaller request budget.
+
+Requests, repairs and embeddings count against budgets. Unknown request outcomes remain conservatively reserved and are not blindly resubmitted after interruption. A failed, cancelled, interrupted, incomplete or over-budget comparison cannot activate anything. Current orchestration uses bounded synchronous Interactions requests; it does not require an external agent framework, managed sandbox or background generation service.
+
+The fixed adoption policy requires at least three reviewed development cases and three fresh reserved cases from three independent groups, complete matching results, valid combat/schema and actual render checks, no increase in wrong accepted identities, no coverage drop, no increase in unnecessary clarification and bounded latency. Recognition candidates need independent improvement; appearance candidates need supporting human comparison. Passing remains provisional and still requires an explicit human activation.
+
+## Atlas retrieval and persistence
+
+The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Quality collections add exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Completion transactions and duplicate prevention remain intact. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
+
+Two retrieval systems are deliberately separate:
+
+1. **Type catalogue:** exact names/aliases first, then genuine Atlas Vector Search over approved descriptions. The historical live setup has 21 Gemini Embedding 2 vectors, 768 dimensions, in `character_types_vector`. To deliberately set up a fresh catalogue, configure the embedding settings and run `npm run setup:retrieval`; verify with `npm run verify:retrieval`.
+2. **Reviewed visual references:** eligible object photos use a separate `qualityReferenceVectors` collection and `quality_references_vector` index. In the lab, create/check that index explicitly, then prepare selected approved reference cases using a bounded durable job. No gameplay photo is automatically enrolled. Index creation/permission failures remain visible; a fallback is never called Vector Search. Live similarity queries enforce world, review, consent, role and embedding provenance, exclude the same image and held-out groups, and recheck current case revisions after search. Frozen evaluations use their own eligible reference snapshot, not the mutable live index.
+
+No paid visual-reference query runs when references are disabled, absent, not enrolled or the separate index is unavailable. Similarity supplies evidence; it neither establishes identity nor merges residents. The Atlas coupon’s redemption, expiry, balance and cluster tier require the owner’s check.
+
+## Fresh setup and configuration
+
+Use Node 22.18+ and Python 3.12. JavaScript and Python dependencies are locked in `package-lock.json` and `backend/requirements.lock.txt`.
 
 ```sh
 npm ci
@@ -29,48 +86,24 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r backend/requirements.lock.txt
 npm run setup:vision
 npm run setup:gemini
+npm run setup:mongodb
+npm run dev
 ```
 
-If `uv` is unavailable, create a Python 3.12 virtual environment with `python3.12 -m venv .venv` and use `.venv/bin/python -m pip install -r backend/requirements.lock.txt`. Vision setup downloads the official Ultralytics YOLO11n and English EasyOCR weights to ignored `backend/models/`; runtime does not download weights automatically.
+Without `uv`, create `.venv` using Python 3.12 and install the same Python lockfile with its pip. Vision setup downloads official YOLO11n and English EasyOCR weights to ignored `backend/models/`; runtime does not download them automatically. The secure Gemini/Atlas prompts preserve unrelated settings. Restart the backend after changing local settings.
 
-The Gemini setup command uses a hidden terminal prompt and preserves other settings. Do not put secrets in `VITE_` variables or frontend code. `.env.local` should remain mode `0600`, ignored by Git and excluded from archives. `.env.example` documents the actual supported configuration without secrets. Model IDs, image bounds, API timeout and evidence switches are configurable.
+Supported environment names, with defaults documented in `.env.example`: `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`, `MONGODB_URI`, `MONGODB_DATABASE`, `SKETCH_WORLD_ID`, `SKETCH_REPOSITORY`, `FRONTEND_ORIGIN`, `MAX_UPLOAD_BYTES`, `MAX_IMAGE_PIXELS`, `INFERENCE_MAX_EDGE`, `RECOGNITION_CONCURRENCY`, `EVIDENCE_TIMEOUT_SECONDS`, `YOLO_MODEL`, `YOLO_ENABLED`, `OCR_ENABLED`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, `MONGODB_VECTOR_INDEX`. The operator gate also accepts an optional `SKETCH_OPERATOR_TOKEN` override; normal local use needs no override and uses the generated file. `operator:token` displays that generated file, not an environment override.
 
-## How to play
+Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VITE_`. Private captures, model weights, generated builds, caches and the operator token are excluded from commits.
 
-1. Choose **LET'S PLAY**. This milestone uses **Everyday Objects**, with one object per player; it is not the older proposed rotating-theme game.
-2. Pass the device to each player. Choose camera or upload. JPEG, PNG and WebP are supported; maximum input is 5 MiB and 24 megapixels. HEIC must be converted first.
-3. Capture or select one target. Multiple candidates require a box or manual crop. The preview is a framed real photograph, not a claimed transparent cutout. Review the name/type, then confirm. The camera is stopped when leaving the input screen.
-4. See the reveal, seeded battle, KO and victory. The server controls health and winner. **QUICK CLASH** shortens capture time and plays the approved 6.4-second battle; normal and reduced motion use 12.8 seconds.
-5. Wait for confirmed completion, then enter the island. Both valid participants qualify. Repeated types retain their original resident, appearance and home. Rest/wander changes are saved explicitly.
+## Model-use note
 
-Capture timers pause during permission, image preparation and recognition. Expiry does not submit a blank frame. Player one's image is hidden during player two's setup. Cancelled/incomplete battles do not unlock residents. Refresh offers recovery from the same server battle. Failed completion can be retried without another model call. Replaying a completed battle grants no extra effects.
+- **Gemini 4 Argon**, official Python `google-genai==2.33.0`, Interactions API, medium thinking: live recognition/character proposals and the bounded improvement reasoning/tool loop. Provider/version metadata is retained when returned. Feedback influences validated configuration and approved context, not model weights.
+- **Gemini Embedding 2**, official embedding API: existing catalogue description vectors and the explicitly prepared visual-reference adapter, both with versioned 768-dimensional provenance. No claim that visual references have been enrolled when the dataset is empty.
+- **YOLO11n** (`ultralytics==8.4.184`) and **EasyOCR** (`easyocr==1.7.2`): local still-image evidence. Their scores are distinct from Gemini uncertainty and are not calibrated identity confidence.
+- React 19.3.1, Motion, Three 0.186.1, React Three Fiber 9.8.2 and Drei 10.7.9: local rendering, including the shared preview/verification harness. It uses supported procedural templates and parameters, not generated meshes or photo-to-3D reconstruction.
 
-**WATCH THE SHOWDOWN** remains the original scripted preset demo. It uses no recognition and grants no unlocks. The drawing component remains in source for reference but is not the current input path.
-
-## Actual AI and rendering stack
-
-- Python `google-genai==2.33.0`, `gemini-4-argon`, `client.aio.interactions.create`, `thinking_level=medium`, `store=False`, manually retained interaction steps for repairs. No deprecated sampling fields. The earlier JS connectivity dependency is retained at `@google/genai==2.31.0`; it is not imported by the browser.
-- Local `ultralytics==8.4.184` / YOLO11n and `easyocr==1.7.2` / English OCR. Still images only; models load once, bounded worker, CPU inference off the async event loop. Empty results are normal. Failed/unavailable components are reported separately.
-- Real type resolution, fighter validation, appearance validation and deterministic simulation tools. At most two specification repairs, separately bounded transport retry. Configuration checks do not establish image accuracy or perfect combat balance.
-- React 19.3.1, Motion, Three 0.186.1, React Three Fiber 9.8.2 and Drei 10.7.9. World rendering is lazy, local and independent of Gemini. A collection view supports WebGL failure.
-
-## MongoDB and optional retrieval
-
-Atlas must allow this computer's IP and a database user with access to the configured database. Use a replica-set/Atlas deployment supporting transactions. Startup creates required regular unique/query indexes and seeds approved character types; it does not create world residents. Completion and its unlock effects commit together, protected by state transitions and unique effects. No API key or Atlas credential reaches the browser.
-
-Collections: `characterTypes`, `battles`, `captures`, `media`, `worlds`, `worldCharacters`, `encounters`. See [Design.md](Design.md) for responsibilities and invariants. Images are content-addressed compressed JPEG records, not repeated base64 payloads. World loading uses a bounded world-scoped query and never runs recognition.
-
-Known types use exact/alias lookup first. Genuine Atlas semantic retrieval is configured on this computer: 21 approved catalog descriptions are embedded with `gemini-embedding-2`, 768 dimensions and schema version 1; `character_types_vector` is READY and queryable. A live query for a vessel for hot drinks returned mug, cup and bowl. For a fresh cluster or a deliberate catalog/index rebuild:
-
-```sh
-# Set EMBEDDING_MODEL=gemini-embedding-2 and EMBEDDING_DIMENSIONS=768
-# in .env.local, alongside Atlas and Gemini credentials.
-npm run setup:retrieval
-```
-
-The setup command embeds approved descriptions, stores model/dimension/schema provenance and creates `character_types_vector` if absent. Wait for the index to become READY in Atlas, then run `npm run verify:retrieval` for an actual query. Restart the backend after changing embedding settings before checking related discoveries in the game; settings load at startup. Querying uses matching preprocessing/model/dimensions and a small approved candidate set. Related discoveries describe similarity, never ownership. Missing configuration or index is explicitly unavailable; no fabricated vector results. Atlas credit redemption, remaining balance and cluster tier have not been inspected by the agent.
-
-## Verification and local build
+## Verification, export and backup
 
 ```sh
 npm run test:combat
@@ -79,17 +112,12 @@ npm run test:backend
 npm run build
 ```
 
-`npm run preview` serves `dist/` locally and proxies `/api` to the separately running backend. The production build does not publish anything. Tests use controlled model responses unless explicitly described as live in [HANDOVER.md](HANDOVER.md).
+`npm run preview` serves the build locally and proxies `/api` to the separate backend. See HANDOVER for test dates, service/fixture distinctions and any unfinished final checks.
 
-The current verification record, actual blockers, physical-camera distinction and exact demo sequence are in HANDOVER. Architecture is in Design. Key modules:
+Use the lab’s **Export approved evidence** control for reviewed, consented case metadata, immutable configurations and policy. From a selected job, export its run/result records as well. The JSON deliberately excludes raw media bytes, private gameplay feedback, embeddings, credentials and opaque model steps. Image references in that export require a separate private backup of the corresponding Atlas `media` collection to remain usable.
 
-| Area | Files |
-| --- | --- |
-| Camera, upload, crop, handoff | `CaptureStudio.tsx`, `imageInput.ts` |
-| Screen flow, recovery, completion | `App.tsx`, `lib/api.ts` |
-| Motion timeline and server-event playback | `game/director.ts`, `game/battle.ts`, `BattleArena.tsx` |
-| Image/vision/model/tools | `backend/app/images.py`, `evidence.py`, `recognition.py`, `catalog.py`, `retrieval.py` |
-| Lifecycle and persistence | `backend/app/service.py`, `repository.py`, `main.py` |
-| World/collection/detail renderer | `WorldView.tsx`, `WorldScene.tsx` |
+Before hackathon resources expire, take an authorized database backup/export of the application collections **including `media` and all quality collections**, and store it privately with access controls. Retain downloaded approved-only JSON exports for portable analysis. Keep secret configuration separately from source archives. The private [GitHub repository](https://github.com/Sukhraj1000/sketch-clash) backs up source and commit history; it does not back up Atlas data. Preserve regular focused commits and existing history.
 
-No public authentication, networked multiplayer, pricing/eBay mechanic, generated meshes, exact arbitrary-object reconstruction or continuous offline simulation is claimed. Before hackathon resources expire, export the MongoDB database including media, preserve source/lockfiles and keep a private copy of configuration outside any shareable archive. Ask organisers how the existing pre-kickoff prototype must be disclosed; do not remove history to conceal it.
+The physical MacBook camera remains unverified until the device owner checks it. AR, rotating themes, eBay pricing, online multiplayer/accounts, arbitrary mesh generation and autonomous offline island behaviour are outside this increment. Any pre-existing prototype should be disclosed according to the organisers’ rules; history must not be rewritten to hide it.
+
+Candidate decisions and dataset transitions remain human actions: the comparison screen can record an explicit rejection with a reviewer/reason, and the data screen can move an exposed reserved group into development as one atomic transition. Rejection prevents adoption; retirement preserves case history and does not make used final cases independent again. Fresh reserved groups are required for a later claim.

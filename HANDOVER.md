@@ -1,39 +1,118 @@
-# Sketch Clash handover — 23 October 2026
+# Sketch Clash handover — 24 October 2026
 
-## Current state
+## Current increment
 
-The camera/upload → recognition → confirmed photo fighters → authoritative battle → separate 3D island flow is implemented locally. **The current app uses durable MongoDB Atlas storage and genuine Atlas Vector Search.** A real Gemini/YOLO/OCR mug-and-bottle browser round saved both residents, and a full backend restart restored the same world, rest choice, battle, histories and byte-identical source photographs. Repeated completion changed no resident or battle counts. The physical MacBook camera remains unverified; upload is the live-tested input path.
+The local game now has a **human-reviewed recognition and character-quality loop**, plus a cleaner object-studio interface. The capture → confirmation → recorded battle → persistent island path remains in place. The application still runs locally on the home Mac, accessed from the MacBook through the existing SSH/Tailscale tunnel; Atlas and Gemini remain backend integrations.
 
-Atlas cluster: `cluster0.hgrpk3.mongodb.net`; database: `sketch_clash`; world: `shared-demo`. The owner entered the database password through the hidden local setup prompt. The ignored `.env.local` contains the credentials and verified embedding configuration with mode 0600. Live health reports ready, MongoDB persistence, `persistent: true` and configured semantic retrieval. No billing, coupon balance or cluster tier was inspected, so the $100 credit's redemption and remaining balance are not verified here.
+**Current active baseline: `baseline-v1`; no candidate has been activated.** Approved reference/development/reserved dataset counts are currently **0 / 0 / 0**. There is no independent recognition improvement, creative preference result or candidate regression rate to claim. The isolated engineering smoke below records actual latency/usage, but it is not a reviewed benchmark. The 21 earlier catalogue description embeddings are not reviewed photograph cases. Storing feedback does not train Gemini’s weights.
 
-No deployment, external account change, Git history rewrite or secret publication was performed. The earlier hosting metadata was retired locally; that does not take any previously hosted copy offline.
+Atlas remains configured for `sketch_clash`, world `shared-demo`. The most recent UI check showed **five saved residents**. Existing source photographs, resident appearance and history must remain intact. The physical MacBook camera is still unverified. Atlas coupon redemption, expiry, balance and cluster tier have not been inspected.
 
-## What changed and what stayed
+## What changed
 
-- Kept the paper-and-ink branding, landing page, typography, private player handoff, reveal cards, arena choreography, health bars, impacts, KO, victory and replay. The original preset showdown remains available and clearly grants no unlocks.
-- Replaced the notebook drawing input with video-only camera, still capture, upload, retake, object selection, integer crop controls and explicit fighter confirmation. The actual accepted photograph/crop remains visible through battle. Timers pause during permission, preparation and recognition; expiry never submits automatically.
-- Added decoded JPEG/PNG/WebP checks on both sides, 5 MiB / 24 MP input bounds, orientation normalization, 1,600-pixel inference bound, immutable capture/hash tracking, stale-response protection and cleanup.
-- Added local YOLO11n and English EasyOCR evidence alongside Gemini, separate evidence statuses/scores, useful selection/recapture states, actual resolver/validation/simulation tools and at most two configuration repairs. Empty detector/OCR results are allowed. Printed text is untrusted evidence.
-- Added server-owned confirmation, seeded events, winner/HP, duration eligibility, retryable completion and immutable replay. Mongo repositories implement unique indexes, atomic completion, one resident per world/type, first-appearance preservation and distinct-battle counting. Both valid participants qualify only after completion.
-- Added a separate lazy 3D island, reusable object templates, saved appearance/home, bounded local movement, rest/wander updates, photo/history detail cards and a collection fallback. World reads do not invoke recognition or create residents.
-- Added exact/alias resolution and a genuine Atlas Vector Search adapter/setup command, now configured and live-tested. Similarity never merges identity or grants ownership. Unavailable retrieval is reported honestly.
+- **Home, capture, battle and island:** a calmer paper/ink design, coherent mint/coral palette, better spacing and responsive controls, live illustrative 3D landing specimen and more focused island presentation.
+- **Fighter review:** source photo beside the actual procedural 3D character; separate Correct / Correct it / Not sure and optional Keep / Change details. Feedback is saved against the exact output/version before battle. Creative skipping is neutral. Factual/style corrections preserve original evidence and lineage; style cannot change fixed combat power.
+- **Privacy and permission:** recovered captures pass through the private handoff too. The creator lab is entered from Home, and its queue only exposes completed/closed rounds. Optional image/feedback reuse permission starts off. Failed saves show the real state, with a way to continue a valid round without claiming saved feedback.
+- **Version continuity:** inspected immutable baseline, atomic active pointer, per-round version pinning, explicit unknown historical provenance and compatible legacy recovery. Adoption/rollback never rewrites a resident or accepted battle.
+- **Recognition & World Quality:** local operator gate; review provenance; grouped, consented, revised cases; separate dataset roles/readiness; durable evaluation jobs; deterministic factual/technical results; actual rendered previews; blinded human comparisons; guarded activation and rollback.
+- **Bounded improvement agent:** one validated candidate per operator job, limited configuration tools and independent final evaluation. No access to labels/roles/scoring-policy mutation, arbitrary code, human approval or activation. All outcomes remain reviewable.
+- **Two retrieval paths:** the existing catalogue search and a separate approved visual-reference adapter/index. The latter has explicit index/preparation controls, budgeted durable embedding jobs and server-enforced isolation. Empty or unapproved data never becomes a fake visual dataset.
+- **Portable records:** approved-evidence/configuration exports and selected job results, with raw/secret/private fields excluded. Media still needs a separate private database backup.
 
-The current brief uses **Everyday Objects**. Rotating category rounds, theme disqualification, eBay pricing, networked multiplayer, generated meshes and arbitrary-object 3D reconstruction are not part of this milestone.
+Fixed Quick/Power/Guard presets, 100 HP, server-owned winner/events, 12.8-second normal/reduced and 6.4-second quick battles, identical replay, duplicate-reward protection, both-player unlocks and first resident appearance/home are preserved. Watch the Showdown is still a scripted demo without progression. Current gameplay remains Everyday Objects; no rotating themes, eBay values, online multiplayer, AR or arbitrary mesh generation was added.
 
-## Run it
-
-Installed dependencies, local model weights and backend-only Gemini/Atlas credentials are already present on this computer. The local servers were left running at [127.0.0.1:5173](http://127.0.0.1:5173/) and port 8000 in **MongoDB mode**.
+## Run and review
 
 ```sh
 cd /Users/sukhrajkalon/Documents/Codex/2026-10-23/i-w/outputs/sketch-clash
 npm run dev
 ```
 
-If those ports are already occupied by this preview, use it or stop its terminal before starting another copy. Default mode fails clearly when MongoDB is unavailable; it never silently substitutes memory. `npm run dev:demo` remains an optional development mode with explicitly temporary memory storage; do not use it to demonstrate Atlas persistence.
+Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The API is local port 8000. Reuse an already running instance rather than starting a second one on those ports. Leave MongoDB mode enabled; `npm run dev:demo` is temporary memory only.
 
-Fresh-machine setup and all supported environment settings are in [README.md](README.md) and `.env.example`. Do not overwrite the existing `.env.local` with a blank example. Keys and database credentials belong only in that ignored local file, never in chat, source, frontend `VITE_` variables or a shareable archive.
+For the creator area, select **QUALITY LAB** on Home. In your own private terminal, run:
 
-## Verification record
+```sh
+npm run operator:token
+```
+
+Paste the displayed key into the lab and keep it private. The server generates the ignored `backend/data/operator-token` at mode 0600; the token is not shipped in frontend code. The operator session expires after eight hours. The command is deliberately interactive-terminal-only; do not ask an agent to print the key into logs or chat. An optional `SKETCH_OPERATOR_TOKEN` environment override exists, but the helper displays the generated file rather than an override.
+
+Keep existing Gemini/Atlas settings in ignored `.env.local` and never overwrite it with a blank example. Secure setup commands remain `npm run setup:gemini` and `npm run setup:mongodb`; neither requires sending secrets in chat. README lists supported environment names, runtime setup and backup boundaries.
+
+## Current verification
+
+| Check | Actual scope/status |
+| --- | --- |
+| Backend suite | **91 passed, 2 optional real-Mongo tests skipped** on the final revision, including 9 rejection/group-retirement tests. Controlled providers verify lifecycle, isolation, budgets and gates; they do not establish recognition quality. |
+| Production build | TypeScript and Vite build passed. The lazy Three.js scene retains the existing bundle-size advisory (about 942 kB uncompressed). |
+| Combat and image checks | Passed 2,561 combat timeline samples, authoritative replay/health/winner, hidden-page pause and exactly-once completion; all 14 image-input checks passed. |
+| Current Atlas restart | The complete shared-world response, including all five residents and their saved appearance/state/history references, matched exactly before and after backend restart. |
+| Real Gemini evaluation smoke | One isolated public mug-photo case ran the actual versioned evaluator with Argon, local evidence and frozen catalogue metadata. Completed with one generation request, 2,621 reported tokens, a valid ceramic-mug fighter and 31,277 ms end-to-end case latency. This includes local evidence work and is not a latency benchmark. The result survived an Atlas repository reconnect. |
+| Real correction smoke | A separate isolated live preparation saved private exact-output feedback, then generated a new style/name proposal. Identity, class and stats stayed fixed; original proposal and parent-output lineage remained intact. No residents were created. Only the generated test-world records were removed. |
+| Actual browser render → Atlas | A temporary, explicitly labelled engineering fixture used an existing saved mug appearance. The real browser rendered and checked idle, rest and wander separately, then persisted a passed report with valid bounds/visibility and no errors. An independent Atlas read confirmed it. The exact temporary job/result were removed; no human comparison was invented. |
+| Operator and empty-data browser UX | Real login/logout and approved export worked; unauthenticated overview returned 401. Review queue/readiness, job, comparison and version screens worked. With zero approved data, paid runs, reference preparation and adoption remained disabled. Export contained zero cases and one baseline version. |
+| Responsive/browser renderer | Desktop and 390 × 844 screens fit without horizontal overflow. Actual island residents and saved-appearance previews rendered. The procedural landing specimen, water/coastline and refined controls were inspected visually. |
+| Secrets and privacy | Source scan found no current Gemini key or Atlas URI. `.env.local` and the operator-token file are ignored with permissions 0600. Ordinary logs and browser bundles contain neither secret. |
+| Human evidence and activation | No approved cases, no independent baseline/candidate dataset, no human creative comparison and no activation. The shared world remains unchanged with five residents. Physical MacBook camera verification remains pending. |
+
+The bounded agent tool loop, final-case isolation, request uncertainty, activation and rollback are covered by controlled engineering tests. A live reviewed agent comparison was not run because there is no human-reviewed dataset. No new visual-reference vectors or index were populated without approved images. The existing catalogue contained 23 approved records in the live snapshot, including the earlier 21 embedded descriptions; these are not a reviewed image dataset.
+
+Current screenshots are in the parent `outputs/` folder: `sketch-clash-refined-home.png`, `sketch-clash-refined-island-full.png`, `sketch-clash-refined-island-mobile.png`, `sketch-clash-quality-readiness.png`, `sketch-clash-quality-mobile.png`, and `sketch-clash-engineering-render-check.png`. The last explicitly shows an engineering fixture, not a human judgement.
+
+Non-secret detailed reports are in the workspace `work/quality-live-smoke.json` and `work/quality-render-browser-check.json`. These contain scope and measured outcomes, not credentials or private photo bytes.
+
+## Fixed policy and experiment boundaries
+
+Policy `quality-policy-v1` is frozen into each comparison. At least **three approved development cases plus three fresh reserved cases from three independent groups** are needed for the minimum gate; such a small passing sample remains provisional. Actual recognition numerators/denominators, coverage, clarification, latency and usage remain separate from creative preference and technical validity.
+
+Wrong accepted identities and unnecessary clarification cannot increase; answered coverage cannot fall. Candidate latency is limited to twice baseline. All required outputs and actual render checks must pass. Recognition scope needs independent factual/clarification improvement. Appearance scope needs complete human A/B review with supporting preferences; ties are allowed records, neither acceptable blocks appearance adoption, and missing review stays pending. An authorised human must still activate the passing candidate. Stale pointer/revision checks prevent an old approval overwriting newer state. Explicit candidate rejection records an immutable reviewer/reason decision and prevents later adoption. After a reserved group has been used, the operator can move the whole group into development atomically; case revisions and frozen run snapshots stay intact, and a fresh final group is required.
+
+An operator job has at most **one candidate, 60 provider requests, 600,000 reserved tokens, 48,000 input / 4,096 output tokens per request and ten minutes**. The implemented worker runs sequentially (one active request, within the ceiling of two). Repairs and embeddings count; estimates and usage are persisted. An uncertain provider outcome is not automatically retried. Cancelled, failed, interrupted, incomplete and over-budget jobs cannot activate anything. No precise monetary cost is claimed without verified pricing.
+
+Each case has a role assigned before the run: approved reference, development or reserved final. Same physical-object/session views remain one group, with exact/near-duplicate checks and conservative uncertain grouping. Expected answers, player corrections and answer-bearing filenames do not enter prediction requests. The optimiser sees development failures only. A correction of the same photo is successful interaction repair, not evidence of unfamiliar-object generalisation. Frozen final cases cannot be reused to claim independence after they inform another revision.
+
+Actual scene parameter/bounds/visibility/animation checks establish technical execution. They do not prove aesthetic resemblance. A WebGL fallback is unavailable verification, never a pass. Preview/evaluation does not create residents, battles, rewards or encounters.
+
+## Approved visual references
+
+The separate `qualityReferenceVectors` collection and `quality_references_vector` index are for reviewed object photos, not the existing type-description catalogue. Use the creator lab’s index check/create control, then explicitly prepare selected approved, consented reference cases. Those preparation jobs persist progress and conservative budgets. The baseline has `reference_limit: 0`; enrolment alone does not change gameplay configuration or adopt a candidate.
+
+Only eligible reference-role cases can be prepared/retrieved. Live search excludes the same hash and held-out groups, filters provenance on the server, and rechecks case revision/consent after eventual-consistency index results. Missing access/index/data remains visible; there is no fabricated vector fallback. No newly enrolled live visual references or performance claims are recorded at this point.
+
+## Honest three-minute demo
+
+Prepare uncluttered real object photos and a completed/closed round with an **actual** issue or a genuine human preference. If there is no issue to demonstrate, show the correct result and explain the available correction path; do not manufacture a failure and call it real. Keep the new capture’s source photo visible.
+
+| Time | What to show |
+| --- | --- |
+| 0:00–0:20 | Research question and the benefit being tested: a game where people can check and improve AI’s representation of their objects. |
+| 0:20–0:55 | Fresh real capture or clearly identified recent real proposal, source photo beside 3D, factual versus creative feedback and explicit optional photo consent. The human chooses their own verdict. |
+| 0:55–1:25 | Close/finish the round before opening the creator queue. Show the exact output/version, reviewer provenance and grouped roles. A correction is labelled current-attempt repair. |
+| 1:25–2:10 | If suitable human-reviewed evidence exists, open a **labelled precomputed** baseline/candidate job with date, inputs and versions. Show counts, missing data/regressions, real render reports, blind preference and budget. If it does not exist—as currently—show **Needs human review** and the blocked gate honestly. Do not fake an instantaneous optimisation run. |
+| 2:10–2:30 | Show the human’s actual approve/reject decision or the reason activation remains unavailable. A rejected candidate is a valid demonstration. Never click human approval on someone’s behalf. |
+| 2:30–3:00 | Continue a prepared real round through Quick Clash and the persistent island, or briefly show a completed real round and make a fresh spot-check. Clearly distinguish a replay from fresh inference. |
+
+To demonstrate a real independent improvement rather than readiness, first collect enough consented human-reviewed development and fresh reserved groups, run baseline, prepare a bounded candidate, inspect rendered comparisons and obtain human judgement. Precompute only the expensive batch, retaining its timestamps/configuration; perform a fresh spot-check live. If recognition takes longer than the demo window, show the genuine running state and a labelled saved run instead of claiming instantaneous results.
+
+## Human actions needed
+
+1. **Unlock and review:** use your local operator key; give consent only for object-focused photos you permit to be reused. Supply factual labels/grouping and creative judgements yourself. Create reference/development/fresh reserved cases before expecting meaningful comparisons.
+2. **Adoption:** inspect any completed candidate’s independent scores, actual previews, usage and regressions, then explicitly approve or reject it. The active baseline stays unchanged until valid evidence and human action exist.
+3. **MacBook camera:** through the existing local SSH URL, grant camera access in the MacBook’s own browser; test Capture, Retake, crop, review and handoff, then check the camera stops. Deny permission once and verify upload still works. No microphone permission should be requested.
+4. **Resources and backups:** check the Atlas coupon/balance/expiry. Export approved metadata/results from the lab and privately back up Atlas media and game/quality collections before temporary resources expire. GitHub contains source/history, not live data.
+
+## Exports and operational continuity
+
+The lab’s approved-evidence export includes reusable consented case metadata, immutable versions and fixed policy; selected-job export adds its results. It deliberately omits raw media bytes, unapproved private gameplay feedback, embeddings, credentials and opaque model steps. Keep corresponding media in a separate authorised private Atlas backup if those image references must survive service expiry. Do not put such a database backup or `.env.local` into the Git repository.
+
+The private remote is [Sukhraj1000/sketch-clash](https://github.com/Sukhraj1000/sketch-clash). Existing history and the regular focused-commit workflow are preserved. Do not change repository visibility or rewrite timestamps/history. Current source backup is separate from database restoration.
+
+Actual model stack: `gemini-4-argon` for recognition and bounded improvement reasoning, official Python `google-genai==2.33.0`, Interactions API, medium thinking, bounded output and `store=False`; `gemini-embedding-2` for description vectors and explicit reviewed-image embedding; local YOLO11n/Ultralytics 8.4.184 and EasyOCR 1.7.2. No managed Antigravity, deep-research agent, image-generation model or weight-training service was added.
+
+## Historical verification — earlier camera/island milestone, 23 October
+
+The following records are preserved as historical evidence. They do **not** claim that the later human-feedback increment was already covered by those checks.
 
 | Check | Result and scope |
 | --- | --- |
@@ -56,54 +135,13 @@ Fresh-machine setup and all supported environment settings are in [README.md](RE
 
 Automated model tests use controlled responses. Only the explicitly described photograph checks used live Gemini and local learned models. Browser uploads were automated through the browser tooling; no deterministic fake webcam or physical camera was used. Repository transaction tests used real MongoDB but controlled fighter data; the separately recorded Atlas browser battle used actual photograph recognition. Current island data is durable Atlas evidence; earlier memory screenshots remain historical UI evidence.
 
-## Setup status and remaining human actions
 
-### 1. Atlas access — complete; billing remains the owner's check
+## Historical assets and continuation
 
-Atlas access is configured and verified. The backend connects from the home Mac, so Atlas must continue to allow that machine's public internet egress IP. A remote MacBook using an SSH tunnel over Tailscale does not connect directly to Atlas and does not need its own Atlas IP entry. Update the Atlas allowlist if the home connection's public IP changes.
+Public QA photo sources: [white mug, Antonio Izquierdo García-Gallardo](https://commons.wikimedia.org/wiki/File:Taza_Blanca.jpg), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/); [blue water bottle, Byoung82](https://commons.wikimedia.org/wiki/File:Blue_Water_Bottle.jpg), [CC0](https://creativecommons.org/publicdomain/zero/1.0/). These are real public test photographs, not generated fighter art or a reviewed evaluation dataset.
 
-The owner entered the `sketch_clash_app` password on the home Mac through `npm run setup:mongodb`. The helper URL-encodes it and atomically saves owner-only local settings while preserving Gemini and the world ID. Controlled file tests and interactive terminal checks passed, including no password echo and Ctrl-C cancellation without a write. Re-run it only if updating that user's password; the helper itself does not restart the app or test connectivity. No credentials need to be sent in chat.
+Historical memory-mode screenshots in the parent outputs folder include `sketch-clash-island.png`, `sketch-clash-mobile-island.png`, `sketch-clash-mobile-details.png`, `sketch-clash-crop-evidence.png`, `sketch-clash-photo-battle.png` and `sketch-clash-photo-victory.png`. They are not Atlas persistence proof. The separately recorded Atlas battle/restart checks above establish that earlier milestone. Different rounds may have different generated names, appearances and seeded winners.
 
-To inspect the already-running backend:
+The pre-existing prototype and its history should be disclosed under the organisers’ applicable rules. This increment neither deploys a public app nor removes an earlier hosted copy by retiring local hosting metadata.
 
-```sh
-curl --fail http://127.0.0.1:8000/api/health
-```
-
-Verified result: ready, MongoDB persistence, `persistent: true`, configured semantic retrieval and no configuration error. A real round and full backend restart have already verified resident, appearance, history and photo persistence; a duplicate completion left counts and residents unchanged. Check the Atlas billing page yourself to confirm the $100 coupon was applied, its expiry and remaining balance. No billing or tier verification is claimed by this handover.
-
-Optional real transaction regression:
-
-```sh
-SKETCH_RUN_MONGO_TESTS=1 .venv/bin/python -m pytest backend/tests/test_mongo_integration.py -q
-```
-
-This suite creates and deletes its own random `sketch_test_*` database; use a database user permitted to do that, or a dedicated test replica set through `SKETCH_TEST_MONGODB_URI`. It never targets the application database for deletion.
-
-### 2. Genuine semantic retrieval — complete
-
-The local settings now contain `EMBEDDING_MODEL=gemini-embedding-2`, `EMBEDDING_DIMENSIONS=768` and `MONGODB_VECTOR_INDEX=character_types_vector`, saved atomically at mode 0600 while preserving credentials. All 21 approved types have real embeddings and the Atlas index is READY/queryable. The backend was restarted to load these settings. To repeat the live query:
-
-```sh
-npm run verify:retrieval
-```
-
-Actual candidates and matching embedding provenance were verified. `npm run setup:retrieval` is available for a fresh cluster or deliberate catalog/index rebuild; it is not needed for each game launch. Failure remains an explicit unavailable/degraded status and exact known types still work. Additional unfamiliar-object examples can demonstrate semantic matching; similarity alone never grants an island resident.
-
-### 3. Exercise the physical MacBook camera
-
-In the MacBook's own browser, open the app at `http://127.0.0.1:5173/` through the existing SSH tunnel over Tailscale. Use the MacBook browser rather than a browser inside the home Mac's remote desktop, so the MacBook's camera is available. Choose LET'S PLAY → I'M READY → Camera, grant video access, frame one object, Capture, Retake, capture again and confirm. Verify the accepted still/crop is the battle photo, the timer pauses during recognition and the camera indicator goes off after leaving capture. Also deny permission once and verify Upload remains usable. Microphone access must not be requested. This needs the device owner and remains pending.
-
-## Demo and continuation
-
-Use a mug and bottle on uncluttered backgrounds. Show the preparation details, confirm each fighter, let the battle finish, then enter the island. Refresh/restart now demonstrates verified real Atlas persistence. A repeated mug demonstrates identity preservation. The current app runs locally with cloud database storage; the optional `dev:demo` mode is still temporary and must be labelled accordingly.
-
-The actual model is `gemini-4-argon`; Python SDK `google-genai==2.33.0`, Interactions API, medium thinking, `store=False`. Detector is official Ultralytics YOLO11n (`ultralytics==8.4.184`); OCR is English EasyOCR (`easyocr==1.7.2`). Architecture and combat rules are in [Design.md](Design.md). Dependencies are pinned in `package-lock.json` and `backend/requirements.lock.txt`.
-
-Public QA photo sources: [white mug, Antonio Izquierdo García-Gallardo](https://commons.wikimedia.org/wiki/File:Taza_Blanca.jpg), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/); [blue water bottle, Byoung82](https://commons.wikimedia.org/wiki/File:Blue_Water_Bottle.jpg), [CC0](https://creativecommons.org/publicdomain/zero/1.0/). They appear in the verification screenshots, not as generated fighter art. Private captures were not collected.
-
-Historical memory-mode visual evidence in the parent `outputs/` folder: `sketch-clash-island.png`, `sketch-clash-mobile-island.png`, `sketch-clash-mobile-details.png`, `sketch-clash-crop-evidence.png`, `sketch-clash-photo-battle.png` and `sketch-clash-photo-victory.png`. Those screenshots show earlier recorded battles and are not evidence of Atlas storage. Separate battles can have different generated names, appearance and winners. Current Atlas proof is recorded in the live browser battle and restart results above.
-
-The project already contained a prototype before this implementation milestone. Confirm with organisers how any code preceding the Friday 17:00 kickoff must be disclosed or treated under the code-after-kickoff rule. Existing work/history was preserved. Before hackathon services expire, export MongoDB collections including `media`, preserve source and lockfiles, and keep secrets separately in a private backup.
-
-Resume instruction: **“Atlas persistence, restart recovery and live Vector Search are verified. Read HANDOVER.md, finish the physical MacBook camera check through the existing SSH tunnel, and fix any resulting defects without rebuilding completed features.”**
+Resume instruction: **“Read HANDOVER.md. Preserve the active baseline, Atlas data and private handoff. Complete only the explicitly pending final verification, then help the owner assemble consented reviewed cases and human comparisons; do not fabricate evidence, approve a candidate or rerun finished work unnecessarily.”**
