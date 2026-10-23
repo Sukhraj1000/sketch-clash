@@ -3,7 +3,43 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": {"dev": "vite --host 127.0.0.1", "build": "tsc -b && vite build", "preview": "vite preview --host 127.0.0.1", "test:combat": "node scripts/verify-battle.mjs"},
-  "dependencies": {"react": "latest", "react-dom": "latest", "motion": "latest", "perfect-freehand": "latest", "lucide-react": "latest", "@fontsource/bangers": "latest", "@fontsource/dm-sans": "latest"},
-  "devDependencies": {"typescript": "latest", "vite": "latest", "@vitejs/plugin-react": "latest", "@tailwindcss/vite": "latest", "tailwindcss": "latest", "@types/react": "latest", "@types/react-dom": "latest", "@types/node": "latest"}
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:combat": "node scripts/verify-battle.mjs",
+    "setup:gemini": "node scripts/setup-gemini.mjs",
+    "setup:mongodb": "node scripts/setup-mongodb.mjs",
+    "dev:demo": "node scripts/dev.mjs --demo",
+    "dev:frontend": "vite --host 127.0.0.1",
+    "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000",
+    "setup:vision": ".venv/bin/python backend/scripts/setup_vision.py",
+    "test:backend": ".venv/bin/python -m pytest backend/tests -q",
+    "setup:retrieval": ".venv/bin/python backend/scripts/setup_retrieval.py",
+    "verify:retrieval": ".venv/bin/python backend/scripts/verify_retrieval.py"
+  },
+  "dependencies": {
+    "@fontsource/bangers": "latest",
+    "@fontsource/dm-sans": "latest",
+    "@google/genai": "2.31.0",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "lucide-react": "latest",
+    "motion": "latest",
+    "perfect-freehand": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-react": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
 }

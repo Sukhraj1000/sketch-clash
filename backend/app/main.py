@@ -1,0 +1,204 @@
+"""Local FastAPI boundary. Run only on 127.0.0.1; credentials never reach the browser."""
+from __future__ import annotations
+import asyncio
+from contextlib import asynccontextmanager
+import inspect
+import logging
+import re
+import time
+from typing import Literal
+import uuid
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from .config import Settings
+from .contracts import Battle, ConfirmCapture, CreateBattle, Crop, Observation, SelectCapture, StartBattle
+from .images import ImageError
+from .repository import Repository, StoreError, create_repository
+from .service import BattleService
+
+logger = logging.getLogger('sketch_clash.api')
+
+class CharacterState(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    activity: Literal['wander', 'rest']
+
+
+def create_app(settings: Settings | None = None, repository: Repository | None = None, recognizer=None) -> FastAPI:
+    settings = settings or Settings.load()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.settings = settings
+        app.state.repository = repository
+        app.state.store_error = None
+        if app.state.repository is None:
+            try:
+                app.state.repository = await asyncio.to_thread(create_repository, settings)
+            except StoreError as exc:
+                app.state.store_error = exc
+        if recognizer is not None:
+            app.state.recognizer = recognizer
+        else:
+            from .recognition import RecognitionService
+            from .catalog import CharacterCatalog
+            catalog = CharacterCatalog()
+            if app.state.repository is not None and hasattr(app.state.repository, 'db'):
+                # Catalogue setup is explicit startup work, never a world read side effect.
+                catalog = CharacterCatalog(collection=app.state.repository.db.characterTypes)
+                def seed_catalog():
+                    for record in catalog.seed_records():
+                        catalog.collection.update_one({'canonical_key': record['canonical_key']}, {'$setOnInsert': record}, upsert=True)
+                await asyncio.to_thread(seed_catalog)
+            app.state.recognizer = RecognitionService(settings, catalog=catalog)
+            from .retrieval import AtlasRetriever, RetrievalConfig
+            catalog.retriever = AtlasRetriever(collection=catalog.collection, client=app.state.recognizer.client,
+                config=RetrievalConfig(model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
+        app.state.service = BattleService(settings, app.state.repository, app.state.recognizer) if app.state.repository else None
+        yield
+        close_recognizer = getattr(app.state.recognizer, 'close', None)
+        if close_recognizer:
+            result = close_recognizer()
+            if inspect.isawaitable(result):
+                await result
+        if app.state.repository:
+            await asyncio.to_thread(app.state.repository.close)
+
+    app = FastAPI(title='Sketch Clash local API', version='2.0.0', lifespan=lifespan)
+    app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],
+                       allow_methods=['GET', 'POST', 'PATCH'], allow_headers=['Content-Type', 'X-Request-ID'])
+
+    @app.middleware('http')
+    async def request_context(request: Request, call_next):
+        request_id = request.headers.get('x-request-id', '')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id):
+            request_id = uuid.uuid4().hex
+        request.state.request_id = request_id
+        origin = request.headers.get('origin')
+        allowed_origins = {settings.frontend_origin, 'http://localhost:5173', str(request.base_url).rstrip('/')}
+        if origin and origin not in allowed_origins and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            return JSONResponse({'error': {'code': 'origin_not_allowed', 'message': 'Use the local Sketch Clash app for this action.', 'request_id': request_id}}, status_code=403)
+        length = request.headers.get('content-length')
+        if length and length.isdigit() and int(length) > settings.max_upload_bytes + 65536:
+            return JSONResponse({'error': {'code': 'image_too_large', 'message': 'Choose an image smaller than 5 MiB.', 'request_id': request_id}}, status_code=413)
+        start = time.monotonic()
+        response = await call_next(request)
+        response.headers['X-Request-ID'] = request_id
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        logger.info('request_id=%s method=%s path=%s status=%s duration_ms=%d', request_id, request.method,
+                    request.url.path, response.status_code, round((time.monotonic() - start) * 1000))
+        return response
+
+    @app.exception_handler(StoreError)
+    async def store_error(request: Request, exc: StoreError):
+        return JSONResponse({'error': {'code': exc.code, 'message': str(exc), 'request_id': request.state.request_id}}, status_code=exc.status)
+
+    @app.exception_handler(ImageError)
+    async def image_error(request: Request, exc: ImageError):
+        return JSONResponse({'error': {'code': 'invalid_image', 'message': str(exc), 'request_id': request.state.request_id}}, status_code=422)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        # Do not echo multipart payloads, model output, credentials or raw image bytes.
+        return JSONResponse({'error': {'code': 'invalid_request', 'message': 'The request contains invalid or unsupported fields.',
+                                       'request_id': request.state.request_id}}, status_code=422)
+
+    def repo() -> Repository:
+        if app.state.repository is None:
+            raise app.state.store_error or StoreError('Persistence is unavailable.', 503, 'persistence_unavailable')
+        return app.state.repository
+
+    @app.get('/api/health')
+    async def health():
+        available = app.state.repository is not None
+        return {'status': 'ready' if available else 'configuration_required',
+                'persistence': app.state.repository.persistence if available else 'unavailable',
+                'persistent': available and app.state.repository.persistence == 'mongodb',
+                'gemini': {'configured': bool(settings.gemini_api_key), 'model': settings.gemini_model},
+                'world_id': settings.world_id,
+                'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
+                'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index},
+                'message': str(app.state.store_error) if app.state.store_error else ('Development memory mode: records disappear on restart.' if settings.repository == 'memory' else None)}
+
+    @app.post('/api/battles', response_model=Battle)
+    async def create(body: CreateBattle):
+        return await asyncio.to_thread(repo().create_battle, body.request_id)
+
+    @app.get('/api/battles/{battle_id}', response_model=Battle)
+    async def get_battle(battle_id: str):
+        return await asyncio.to_thread(repo().get_battle, battle_id)
+
+    @app.post('/api/battles/{battle_id}/captures', response_model=Observation)
+    async def capture(battle_id: str, image: UploadFile = File(...), capture_id: str = Form(...),
+                      slot: int = Form(...), source: Literal['camera', 'upload'] = Form(...), crop: str | None = Form(None)):
+        repo()
+        if slot not in (0, 1) or not re.fullmatch(r'[A-Za-z0-9_:-]{1,100}', capture_id):
+            raise StoreError('Invalid player slot or capture ID.', 422, 'invalid_request')
+        try:
+            selected_crop = Crop.model_validate_json(crop) if crop else None
+        except (ValidationError, ValueError):
+            raise StoreError('The selected crop is invalid.', 422, 'invalid_crop')
+        data = await image.read(settings.max_upload_bytes + 1)
+        await image.close()
+        try:
+            return await app.state.service.submit_capture(battle_id, capture_id, slot, source, data,
+                                                          image.content_type or '', selected_crop)
+        except (StoreError, ImageError):
+            raise
+        except Exception as exc:
+            logger.warning('recognition_failed battle_id=%s capture_id=%s category=%s model=%s', battle_id, capture_id, type(exc).__name__, settings.gemini_model)
+            raise StoreError('Object recognition could not finish. Retry the same photograph or choose another one.', 502, 'recognition_failed') from exc
+
+    @app.post('/api/battles/{battle_id}/captures/{capture_id}/select', response_model=Observation)
+    async def select(battle_id: str, capture_id: str, body: SelectCapture):
+        repo()
+        try:
+            return await app.state.service.select_capture(battle_id, capture_id, body.crop)
+        except (StoreError, ImageError):
+            raise
+        except Exception as exc:
+            logger.warning('selection_failed battle_id=%s capture_id=%s category=%s', battle_id, capture_id, type(exc).__name__)
+            raise StoreError('The selected object could not be checked. Retry this selection.', 502, 'recognition_failed') from exc
+
+    @app.post('/api/battles/{battle_id}/confirm', response_model=Battle)
+    async def confirm(battle_id: str, body: ConfirmCapture):
+        return await asyncio.to_thread(repo().confirm_capture, battle_id, body.player_slot, body.capture_id)
+
+    @app.post('/api/battles/{battle_id}/start', response_model=Battle)
+    async def start(battle_id: str, body: StartBattle):
+        return await asyncio.to_thread(repo().start_battle, battle_id, body.playback_mode)
+
+    @app.post('/api/battles/{battle_id}/finalize', response_model=Battle)
+    async def finalize(battle_id: str):
+        return await asyncio.to_thread(repo().finalize_battle, battle_id)
+
+    @app.post('/api/battles/{battle_id}/cancel', response_model=Battle)
+    async def cancel(battle_id: str):
+        return await asyncio.to_thread(repo().cancel_battle, battle_id)
+
+    @app.get('/api/world')
+    async def world():
+        return await asyncio.to_thread(repo().world)
+
+    @app.get('/api/world/characters/{character_id}/history')
+    async def history(character_id: str):
+        return await asyncio.to_thread(repo().history, character_id)
+
+    @app.patch('/api/world/characters/{character_id}')
+    async def character_state(character_id: str, body: CharacterState):
+        return await asyncio.to_thread(repo().update_character, character_id, body.activity)
+
+    @app.get('/api/media/{media_id}')
+    async def media(media_id: str):
+        if not re.fullmatch(r'[a-f0-9]{64}', media_id):
+            raise StoreError('Image not found.', 404, 'not_found')
+        item = await asyncio.to_thread(repo().get_media, media_id)
+        return Response(bytes(item['data']), media_type=item['mime_type'],
+                        headers={'Cache-Control': 'private, max-age=31536000, immutable', 'ETag': f'"{media_id}"'})
+    return app
+
+app = create_app()
