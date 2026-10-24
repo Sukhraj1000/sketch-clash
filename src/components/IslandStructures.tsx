@@ -6,6 +6,7 @@ import { assemblyPartPresentation } from '../lib/island'
 import { projectBenefit } from '../lib/projectBenefits'
 import { FactoryStructureVisual } from './FactoryStructures'
 import ProjectMapLabel from './ProjectMapLabel'
+import { assemblySiteScale } from './assemblyLayout'
 import type { IslandAgent, IslandProject } from '../lib/island'
 
 const INK = '#172338'
@@ -155,6 +156,7 @@ export default function IslandStructure({ project, projects = [project], agents,
   const [hovered, setHovered] = useState(false)
   const benefit = projectBenefit(project, projects, agents)
   const assembly = project.kind === 'assembly'
+  const siteScale = assemblySiteScale(project, projects)
   const upgradeProgress = project.status === 'complete' ? 1 : Math.max(0, Math.min(1, project.progress / Math.max(1, project.required_progress)))
   // Construction progress resets for the next upgrade; an existing building never disappears.
   const progress = project.level > 0 ? 1 : upgradeProgress
@@ -176,9 +178,10 @@ export default function IslandStructure({ project, projects = [project], agents,
   })
   const choose = (event: ThreeEvent<MouseEvent>) => { if (event.delta > 4) return; event.stopPropagation(); onSelect?.(project.id) }
   const showLabel = selected || hovered || autoLabel
-  const structureTop = Math.max(!factory && project.level >= 3 ? 1.3 : 0, assembly ? 1.56 : project.kind === 'beacon' ? 2.7 : project.kind === 'workshop' ? project.level >= 2 ? 2.2 : 1.95 : project.kind === 'garden' && factory ? 1.6 : .9)
+  const structureTop = Math.max(!factory && project.level >= 3 ? 1.3 : 0, assembly ? 1.56 : project.kind === 'beacon' ? 2.7 : project.kind === 'workshop' ? project.level >= 2 ? 2.2 : 1.95 : project.kind === 'garden' && factory ? 1.6 : .9) * siteScale
   const labelHeight = structureTop + (selected || hovered ? .78 : .58)
   return <group position={[project.position.x, .025, project.position.z]} onClick={choose} onPointerOver={event => { event.stopPropagation(); setHovered(true) }} onPointerOut={() => setHovered(false)}>
+    <group name={`project-visual-${project.id}`} scale={siteScale}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.009, 0]} receiveShadow>{factory ? <ringGeometry args={[assembly ? .88 : project.kind === 'beacon' ? .82 : 1.28, assembly ? .91 : project.kind === 'beacon' ? .85 : 1.31, 64]} /> : <circleGeometry args={[assembly ? 1 : project.kind === 'beacon' ? 1.05 : 1.5, 8]} />}{factory ? <meshBasicMaterial color="#8AB2BC" transparent opacity={selected ? .85 : 0} depthWrite={false} /> : <Paint color={selected ? '#FFE17F' : project.level > 0 ? '#AFC897' : '#D4BFA0'} />}</mesh>
     {!factory && project.level === 0 && [-1, 1].map(side => <group key={side} position={[side * (assembly ? .8 : 1.12), .18, assembly ? .6 : .8]}><mesh castShadow><coneGeometry args={[.09, .3, 4]} /><Paint color="#D3AE57" /></mesh><mesh position={[0, -.12, 0]}><boxGeometry args={[.24, .045, .24]} /><Paint color={INK} /></mesh></group>)}
     {factory ? <FactoryStructureVisual project={project} progress={progress} /> : project.kind === 'garden' ? <Garden progress={progress} time={flag} /> : project.kind === 'workshop' ? <Workshop progress={progress} /> : project.kind === 'beacon' ? <Beacon progress={progress} light={light} /> : project.kind === 'boardwalk' ? <Boardwalk progress={progress} /> : assembly ? <AssemblySite project={project} progress={progress} /> : null}
@@ -188,12 +191,13 @@ export default function IslandStructure({ project, projects = [project], agents,
     {!factory && project.level >= 2 && project.kind === 'beacon' && <mesh position={[0, 1.55, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.55, .04, 5, 16]} /><Paint color="#7FE2D1" glow /></mesh>}
     {!factory && project.level >= 2 && project.kind === 'boardwalk' && [-.48, .48].map(z => <mesh key={z} position={[0, .56, z]} rotation={[0, -.43, 0]} castShadow><boxGeometry args={[1.8, .07, .07]} /><Paint color={WOOD} /></mesh>)}
     {!factory && project.level >= 3 && <group position={[-.9, .1, -.7]}><mesh position={[0, .6, 0]}><cylinderGeometry args={[.025, .025, 1.2, 5]} /><Paint color={INK} /></mesh><mesh position={[.17, 1.05, 0]}><boxGeometry args={[.36, .25, .04]} /><Paint color="#FFCF59" /></mesh><mesh position={[.17, 1.05, .025]}><octahedronGeometry args={[.07]} /><Paint color={INK} /></mesh></group>}
-    {(selected || (upgradeProgress > 0 && project.status !== 'complete')) && <group position={[0, .12, 1.05]}><mesh><boxGeometry args={[1.24, .06, .17]} /><Paint color={INK} /></mesh><mesh position={[-.56 * (1 - upgradeProgress), .035, 0]}><boxGeometry args={[Math.max(.015, 1.12 * upgradeProgress), .04, .1]} /><Paint color="#7FE2D1" /></mesh></group>}
+    {(selected || (upgradeProgress > 0 && project.status !== 'complete')) && <group position={[0, .12, assembly ? .76 : 1.05]}><mesh><boxGeometry args={[1.24, .06, .17]} /><Paint color={INK} /></mesh><mesh position={[-.56 * (1 - upgradeProgress), .035, 0]}><boxGeometry args={[Math.max(.015, 1.12 * upgradeProgress), .04, .1]} /><Paint color="#7FE2D1" /></mesh></group>}
+    <group ref={burst} visible={false}>{Array.from({ length: 12 }, (_, i) => <mesh key={i}><boxGeometry args={[.075, .15, .025]} /><Paint color={['#FFD15D', '#FF7363', '#7FE2D1'][i % 3]} /></mesh>)}</group>
+    </group>
     {showLabel && <>
       <mesh position={[0, structureTop + .12, 0]}><cylinderGeometry args={[.012, .012, .2, 5]} /><Paint color={factory ? '#A0B8AA' : '#5F785F'} /></mesh>
       <mesh position={[0, structureTop + .025, 0]}><sphereGeometry args={[.035, 6, 5]} /><Paint color={factory ? '#A0B8AA' : '#5F785F'} /></mesh>
       <ProjectMapLabel project={project} benefit={benefit} selected={selected || hovered} factory={factory} height={labelHeight} />
     </>}
-    <group ref={burst} visible={false}>{Array.from({ length: 12 }, (_, i) => <mesh key={i}><boxGeometry args={[.075, .15, .025]} /><Paint color={['#FFD15D', '#FF7363', '#7FE2D1'][i % 3]} /></mesh>)}</group>
   </group>
 }

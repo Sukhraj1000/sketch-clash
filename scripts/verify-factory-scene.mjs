@@ -29,6 +29,8 @@ const { default: RobotShape } = await import(componentModule('../src/components/
 const structuresUrl = componentModule('../src/components/FactoryStructures.tsx', { './FactoryPrimitives': primitives });
 const { FactoryStructureVisual } = await import(structuresUrl);
 const worldMapUrl = new URL('../src/components/worldMap.ts', import.meta.url).href;
+const assemblyLayoutUrl = new URL('../src/components/assemblyLayout.ts', import.meta.url).href;
+const { assemblySiteScale } = await import(assemblyLayoutUrl);
 const { WORLD_STATIONS, WORLD_PATHS } = await import(worldMapUrl);
 const { default: FactoryEnvironment } = await import(componentModule('../src/components/FactoryEnvironment.tsx', { './FactoryPrimitives': primitives, './worldMap': worldMapUrl }));
 const { default: IslandStructure } = await import(componentModule('../src/components/IslandStructures.tsx', {
@@ -36,6 +38,7 @@ const { default: IslandStructure } = await import(componentModule('../src/compon
   '../lib/island': new URL('../src/lib/island.ts', import.meta.url).href,
   '../lib/projectBenefits': new URL('../src/lib/projectBenefits.ts', import.meta.url).href,
   './ProjectMapLabel': sourceUrl('export default () => null;'),
+  './assemblyLayout': assemblyLayoutUrl,
   react: sourceUrl('export const useRef = value => ({ current: value }); export const useEffect = () => {}; export const useState = value => [value, () => {}];'),
   '@react-three/fiber': sourceUrl('export const useFrame = () => {};'),
   three: import.meta.resolve('three'),
@@ -168,6 +171,42 @@ for (const presentation of ['island', 'factory']) {
 assert.equal(assemblyViews[0].length, 4, 'The approved assembly and all three attributed recipe parts remain visible');
 assert.deepEqual(assemblyViews[1], assemblyViews[0], 'Factory view preserves exact approved part geometry, proportions, positions and construction state');
 assert.equal(JSON.stringify(assembly), assemblySnapshot, 'Both appearances leave the persisted blueprint untouched');
+
+const denseProjects = frozen(Array.from({ length: 7 }, (_, index) => ({ ...assembly, id: `dense-${index}`, position: { x: index - 3, z: 0 }, level: 1, max_level: 1, status: 'complete' })));
+const denseSnapshot = JSON.stringify(denseProjects);
+assert.equal(assemblySiteScale(denseProjects[0]), 1, 'An isolated assembly remains full size');
+assert.equal(assemblySiteScale(denseProjects[0], [denseProjects[0], { ...baseProject, id: 'near-base', position: { x: -2, z: 0 } }]), .45, 'An assembly also fits near an existing base building');
+assert.equal(assemblySiteScale(denseProjects[0], [denseProjects[0], { ...baseProject, id: 'far-base', position: { x: 0, z: 0 } }]), 1, 'A generously spaced site retains its full presentation');
+assert.equal(assemblySiteScale(denseProjects[0], [denseProjects[0], { ...baseProject, id: 'coincident', position: denseProjects[0].position }]), .28, 'Coincident historical sites remain finite and selectable');
+const denseViews = [];
+for (const presentation of ['island', 'factory']) {
+  const rendered = denseProjects.map(project => {
+    const props = { project, selected: false, active: false, reducedMotion: true, presentation };
+    const compact = scene(IslandStructure({ ...props, projects: denseProjects }));
+    const isolated = scene(IslandStructure(props));
+    const visual = compact.named.get(`project-visual-${project.id}`);
+    const matrix = new THREE.Matrix4().fromArray(visual.matrix);
+    const position = new THREE.Vector3().setFromMatrixPosition(matrix);
+    assert.deepEqual([position.x, position.y, position.z], [project.position.x, .025, project.position.z], 'Adaptive display keeps the exact saved site anchor');
+    const scale = new THREE.Vector3().setFromMatrixScale(matrix);
+    assert.deepEqual(scale.toArray(), [.45, .45, .45], 'Fixture, recipe and selection footprint share one uniform scale');
+    for (const [name, detail] of compact.named) if (name.startsWith('assembly')) {
+      const expected = new THREE.Matrix4().makeTranslation(position.x, position.y, position.z)
+        .scale(scale).multiply(new THREE.Matrix4().makeTranslation(-position.x, -position.y, -position.z))
+        .multiply(new THREE.Matrix4().fromArray(isolated.named.get(name).matrix));
+      assert.ok(expected.toArray().every((value, index) => Math.abs(value - detail.matrix[index]) < 1e-9), 'Every approved part retains its relative proportions and orientation inside the uniformly scaled site');
+    }
+    return compact;
+  });
+  for (let index = 1; index < rendered.length; index++) {
+    const previous = rendered[index - 1].named.get(`project-visual-dense-${index - 1}`).bounds;
+    const next = rendered[index].named.get(`project-visual-dense-${index}`).bounds;
+    assert.ok(previous[3] < next[0], 'A dense row of saved builds has visible space between complete sites instead of a solid wall');
+  }
+  denseViews.push(rendered.map(view => [...view.named.entries()].filter(([name]) => name.startsWith('assembly')).map(([name, detail]) => [name, detail.matrix])));
+}
+assert.deepEqual(denseViews[0], denseViews[1], 'Crowded recipes stay identical in island and factory representations');
+assert.equal(JSON.stringify(denseProjects), denseSnapshot, 'Adaptive presentation never rewrites saved projects or their recipes');
 
 const world = readFileSync(new URL('../src/components/WorldScene.tsx', import.meta.url), 'utf8');
 // Render the actual island component tree. Only its browser label and Drei line
