@@ -224,7 +224,9 @@ class ProviderQueue:
         self.requests_per_minute = max(1, int(requests_per_minute))
         self.requests_per_day = max(1, int(requests_per_day))
         self.max_pending = max(1, int(max_pending))
+        self.pacing_mode = 'fast'
         self.min_dispatch_interval_seconds = 60. / self.requests_per_minute
+        self._pacing_changed = asyncio.Event()
         self.semaphore = asyncio.Semaphore(self.concurrency)
         self._admission_lock = asyncio.Lock()
         self._minute_dispatches = deque()
@@ -235,6 +237,40 @@ class ProviderQueue:
         self.waiting = self.active = self.completed = self.throttled = 0
         self.local_rejected = 0
         self.last_error = self.last_local_error = None
+
+    def pacing(self):
+        options = [{'mode': mode, 'label': mode.title(),
+                    'requests_per_minute': self.requests_per_minute * fraction,
+                    'min_dispatch_interval_seconds': 60. / (self.requests_per_minute * fraction)}
+                   for mode, fraction in (('slow', .25), ('steady', .5), ('fast', 1.))]
+        selected = next(option for option in options if option['mode'] == self.pacing_mode)
+        return {'mode': self.pacing_mode, 'options': options, 'paused': self.paused,
+                'effective_requests_per_minute': selected['requests_per_minute'],
+                'hard_limit_requests_per_minute': self.requests_per_minute}
+
+    def set_pacing(self, mode):
+        if mode not in ('slow', 'steady', 'fast'):
+            raise ValueError('Unknown request pace.')
+        if mode == self.pacing_mode:
+            return
+        self.pacing_mode = mode
+        self.min_dispatch_interval_seconds = 60. / self.pacing()['effective_requests_per_minute']
+        # Each waiter owns the old event, so a change wakes all of them without
+        # an event.clear race. In-flight operations and quota history stay intact.
+        changed, self._pacing_changed = self._pacing_changed, asyncio.Event()
+        changed.set()
+
+    async def _wait_for_pacing(self, delay, changed):
+        sleeper = asyncio.create_task(self.sleep(delay))
+        updater = asyncio.create_task(changed.wait())
+        try:
+            await asyncio.wait((sleeper, updater), return_when=asyncio.FIRST_COMPLETED)
+            if sleeper.done():
+                sleeper.result()
+        finally:
+            for task in (sleeper, updater):
+                if not task.done(): task.cancel()
+            await asyncio.gather(sleeper, updater, return_exceptions=True)
 
     def _prune(self, now):
         while self._minute_dispatches and self._minute_dispatches[0] <= now - 60.:
@@ -275,12 +311,13 @@ class ProviderQueue:
                 self._prune(now)
                 self._require_daily_allowance(now)
                 delay, _ = self._wait_condition(now)
+                changed = self._pacing_changed
                 if delay <= 0:
                     self._minute_dispatches.append(now)
                     self._day_dispatches.append(now)
                     self._last_dispatch = now
                     return
-            await self.sleep(delay)
+            await self._wait_for_pacing(delay, changed)
             self.require_enabled()
 
     async def run(self, model, operation, category='agent'):
@@ -331,6 +368,7 @@ class ProviderQueue:
                 'last_error': self.last_error,
                 'last_local_error': self.last_local_error, 'local_rejected': self.local_rejected,
                 'counter_scope': 'process_lifetime',
+                'pacing': self.pacing(),
                 'local_limits': {'requests_per_minute': self.requests_per_minute,
                     'requests_per_day': self.requests_per_day, 'max_pending': self.max_pending,
                     'min_dispatch_interval_seconds': self.min_dispatch_interval_seconds,

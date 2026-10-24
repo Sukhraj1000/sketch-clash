@@ -52,11 +52,16 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             requests_per_day=settings.gemini_requests_per_day, max_pending=settings.gemini_max_pending)
         app.state.repository = repository
         app.state.store_error = None
+        app.state.provider_controls = None
         if app.state.repository is None:
             try:
                 app.state.repository = await asyncio.to_thread(create_repository, settings)
             except StoreError as exc:
                 app.state.store_error = exc
+        if app.state.repository:
+            from .provider_controls import ProviderControls
+            app.state.provider_controls = ProviderControls(app.state.repository, app.state.provider_queue)
+            await asyncio.to_thread(app.state.provider_controls.load)
         if recognizer is not None:
             app.state.recognizer = recognizer
         else:
@@ -191,6 +196,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     register_observatory_routes(app)
     from .provider_diagnostics import register_provider_diagnostics
     register_provider_diagnostics(app)
+    from .provider_controls import register_provider_controls
+    register_provider_controls(app)
     from .arena import register_arena_routes
     register_arena_routes(app)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],

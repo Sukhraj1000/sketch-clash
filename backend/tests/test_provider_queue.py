@@ -183,7 +183,9 @@ class ManualClock:
 
 
 async def drain_tasks():
-    for _ in range(5): await asyncio.sleep(0)
+    # Admission now races a timer against live pace updates and cancels the
+    # losing waiter. Let those callbacks settle before advancing logical time.
+    for _ in range(20): await asyncio.sleep(0)
 
 
 def test_default_caps_are_explicitly_local_and_restart_scoped():
