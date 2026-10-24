@@ -17,7 +17,7 @@ function componentModule(filename, replacements = {}) {
   });
   assert.equal(result.errors.length, 0, `${filename} compiles for inspection`);
   let code = result.code;
-  for (const [from, to] of Object.entries({ 'react/jsx-runtime': jsxRuntime, ...replacements })) {
+  for (const [from, to] of Object.entries({ 'react/jsx-runtime': jsxRuntime, three: import.meta.resolve('three'), ...replacements })) {
     code = code.replaceAll(JSON.stringify(from), JSON.stringify(to)).replaceAll(`'${from}'`, JSON.stringify(to));
   }
   return sourceUrl(code);
@@ -34,7 +34,7 @@ const { default: IslandStructure } = await import(componentModule('../src/compon
   '../lib/island': new URL('../src/lib/island.ts', import.meta.url).href,
   react: sourceUrl('export const useRef = value => ({ current: value }); export const useEffect = () => {};'),
   '@react-three/fiber': sourceUrl('export const useFrame = () => {};'),
-  three: pathToFileURL(require.resolve('three')).href,
+  three: import.meta.resolve('three'),
 }));
 
 function inspect(node, parent = new THREE.Matrix4(), result = { named: new Map(), geometry: [], colors: new Set() }) {

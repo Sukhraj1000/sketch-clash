@@ -1,75 +1,131 @@
 import type { IslandProject } from '../lib/island'
 import { FACTORY, FactoryBox as Box, FactoryPaint as Paint, FloorMark } from './FactoryPrimitives'
 
+const FRAME = '#667078'
+const DARK_STEEL = '#39434A'
+const GROW_GREEN = '#425D3D'
+
+/** Short tube sections keep fixtures readable without turning them into oversized toy blocks. */
+function Tube({ position, length, radius = .018, rotation = [0, 0, 0], color = FRAME }: { position: [number, number, number]; length: number; radius?: number; rotation?: [number, number, number]; color?: string }) {
+  return <mesh position={position} rotation={rotation} castShadow receiveShadow>
+    <cylinderGeometry args={[radius, radius, length, 10]} />
+    <Paint color={color} material="steel" />
+  </mesh>
+}
+
 function GrowShelves({ progress }: { progress: number }) {
   return <group name="factory-grow-shelves">
-    <Box position={[0, .05, 0]} size={[1.65, .1, 1.05]} color={FACTORY.ink} />
-    {progress > .15 && [-.73, .73].flatMap(x => [-.4, .4].map(z => <Box key={`${x}-${z}`} position={[x, .46, z]} size={[.06, .82, .06]} color={FACTORY.paper} />))}
-    {progress > .32 && [.23, .72].map(y => <group key={y} position={[0, y, 0]}>
-      <Box size={[1.55, .055, .9]} color={FACTORY.metal} />
-      {progress > .6 && [-.48, 0, .48].map(x => <group key={x} position={[x, .1, 0]}>
-        <Box size={[.35, .15, .58]} color={FACTORY.paper} />
-        <Box position={[0, .08, 0]} size={[.29, .02, .5]} color="#455A4C" />
-        {progress > .82 && [-.15, .15].map(z => <group key={z} position={[0, .11, z]}>
-          <mesh position={[0, .075, 0]} castShadow><cylinderGeometry args={[.018, .025, .15, 5]} /><Paint color="#67A56A" /></mesh>
-          {[-1, 1].map(side => <mesh key={side} position={[side * .045, .12, 0]} rotation={[0, 0, side * -.65]} scale={[.7, 1, .45]} castShadow><octahedronGeometry args={[.1]} /><Paint color={FACTORY.teal} /></mesh>)}
+    {[-.76, .76].flatMap(x => [-.4, .4].map(z => <Box key={`foot-${x}-${z}`} position={[x, .035, z]} size={[.13, .07, .13]} color={FACTORY.ink} material="rubber" />))}
+    {progress > .15 && <>
+      {[-.76, .76].flatMap(x => [-.4, .4].map(z => <Box key={`${x}-${z}`} position={[x, .8, z]} size={[.045, 1.5, .045]} color={FRAME} material="steel" />))}
+      {[-.4, .4].map(z => <Box key={z} position={[0, 1.53, z]} size={[1.56, .045, .04]} color={FRAME} material="steel" />)}
+      <Box position={[0, .8, -.415]} size={[.025, 1.6, .025]} rotation={[0, 0, .8]} color={FRAME} material="steel" />
+    </>}
+    {progress > .32 && [.35, .94].map(y => <group key={y} position={[0, y, 0]}>
+      <Box size={[1.53, .055, .84]} color={FACTORY.metal} material="steel" />
+      <Box position={[0, .07, 0]} size={[1.42, .09, .73]} color={DARK_STEEL} material="paint" />
+      <Box position={[0, .12, 0]} size={[1.32, .025, .63]} color="#28322D" material="rubber" />
+      {progress > .6 && <>
+        <Box position={[0, .46, 0]} size={[1.32, .04, .12]} color={FACTORY.metal} material="steel" />
+        <Box position={[0, .435, 0]} size={[1.2, .008, .075]} color="#B6C9BA" shadow={false} />
+        {[-.48, 0, .48].map(x => <group key={x} position={[x, .16, 0]}>
+          <mesh castShadow><cylinderGeometry args={[.095, .075, .1, 10]} /><Paint color="#303735" material="rubber" /></mesh>
+          {progress > .82 && [-1, 1].map(side => <mesh key={side} position={[side * .05, .09, 0]} rotation={[0, side * .3, side * -.55]} scale={[.048, .15, .018]} castShadow><sphereGeometry args={[1, 8, 6]} /><Paint color={GROW_GREEN} /></mesh>)}
         </group>)}
-      </group>)}
+      </>}
     </group>)}
+    {progress > .6 && <>
+      <Box position={[.55, .145, -.02]} size={[.32, .2, .55]} color="#7C8580" material="paint" />
+      <Tube position={[.7, .8, -.36]} length={1.22} radius={.014} color="#263638" />
+    </>}
   </group>
 }
 
 function FabricationBench({ progress }: { progress: number }) {
   return <group name="factory-fabrication-bench">
-    <Box position={[0, .045, 0]} size={[1.65, .09, 1.1]} color={FACTORY.ink} />
-    {progress > .15 && [-.64, .64].map(x => <Box key={x} position={[x, .34, 0]} size={[.15, .6, .7]} color={FACTORY.paper} />)}
-    {progress > .35 && <>
-      <Box position={[0, .67, 0]} size={[1.65, .12, .95]} color={FACTORY.ink} />
-      <Box position={[0, .74, 0]} size={[1.57, .035, .87]} color={FACTORY.paper} />
-      {[-.45, .45].map(x => <Box key={x} position={[x, .42, .37]} size={[.35, .24, .04]} color={FACTORY.teal} />)}
+    {[-.72, .72].flatMap(x => [-.38, .38].map(z => <Box key={`foot-${x}-${z}`} position={[x, .035, z]} size={[.14, .07, .14]} color={FACTORY.ink} material="rubber" />))}
+    {progress > .15 && <>
+      {[-.72, .72].flatMap(x => [-.38, .38].map(z => <Box key={`${x}-${z}`} position={[x, .43, z]} size={[.055, .8, .055]} color={DARK_STEEL} material="steel" />))}
+      <Box position={[0, .23, -.38]} size={[1.45, .055, .055]} color={DARK_STEEL} material="steel" />
     </>}
-    {progress > .6 && <group position={[-.36, .8, 0]}>
-      <Box size={[.38, .08, .3]} color={FACTORY.metal} />
-      <Box position={[-.11, .095, 0]} size={[.08, .15, .3]} color={FACTORY.ink} />
-      <Box position={[.11, .095, 0]} size={[.08, .15, .3]} color={FACTORY.teal} />
-      <Box position={[0, .16, 0]} size={[.14, .06, .22]} color={FACTORY.yellow} />
+    {progress > .35 && <>
+      <Box position={[0, .85, 0]} size={[1.76, .08, 1.02]} color={FRAME} material="steel" />
+      <Box position={[0, .898, 0]} size={[1.71, .016, .97]} color="#A3AAAC" material="steel" />
+      {[-.52, -.26, 0, .26, .52].map(x => <Box key={x} position={[x, .909, 0]} size={[.015, .003, .82]} color={DARK_STEEL} material="rubber" shadow={false} />)}
+      <Box position={[-.46, .57, 0]} size={[.44, .45, .7]} color="#5E6C6C" material="paint" />
+      {[.46, .65].map(y => <group key={y}>
+        <Box position={[-.46, y, .36]} size={[.4, .16, .025]} color="#718080" material="paint" />
+        <Tube position={[-.46, y + .025, .388]} length={.22} radius={.012} rotation={[0, 0, Math.PI / 2]} />
+      </group>)}
+      <Box position={[.48, .29, 0]} size={[.49, .035, .68]} color={FRAME} material="steel" />
+    </>}
+    {progress > .6 && <group position={[-.39, .96, .17]}>
+      <Box size={[.36, .09, .28]} color={DARK_STEEL} material="steel" />
+      <Box position={[-.11, .1, 0]} size={[.075, .16, .28]} color="#5B6B71" material="paint" />
+      <Box position={[.09, .1, 0]} size={[.075, .16, .28]} color="#5B6B71" material="paint" />
+      {[-.065, .045].map(x => <Box key={x} position={[x, .145, 0]} size={[.025, .065, .26]} color={FACTORY.metal} material="steel" />)}
+      <Tube position={[.25, .055, 0]} length={.22} radius={.016} rotation={[0, 0, Math.PI / 2]} />
+      <Tube position={[.36, .055, 0]} length={.19} radius={.012} />
     </group>}
-    {progress > .82 && <group position={[.45, .8, .04]} rotation={[0, -.3, 0]}>
-      <Box size={[.3, .045, .4]} color={FACTORY.teal} />
-      <Box position={[.01, .07, 0]} size={[.045, .06, .3]} color={FACTORY.ink} />
-      <Box position={[.01, .07, -.15]} size={[.2, .08, .08]} color={FACTORY.metal} />
+    {progress > .82 && <group position={[.48, .94, -.16]}>
+      <Box size={[.37, .055, .4]} color={DARK_STEEL} material="steel" />
+      <Tube position={[0, .3, -.12]} length={.6} radius={.03} />
+      <Box position={[0, .57, -.02]} size={[.22, .16, .34]} color="#6A7A7B" material="paint" />
+      <Box position={[0, .24, .03]} size={[.3, .035, .26]} color={FRAME} material="steel" />
+      <Tube position={[0, .39, .1]} length={.19} radius={.013} />
+      <Tube position={[.18, .52, -.02]} length={.25} radius={.013} rotation={[0, 0, .8]} />
     </group>}
   </group>
 }
 
 function CommsTerminal({ progress }: { progress: number }) {
   return <group name="factory-comms-terminal">
-    <Box position={[0, .06, 0]} size={[1, .12, .85]} color={FACTORY.ink} />
-    {progress > .15 && <Box position={[0, .38, 0]} size={[.58, .62, .48]} color={FACTORY.paper} />}
-    {progress > .4 && <>
-      <Box position={[0, .49, .253]} size={[.4, .3, .025]} color={FACTORY.ink} />
-      {[-.12, 0, .12].map((x, i) => <Box key={x} position={[x, .45 + i * .045, .27]} size={[.055, .1 + i * .07, .015]} color={FACTORY.teal} shadow={false} />)}
-      <Box position={[0, .75, -.08]} size={[.34, .1, .3]} color={FACTORY.metal} />
+    <Box position={[0, .055, 0]} size={[.88, .11, .76]} color={DARK_STEEL} material="steel" />
+    {progress > .15 && <>
+      <Box position={[0, .6, 0]} size={[.68, 1.04, .55]} color="#778385" material="paint" />
+      <Box position={[0, .51, .285]} size={[.6, .8, .024]} color="#6A777B" material="paint" />
+      <Box position={[.23, .59, .315]} size={[.018, .13, .022]} color={FACTORY.ink} material="rubber" />
+      {[.28, .32, .36, .4].map(y => <Box key={y} position={[-.03, y, .301]} size={[.36, .012, .007]} color={DARK_STEEL} shadow={false} />)}
     </>}
-    {progress > .7 && <group position={[0, 1.03, -.08]}>
-      <mesh castShadow><cylinderGeometry args={[.045, .055, .48, 8]} /><Paint color={FACTORY.ink} /></mesh>
-      <group position={[0, .15, 0]} rotation={[.6, 0, 0]}>
-        <mesh castShadow><sphereGeometry args={[.34, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2]} /><Paint color={FACTORY.paper} /></mesh>
-        <mesh position={[0, .04, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.32, .025, 5, 12]} /><Paint color={FACTORY.teal} /></mesh>
-      </group>
-      {progress >= 1 && <mesh position={[0, .39, .06]}><sphereGeometry args={[.055, 8, 6]} /><Paint color={FACTORY.yellow} glow /></mesh>}
-    </group>}
+    {progress > .4 && <>
+      <Box position={[0, .93, .317]} size={[.5, .34, .07]} color={FACTORY.ink} material="rubber" />
+      <Box position={[0, .94, .356]} size={[.44, .25, .012]} color="#173337" material="glass" shadow={false} />
+      {[-.055, .015, .085].map((y, i) => <Box key={y} position={[-.045, .94 + y, .364]} size={[.19 + i * .035, .012, .002]} color="#70998E" shadow={false} />)}
+      <Box position={[0, .71, .39]} size={[.56, .035, .25]} rotation={[.16, 0, 0]} color={FRAME} material="steel" />
+      <Box position={[-.03, .738, .4]} size={[.35, .012, .13]} rotation={[.16, 0, 0]} color="#253037" material="rubber" />
+      <mesh position={[.2, .78, .323]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[.015, .015, .012, 10]} /><Paint color={FACTORY.teal} glow /></mesh>
+    </>}
+    {progress > .7 && <>
+      <Box position={[-.2, 1.17, -.07]} size={[.2, .1, .25]} color={DARK_STEEL} material="steel" />
+      <Tube position={[-.2, 1.46, -.07]} length={.51} radius={.018} />
+      <Box position={[-.2, 1.73, -.07]} size={[.16, .23, .11]} color="#A7AEAD" material="paint" />
+      <Tube position={[.2, 1.4, -.1]} length={.56} radius={.009} color={DARK_STEEL} />
+      <Tube position={[.3, 1.3, -.1]} length={.36} radius={.009} color={DARK_STEEL} />
+      <Tube position={[-.37, .68, -.17]} length={1.06} radius={.015} color="#293236" />
+      {progress >= 1 && <Box position={[.23, 1.16, .08]} size={[.07, .025, .07]} color={FACTORY.teal} material="glass" />}
+    </>}
   </group>
 }
 
 function ServiceWalkway({ progress }: { progress: number }) {
   return <group name="factory-service-walkway" rotation={[0, -.43, 0]}>
-    {Array.from({ length: Math.max(1, Math.floor(progress * 10)) }, (_, i) => <group key={i} position={[(i - 4) * .2, .09, 0]}>
-      <Box size={[.18, .12, 1.1]} color={i % 2 ? FACTORY.metal : FACTORY.paper} />
-      {[-.48, .48].map(z => <Box key={z} position={[0, .065, z]} size={[.17, .015, .075]} color={i % 2 ? FACTORY.ink : FACTORY.yellow} shadow={false} />)}
+    {[-.48, .48].map(z => <Box key={z} position={[0, .12, z]} size={[1.9, .16, .045]} color={DARK_STEEL} material="steel" />)}
+    {Array.from({ length: Math.max(1, Math.floor(progress * 10)) }, (_, i) => <group key={i} position={[(i - 4.5) * .185, .205, 0]}>
+      <Box size={[.14, .035, .98]} color="#818C91" material="steel" />
+      <Box position={[0, .02, 0]} size={[.025, .007, .85]} color={DARK_STEEL} material="steel" shadow={false} />
     </group>)}
-    {progress > .55 && [-.75, .75].map(x => <Box key={x} position={[x, .3, -.5]} size={[.045, .6, .045]} color={FACTORY.ink} />)}
-    {progress >= 1 && <Box position={[0, .58, -.5]} size={[1.6, .06, .06]} color={FACTORY.yellow} />}
+    {progress > .55 && <>
+      {[-.78, .78].map(x => <group key={x}>
+        <Box position={[x, .035, -.48]} size={[.14, .07, .17]} color={FRAME} material="steel" />
+        <Tube position={[x, .52, -.48]} length={.84} radius={.022} color="#8A8D72" />
+      </group>)}
+      <Box position={[-.97, .09, 0]} size={[.15, .08, .88]} color={DARK_STEEL} material="steel" />
+      <Box position={[.97, .09, 0]} size={[.15, .08, .88]} color={DARK_STEEL} material="steel" />
+    </>}
+    {progress >= 1 && <>
+      {[.6, .93].map(y => <Tube key={y} position={[0, y, -.48]} length={1.62} radius={.022} rotation={[0, 0, Math.PI / 2]} color="#8A8D72" />)}
+      {[-.97, .97].map(x => <Box key={x} position={[x, .135, 0]} size={[.04, .007, .88]} color={FACTORY.yellow} shadow={false} />)}
+    </>}
   </group>
 }
 
@@ -81,7 +137,7 @@ export function FactoryStructureVisual({ project, progress: rawProgress }: { pro
     <FloorMark width={project.kind === 'beacon' ? 1.3 : 2} depth={project.kind === 'beacon' ? 1.15 : 1.4} color={FACTORY.metal} />
     {project.kind === 'garden' ? <GrowShelves progress={progress} /> : project.kind === 'workshop' ? <FabricationBench progress={progress} /> : project.kind === 'beacon' ? <CommsTerminal progress={progress} /> : project.kind === 'boardwalk' ? <ServiceWalkway progress={progress} /> : null}
     {project.level >= 2 && <group position={[-.65, .1, .55]}>
-      <Box size={[.24, .16, .15]} color={FACTORY.ink} />
+      <Box size={[.24, .16, .15]} color={FACTORY.ink} material="paint" />
       {Array.from({ length: Math.min(3, Math.max(0, project.level)) }, (_, i) => <Box key={i} position={[-.07 + i * .07, .02, .083]} size={[.035, .07, .012]} color={FACTORY.teal} shadow={false} />)}
     </group>}
   </group>
