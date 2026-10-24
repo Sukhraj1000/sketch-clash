@@ -6,6 +6,7 @@ import type { ColoniesSnapshot } from '../lib/colonies'
 import { eventCategory, eventLabel, mergeEvents, observatory } from '../lib/observatory'
 import type { AgentEvent, CouncilSession, ObservatoryMetrics, TraceDetail, RequestPacing, RequestPaceMode, Contributions, EventEvidence } from '../lib/observatory'
 import './Observatory.css'
+import { startIndependentPoll } from '../lib/independentPolling'
 import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
 
 const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})
@@ -39,7 +40,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   const [receiptId, setReceiptId] = useState<string | null>(null)
   const inspectorRef = useRef<HTMLElement>(null)
   const [metricsSnapshot, setMetricsSnapshot] = useState<{island: string; at: string; value: ObservatoryMetrics} | null>(null)
-  const [dataWarnings, setDataWarnings] = useState<string[]>([])
+  const [dataWarnings, setDataWarnings] = useState<Record<string, string>>({})
   const [snapshotAt, setSnapshotAt] = useState('')
   const [sessionsAt, setSessionsAt] = useState('')
   const [sessions, setSessions] = useState<CouncilSession[]>([])
@@ -116,38 +117,33 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
 
   useEffect(() => {
     const controller = new AbortController()
-    let busy = false
-    const refresh = async () => {
-      if (busy) return
-      busy = true
-      const revision = paceRevision.current
-      const result = await Promise.allSettled([
-        coloniesRequest<ColoniesSnapshot>('', {}, controller.signal),
-        observatory.metrics(island, controller.signal), observatory.sessions(controller.signal),
-        observatory.pacing(controller.signal), observatory.contributions(controller.signal),
-      ])
-      if (!controller.signal.aborted) {
-        const at = new Date().toISOString()
-        const warnings: string[] = []
-        if (result[0].status === 'fulfilled') {setSnapshot(result[0].value); setSnapshotAt(at)}
-        else {setSnapshot(null); warnings.push('Current island state is unavailable.')}
-        if (result[1].status === 'fulfilled') setMetricsSnapshot({island, at, value:result[1].value})
-        else {setMetricsSnapshot(null); warnings.push('Metrics for the selected island are unavailable.')}
-        if (result[2].status === 'fulfilled') {setSessions(result[2].value.sessions); setSessionsAt(at)}
-        else {setSessions([]); warnings.push('Saved council history is unavailable.')}
-        setDataWarnings(warnings)
-        if (revision === paceRevision.current) {
-          if (result[3].status === 'fulfilled') {setPacing(result[3].value); setPaceError('')}
+    const warning = (key: string, message = '') => setDataWarnings(current => ({...current, [key]: message}))
+    const now = () => new Date().toISOString()
+    const stop = [
+      startIndependentPoll(() => coloniesRequest<ColoniesSnapshot>('', {}, controller.signal), value => {
+        setSnapshot(value); setSnapshotAt(now()); warning('state')
+      }, () => {setSnapshot(null); warning('state', 'Current island state is unavailable.')}, controller.signal),
+      startIndependentPoll(() => observatory.metrics(island, controller.signal), value => {
+        setMetricsSnapshot({island, at:now(), value}); warning('metrics')
+      }, () => {setMetricsSnapshot(null); warning('metrics', 'Metrics for the selected island are unavailable.')}, controller.signal),
+      startIndependentPoll(() => observatory.sessions(controller.signal), value => {
+        setSessions(value.sessions); setSessionsAt(now()); warning('sessions')
+      }, () => {setSessions([]); setSessionsAt(''); warning('sessions', 'Saved council history is unavailable.')}, controller.signal),
+      startIndependentPoll(async () => {
+        const revision = paceRevision.current
+        try { return {revision, value:await observatory.pacing(controller.signal)} }
+        catch { return {revision, value:null} }
+      }, result => {
+        if (result.revision === paceRevision.current) {
+          if (result.value) {setPacing(result.value); setPaceError('')}
           else setPaceError('Request pace is unavailable. The existing backend limits remain in force.')
         }
-        if (result[4].status === 'fulfilled') {setContributions(result[4].value); setContributionError('')}
-        else setContributionError('Saved contribution totals are unavailable. Last loaded totals may be out of date.')
-      }
-      busy = false
-    }
-    void refresh()
-    const interval = window.setInterval(refresh, 8000)
-    return () => { controller.abort(); window.clearInterval(interval) }
+      }, () => setPaceError('Request pace is unavailable. The existing backend limits remain in force.'), controller.signal),
+      startIndependentPoll(() => observatory.contributions(controller.signal), value => {
+        setContributions(value); setContributionError('')
+      }, () => {setContributions(null); setContributionError('Saved contribution totals are unavailable.')}, controller.signal),
+    ]
+    return () => { controller.abort(); stop.forEach(cancel => cancel()) }
   }, [island, retry])
 
   useEffect(() => {
@@ -324,11 +320,11 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
           const colony = snapshot?.colonies.find(item => item.id === side)
           const visibleEvents = mode === 'replay' ? filtered.slice(0, position + 1) : events
           const last = [...visibleEvents].reverse().find(item => item.island_id === side)
-          return <section className={`obs-shore obs-shore-${side} ${island !== 'all' && island !== side ? 'is-dim' : ''}`} key={side}><header><span>{side === 'winners' ? '01' : '02'}</span><div><h2>{side === 'winners' ? 'WINNER ISLAND' : 'LOSER ISLAND'}</h2><p>{colony?.characters.length || 0} {mode === 'replay' ? 'current residents · replaying events' : 'residents · separate memories'}</p></div></header><div className="obs-agent-roster">{colony?.characters.slice(0, 6).map(character => {
+          return <section className={`obs-shore obs-shore-${side} ${island !== 'all' && island !== side ? 'is-dim' : ''}`} key={side}><header><span>{side === 'winners' ? '01' : '02'}</span><div><h2>{side === 'winners' ? 'WINNER ISLAND' : 'LOSER ISLAND'}</h2><p>{colony ? `${colony.characters.length} ${mode === 'replay' ? 'current residents · replaying events' : 'residents · separate memories'}` : 'Resident state unavailable'}</p></div></header><div className="obs-agent-roster">{colony?.characters.slice(0, 6).map(character => {
             const agent = colony.island.agents.find(item => item.character_id === character.id)
             const speaking = Boolean(current && (current.actor_id === agent?.id || current.actor_id === character.id)) || (mode === 'live' && pendingActors.some(item => item.actor_id === agent?.id || item.actor_id === character.id))
             return <button className={`obs-resident ${speaking ? 'is-speaking' : ''}`} key={character.id} onClick={() => { const event = [...events].reverse().find(item => item.actor_id === agent?.id || item.actor_id === character.id); if (event) inspectEvent(event) }} title={character.display_name}><div><img src={character.image_ref} alt={character.object_type}/>{speaking && <MessageSquare size={13}/>}</div><b>{character.object_type}</b><small>{agent?.persona.role || 'Resident'}</small></button>
-          })}{!colony?.characters.length && <p className="obs-empty-crew">New objects arrive here after a battle. Their attributes change what the crew can attempt.</p>}</div><div className="obs-shore-base"><span/><span/><span/></div><footer><BrainCircuit size={14}/><p>{last?.message || 'No committed activity recorded for this crew yet.'}</p></footer></section>
+          })}{colony && !colony.characters.length && <p className="obs-empty-crew">New objects arrive here after a battle. Their attributes change what the crew can attempt.</p>}</div><div className="obs-shore-base"><span/><span/><span/></div><footer><BrainCircuit size={14}/><p>{last?.message || 'No committed activity recorded for this crew yet.'}</p></footer></section>
         })}
       </div>
       <button className={`obs-memory-core ${current ? 'is-active' : ''}`} onClick={() => current && inspectEvent(current)} aria-label="Inspect the current committed event"><div className="obs-memory-disc"><Database size={34}/><span>ATLAS</span></div><div className="obs-memory-shelf"/><div className="obs-memory-shelf"/><strong>SHARED MEMORY</strong><small>State · discussion · evidence</small><span className="obs-commit-label"><CheckCheck size={12}/> {current ? 'EVENT COMMITTED' : 'DURABLE WHEN SAVED'}</span></button>
@@ -337,7 +333,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
       <div className="obs-machine-caption"><GitBranch size={13}/><span>Gemini proposes when enabled. Local workers validate and execute. Atlas preserves the evidence.</span></div>
     </section>
 
-    <div className="obs-contribution-notice" role="status">{dataWarnings.length > 0 ? dataWarnings.join(' ') : 'Data sources loaded independently of the event stream.'}<br/>Island state: {snapshot && snapshotAt ? time(snapshotAt) : 'unavailable'} · Metrics: {metrics && metricsSnapshot ? time(metricsSnapshot.at) : 'unavailable'} · Council history: {sessions.length && sessionsAt ? time(sessionsAt) : 'no loaded sessions'}</div>
+    <div className="obs-contribution-notice" role="status">{Object.values(dataWarnings).some(Boolean) ? Object.values(dataWarnings).filter(Boolean).join(' ') : 'Data sources loaded independently of the event stream.'}<br/>Island state: {snapshot && snapshotAt ? time(snapshotAt) : 'unavailable'} · Metrics: {metrics && metricsSnapshot ? time(metricsSnapshot.at) : 'unavailable'} · Council history: {sessionsAt ? time(sessionsAt) : 'unavailable'}</div>
     <section className="obs-metrics" aria-label="Measured activity over the last hour"><div><span><Sparkles size={13}/> MODEL REQUESTS</span><strong>{metrics ? modelRequests : '—'}</strong><small>Recorded in the last hour{metrics?.event_counts_sampled ? ' · sampled' : ''}</small></div><div><span><BrainCircuit size={13}/> MODEL TOKENS</span><strong>{metrics ? totalTokens.toLocaleString() : '—'}</strong><small>Provider-reported token usage</small></div><div><span><FlaskConical size={13}/> EXPERIMENTS</span><strong>{metrics ? experiments : '—'}</strong><small>Completed with recorded evidence</small></div><div><span><Timer size={13}/> TRACE LATENCY</span><strong>{metrics ? `${metrics.totals.mean_duration_ms.toLocaleString()} ms` : '—'}</strong><small>Mean across instrumented operations</small></div><div><span><Database size={13}/> STORED SPANS</span><strong>{metrics ? metrics.totals.count.toLocaleString() : '—'}</strong><small>{metrics?.totals.errors || 0} error spans · {metrics?.dropped_spans || 0} export drops</small></div></section>
 
     <section className="obs-contributions" aria-label="Character contributions from saved receipts">
