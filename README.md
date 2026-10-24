@@ -141,6 +141,10 @@ When storage is full, the executor stops scheduling collection that cannot add s
 
 Model councils discuss feasible projects and alternatives, with the backend checking the whole next upgrade before accepting agreement. Routine tasks gather resources using the selected goal and approved capabilities. Manual overrides have a **Return control to crew** action. Provider failure remains visible; the executor supplies no artificial model votes. Execution remains local, with Atlas persistence.
 
+Councils receive current funded projects, reusable production-tested designs, legal construction sites and uncovered benefits before choosing what to build. A successful test can become a blueprint without repeating the test; the next speakers see its real project ID and can agree to build it. Structures whose capped benefit is already covered are rejected instead of consuming stock for no additional benefit. Automatic councils alternate eligible islands, so repeated completions on one side cannot starve the other.
+
+Validated agreement immediately replaces eligible idle tasks with normal reserved work. A previous model choice to rest yields to newly useful work; explicit player assignments and active commitments are preserved. Scheduling is not a contribution: only completed tasks create receipts and executor board reports, linked back to the council. Slow still spaces island API calls; it does not delay the local construction handoff or resume evaluation batches.
+
 ## Atlas retrieval and persistence
 
 The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Island collections add `islandState`, `islandAgents`, `islandEvents`, `islandPlanner` and `islandReasoning`: transactional economy/buildings, durable tasks and personas, append-only action/command journals, daily budgets and recoverable plans. Quality collections hold exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
