@@ -38,6 +38,9 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.operator_gate = OperatorGate()
         app.state.quality = None
         app.state.quality_worker = None
+        app.state.island = None
+        app.state.island_runtime = None
+        app.state.island_planner = None
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:
@@ -79,7 +82,29 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 logger.warning('quality_startup_unavailable category=%s', type(exc).__name__)
                 if app.state.quality_worker is None: app.state.quality = None
                 # Optional quality services never break a valid live round.
+        if app.state.repository:
+            try:
+                from .island import IslandStore
+                from .island_api import IslandRuntime
+                from .island_planner import IslandPlanner
+                app.state.island = IslandStore(app.state.repository)
+                await asyncio.to_thread(app.state.island.ensure_indexes)
+                app.state.island_runtime = IslandRuntime(app.state.island)
+                await app.state.island_runtime.start()
+                app.state.island_planner = IslandPlanner(app.state.repository, app.state.island, settings)
+                await asyncio.to_thread(app.state.island_planner.ensure_indexes)
+                await app.state.island_planner.start()
+            except Exception as exc:
+                logger.warning('island_startup_unavailable category=%s', type(exc).__name__)
+                if app.state.island_planner:
+                    await app.state.island_planner.close()
+                    app.state.island_planner = None
+                if not app.state.island_runtime or not app.state.island_runtime.task:
+                    app.state.island_runtime = None
+                    app.state.island = None
         yield
+        if app.state.island_planner: await app.state.island_planner.close()
+        if app.state.island_runtime: await app.state.island_runtime.close()
         if app.state.quality_worker:
             await app.state.quality_worker.close()
         if getattr(app.state, 'references', None):
@@ -150,6 +175,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
                 'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index},
                 'quality': {'available': app.state.quality is not None, 'operator_required': True},
+                'island': {'available': app.state.island is not None, 'runtime': 'local_backend', 'state_store': app.state.repository.persistence if available else 'unavailable'},
                 'message': str(app.state.store_error) if app.state.store_error else ('Development memory mode: records disappear on restart.' if settings.repository == 'memory' else None)}
 
     @app.post('/api/battles', response_model=Battle)
@@ -250,6 +276,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                         headers={'Cache-Control': 'private, max-age=31536000, immutable', 'ETag': f'"{media_id}"'})
     from .quality_api import register_quality_routes
     register_quality_routes(app)
+    from .island_api import register_island_routes
+    register_island_routes(app)
     return app
 
 app = create_app()
