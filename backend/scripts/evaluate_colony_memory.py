@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.colonies import colony_world_id
-from app.colony_experiments import RULE_VERSION, canonical_digest, context_for, physical_properties, simulate_experiment
-from app.colony_learning import ColonyLearningStore, FINDINGS
+from app.colony_experiments import RULE_VERSION, physical_property_fingerprint, context_for, physical_properties, simulate_experiment
+from app.colony_learning import ColonyLearningStore, FINDINGS, DOSSIERS
 from app.config import Settings
 from app.repository import MemoryRepository
 
@@ -32,6 +32,9 @@ def evaluate():
          'context': {'span': .6, 'load': .2, 'support_count': 3}},
     ]
     def remember(tx):
+        for identifier, properties in (('beam', beam), ('support', support)):
+            tx.put(DOSSIERS, {'_id': identifier, 'id': identifier, 'world_id': scope, 'resident_id': identifier,
+                             'property_fingerprint': physical_property_fingerprint(properties)})
         for case in seed_cases:
             result = simulate_experiment(case['family'], case['properties'], case['context'])
             tx.put(FINDINGS, {'_id': case['id'], 'id': case['id'], 'world_id': scope,
@@ -39,7 +42,7 @@ def evaluate():
                              'rule_version': RULE_VERSION, 'status': 'tested_in_sim',
                              'context': result['context'], 'success': result['success'],
                              'claim': result['summary'], 'measurements': result['measurements'],
-                             'property_fingerprints': [canonical_digest(properties) for properties in case['properties']],
+                             'property_fingerprints': [physical_property_fingerprint(properties) for properties in case['properties']],
                              'updated_at': repo.clock(), 'supporting_experiment_ids': [f"training-{case['id']}"]})
     repo.transaction(remember)
     scenarios = [
@@ -59,7 +62,7 @@ def evaluate():
                              if finding['family'] == scenario['family']
                              and finding['subject_ids'] == scenario['subject_ids']
                              and finding['context'] == row['conditions']
-                             and finding['property_fingerprints'] == [canonical_digest(properties) for properties in scenario['properties']]), None)
+                             and finding['property_fingerprints'] == [physical_property_fingerprint(properties) for properties in scenario['properties']]), None)
             if matching:
                 success = matching['success']
                 action = 'reuse_tested_result' if success else 'avoid_known_failed_arrangement'

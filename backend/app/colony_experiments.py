@@ -9,6 +9,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import math
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -16,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .repository import StoreError
 
 RULE_VERSION = 'island-laboratory-v1'
+DOSSIER_EVIDENCE_VERSION = 'island-evidence-v2'
 BENCHMARK_VERSION = 'island-production-v1'
 # Normal island work has a declared bounded operating envelope. Passing a tiny
 # prototype test does not authorize a bonus for that normal production workload.
@@ -108,7 +110,48 @@ def production_validation(family: str, context: dict, success: bool) -> dict:
                        'A successful production benchmark is still required; this result remains valid only for its tested conditions.')}
 
 
-def physical_properties(features: list[str], visual_spec: dict | None = None) -> dict:
+def cavity_model(features: list[str], capabilities: list[str] | None = None) -> dict:
+    """Keep a missing photograph distinct from an authored game capability.
+
+    Existing capabilities can justify a simulated vessel, but do not become
+    observations about the photographed object. Explicit negative or conflicting
+    evidence is never overridden by a capability or an object name.
+    """
+    positive, negative = [], []
+    for feature in features:
+        text = str(feature).lower()
+        absence = re.search(r'\b(no|without|lacks?)(?:\s+\w+){0,2}\s+cavit(?:y|ies)\b|\b(?:not|non[- ]?)\s*hollow\b|\b(?:solid block|solid slab|fully solid|solid metal rectangular body)\b', text)
+        # Negated cavity language must not match the positive cue within it.
+        if absence:
+            negative.append(str(feature))
+        elif (re.search(r'\b(hollow|open[- ]top|opening|concave|container|vessel|reservoir|cavity)\b', text)
+              and not re.search(r'\b(no|not|without|lacks?)(?:\s+\w+){0,2}\s+(hollow|open[- ]top|opening|concave|container|vessel|reservoir|cavity)\b', text)):
+            positive.append(str(feature))
+    declared = sorted(set(capabilities or []).intersection({'contain_water', 'store_water'}))
+    if positive and negative:
+        return {'status': 'conflicting_evidence', 'authority': 'accepted_visible_features',
+                'evidence': positive + negative, 'detail': 'Recorded shape cues disagree; containment needs clarified evidence.'}
+    if positive:
+        return {'status': 'observed_cavity', 'authority': 'accepted_visible_features',
+                'evidence': positive, 'detail': 'A cavity is suggested by accepted visible features; capacity and leakage remain simulation assumptions.'}
+    if negative:
+        return {'status': 'observed_absence', 'authority': 'accepted_visible_features',
+                'evidence': negative, 'detail': 'Recorded shape evidence explicitly describes a solid proxy without a cavity.'}
+    if declared:
+        return {'status': 'declared_simulation_cavity', 'authority': 'declared_game_capability',
+                'evidence': declared, 'detail': 'An existing water-storage capability permits an authored vessel in this simulation. No photograph observation was recovered; a new test is still required.'}
+    return {'status': 'unknown', 'authority': 'missing_evidence', 'evidence': [],
+            'detail': 'No cavity observation or declared water-storage capability is available. Missing evidence does not establish a solid object.'}
+
+
+def physical_property_fingerprint(properties: dict) -> str:
+    # Evidence provenance is versioned separately from the numerical testbed.
+    return canonical_digest({key: value for key, value in properties.items()
+                             if not key.startswith('_') and key != 'provenance'})
+
+
+def physical_properties(features: list[str], visual_spec: dict | None = None,
+                        capabilities: list[str] | None = None) -> dict:
     """Author stable testbed properties from accepted visual evidence.
 
     Shape cues come from visible_features, not the canonical label. Stiffness,
@@ -125,7 +168,8 @@ def physical_properties(features: list[str], visual_spec: dict | None = None) ->
         height, length = .12 * height, 1.8 * width
     if any(cue in text for cue in ('tall', 'vertical')):
         height *= 1.35
-    hollow = any(cue in text for cue in ('hollow', 'open top', 'open-top', 'opening', 'concave', 'container', 'vessel', 'reservoir'))
+    cavity = cavity_model(features, capabilities)
+    hollow = cavity['status'] in ('observed_cavity', 'declared_simulation_cavity')
     material = next((kind for kind in ('metal', 'ceramic', 'glass', 'wood', 'plastic', 'paper', 'fabric') if kind in text), 'unknown')
     # No identity fields or random display seed participate in physics.
     seed = int(canonical_digest({'features': sorted(features), 'width': width, 'height': height})[:8], 16)
@@ -141,7 +185,10 @@ def physical_properties(features: list[str], visual_spec: dict | None = None) ->
             'stiffness': round(stiffness * variation, 5), 'friction': round(.35 + (seed % 30) / 100, 5),
             'capacity': round(width * height * depth * .7 if hollow else 0, 5),
             'leak_rate': permeability, 'material_assumption': material,
-            'provenance': 'authored_simulation_parameters_from_accepted_visible_features'}
+            'provenance': ('authored_simulation_proxy_from_declared_game_capability' if cavity['status'] == 'declared_simulation_cavity' else
+                           'authored_simulation_parameters_from_accepted_visible_features' if features else
+                           'authored_generic_simulation_proxy_without_recorded_shape_evidence'),
+            '_cavity_status': cavity['status'], '_cavity_authority': cavity['authority']}
 
 
 def _numeric_properties(properties: list[dict]) -> list[dict]:
@@ -180,6 +227,9 @@ def simulate_experiment(family: str, properties: list[dict], context: dict | Exp
                     'displacement': displacement, 'held_seconds': c['duration'] if success else 0}
         reason = 'The arrangement stayed in place.' if success else 'The arrangement slid or tipped under the specified wind and load.'
     elif family == 'contain':
+        if any(row.get('_cavity_status') in ('unknown', 'conflicting_evidence') for row in p):
+            raise StoreError('Cavity evidence is unknown or conflicting. Clarify the recorded shape evidence or use an already declared water-storage capability; no failed physical finding was created.',
+                             422, 'containment_evidence_missing')
         # Tilt changes the usable cavity; travel loss is proportional to leakage.
         tilt_factor = max(0, math.cos(math.radians(c['tilt_degrees'])) ** 2)
         capacities = [row['capacity'] * tilt_factor for row in p]
@@ -242,6 +292,11 @@ def validate_blueprint(proposal: BlueprintProposal | dict, dossiers: dict[str, d
         raise StoreError('A construction needs a successful current-version test of these ordered participants.', 422, 'blueprint_evidence_mismatch')
     if experiment.get('property_fingerprints') != [dossiers[identifier]['property_fingerprint'] for identifier in ids]:
         raise StoreError('The tested objects changed; this design needs a new experiment.', 422, 'blueprint_evidence_stale')
+    if value.family == 'contain' and any(
+            (dossiers[identifier].get('simulation_properties', {}).get('cavity_model') or
+             cavity_model(dossiers[identifier].get('observed_evidence', {}).get('visible_features', [])))['status']
+            in ('unknown', 'conflicting_evidence') for identifier in ids):
+        raise StoreError('Containment needs a supported current cavity model and a successful test of it.', 422, 'containment_evidence_missing')
     operational = production_validation(value.family, experiment['context'], experiment['result']['success'])
     if not operational['eligible']:
         missing = ', '.join(f"{row['field']} >= {row['required_minimum']}" for row in operational['unmet_requirements'])

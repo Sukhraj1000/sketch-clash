@@ -12,11 +12,13 @@ import re
 
 from pydantic import ValidationError
 
-from .colony_experiments import (BlueprintProposal, ExperimentSpec, RULE_VERSION, PRODUCTION_BENCHMARKS, canonical_digest,
-                                context_for, physical_properties, simulate_experiment, validate_blueprint)
+from .colony_experiments import (BlueprintProposal, ExperimentSpec, RULE_VERSION, DOSSIER_EVIDENCE_VERSION,
+                                PRODUCTION_BENCHMARKS, canonical_digest, cavity_model, context_for,
+                                physical_properties, physical_property_fingerprint, simulate_experiment, validate_blueprint)
 from .repository import StoreError, key_for
 
 DOSSIERS = 'colonyObjectDossiers'
+DOSSIER_REVISIONS = 'colonyObjectDossierRevisions'
 EXPERIMENTS = 'colonyExperiments'
 FINDINGS = 'colonyFindings'
 BLUEPRINTS = 'colonyBlueprints'
@@ -64,6 +66,31 @@ def _covered_structure_actions(projects, resource):
     return covered
 
 
+def evidence_status(record, dossiers):
+    """Read-time applicability, keeping the original experiment/finding intact."""
+    if record.get('rule_version') != RULE_VERSION:
+        return 'historical_rules'
+    ids = record.get('subject_ids') or []
+    subjects = [dossiers.get(identifier) for identifier in ids]
+    if not ids or any(row is None for row in subjects):
+        return 'missing_subject_evidence'
+    if record.get('property_fingerprints') != [row['property_fingerprint'] for row in subjects]:
+        return 'superseded_properties'
+    if record.get('family') == 'contain' and any(
+            (row.get('simulation_properties', {}).get('cavity_model') or
+             cavity_model(row.get('observed_evidence', {}).get('visible_features', [])))['status']
+            in ('unknown', 'conflicting_evidence') for row in subjects):
+        return 'missing_cavity_evidence'
+    return 'current'
+
+
+def annotated_evidence(record, dossiers):
+    status = evidence_status(record, dossiers)
+    return {**record, 'evidence_status': status,
+            'evidence_detail': ('Applies to the current simulation proxy and these tested conditions.' if status == 'current' else
+                                'Historical receipt preserved. It is not current evidence for this object proxy; a supported retest is required.')}
+
+
 class ColonyLearningStore:
     def __init__(self, repo):
         self.repo = repo
@@ -74,7 +101,7 @@ class ColonyLearningStore:
             return {'status': 'exact_only', 'detail': 'The memory development adapter has no Atlas search indexes.'}
         try:
             from pymongo.operations import SearchIndexModel
-            for collection in (DOSSIERS, EXPERIMENTS, FINDINGS, BLUEPRINTS, RESEARCH):
+            for collection in (DOSSIERS, DOSSIER_REVISIONS, EXPERIMENTS, FINDINGS, BLUEPRINTS, RESEARCH):
                 self.repo.db[collection].create_index([('world_id', 1)])
             self.repo.db[FINDINGS].create_index([('world_id', 1), ('rule_version', 1), ('updated_at', -1)])
             self.repo.db[DOSSIERS].create_index([('world_id', 1), ('resident_id', 1)], unique=True)
@@ -109,29 +136,64 @@ class ColonyLearningStore:
         self._scope(scope)
         identifier = key_for(scope, 'object-dossier', resident['id'])
         existing = tx.get(DOSSIERS, identifier)
-        if existing:
-            return public_learning(existing)
         source = accepted_fighter or resident
         observed = deepcopy(source.get('observed_object') or {})
-        features = [str(item)[:200] for item in observed.get('visible_features', [])[:24]]
-        props = physical_properties(features, source.get('visual_spec') or resident.get('visual_spec'))
+        previous_evidence = (existing or {}).get('observed_evidence', {})
+        # Accepted evidence wins; a later refresh lacking the original placement
+        # cannot erase the source evidence already attached to this dossier.
+        features = [str(item)[:200] for item in (observed.get('visible_features') or previous_evidence.get('visible_features') or [])[:24]]
+        agent = next(iter(tx.find('islandAgents', {'world_id': scope, 'character_id': resident['id']}, limit=1)), {})
+        capabilities = agent.get('capabilities', [])
+        visual = source.get('visual_spec') or resident.get('visual_spec')
+        cavity = cavity_model(features, capabilities)
+        evidence_fingerprint = canonical_digest({'version': DOSSIER_EVIDENCE_VERSION, 'features': features,
+                                                 'visual_proportions': (visual or {}).get('proportions', {}), 'cavity': cavity})
+        if existing and existing.get('evidence_fingerprint') == evidence_fingerprint:
+            return public_learning(existing)
+        props = physical_properties(features, visual, capabilities)
         geometry = {key: props[key] for key in ('width', 'height', 'depth', 'length')}
+        property_fingerprint = physical_property_fingerprint(props)
+        if (existing and existing.get('_physical_properties') and
+                physical_property_fingerprint(existing['_physical_properties']) == property_fingerprint):
+            # v1 included a provenance string in its hash. Preserve that legacy
+            # token when numeric properties are unchanged, while correcting the
+            # provenance label; this does not invalidate unrelated valid tests.
+            property_fingerprint = existing['property_fingerprint']
+        timestamp = self.repo.clock()
         dossier = {'_id': identifier, 'id': identifier, 'world_id': scope, 'root_world_id': self.repo.world_id,
                    'resident_id': resident['id'], 'colony_id': self._scope(scope),
                    'display_name': resident['display_name'], 'object_type': resident.get('object_type'),
-                   'canonical_type_id': resident.get('canonical_type_id'), 'created_at': self.repo.clock(),
-                   'rule_version': RULE_VERSION,
-                   'observed_evidence': {'visible_features': features, 'capture_id': source.get('capture_id'),
-                       'output_id': source.get('output_id'), 'pipeline_version_id': source.get('pipeline_version_id'),
-                       'placement_id': placement_id, 'battle_id': resident.get('first_battle_id'),
+                   'canonical_type_id': resident.get('canonical_type_id'), 'created_at': (existing or {}).get('created_at', timestamp),
+                   'rule_version': RULE_VERSION, 'evidence_version': DOSSIER_EVIDENCE_VERSION,
+                   'evidence_fingerprint': evidence_fingerprint, 'revision': (existing or {}).get('revision', 0) + 1,
+                   'updated_at': timestamp,
+                   'observed_evidence': {'visible_features': features, 'capture_id': source.get('capture_id') or previous_evidence.get('capture_id'),
+                       'output_id': source.get('output_id') or previous_evidence.get('output_id'),
+                       'pipeline_version_id': source.get('pipeline_version_id') or previous_evidence.get('pipeline_version_id'),
+                       'placement_id': placement_id or previous_evidence.get('placement_id'), 'battle_id': resident.get('first_battle_id'),
                        'status': 'accepted_capture' if features else 'historical_features_unavailable'},
-                   'simulation_properties': {'geometry': geometry, 'apparent_cavity': props['capacity'] > 0,
+                   'simulation_properties': {'geometry': geometry,
+                       'apparent_cavity': True if cavity['status'] == 'observed_cavity' else False if cavity['status'] == 'observed_absence' else None,
+                       'cavity_model': cavity,
                        'material_assumption': props['material_assumption'],
                        'authority': 'authored_testbed_assumptions_not_measured_real_world_properties',
                        'unknowns': ['mass', 'friction', 'stiffness', 'usable_capacity', 'leakage'],
                        'units': 'normalized_simulation_units'},
-                   'property_fingerprint': canonical_digest(props), '_physical_properties': props,
-                   'tested_capabilities': [], 'finding_ids': []}
+                   'property_fingerprint': property_fingerprint, '_physical_properties': props,
+                   'tested_capabilities': [], 'finding_ids': deepcopy((existing or {}).get('finding_ids', []))}
+        if existing:
+            revision_id = key_for(identifier, 'revision', str(existing.get('revision', 0)),
+                                  existing.get('evidence_fingerprint') or existing.get('property_fingerprint', 'legacy'))
+            if not tx.get(DOSSIER_REVISIONS, revision_id):
+                tx.put(DOSSIER_REVISIONS, {**deepcopy(existing), '_id': revision_id, 'id': revision_id,
+                       'dossier_id': identifier, 'archived_at': timestamp, 'immutable': True})
+            dossier['previous_revision_id'] = revision_id
+            dossier['refresh_reason'] = 'Separate absent observations from declared simulation capabilities; preserve earlier evidence and receipts.'
+            # A changed proxy needs a new test; unchanged numerical properties
+            # retain their valid capabilities. Never reinterpret old receipts.
+            dossier['tested_capabilities'] = [deepcopy(row) for row in existing.get('tested_capabilities', [])
+                if row.get('rule_version') == RULE_VERSION and existing.get('property_fingerprint') == dossier['property_fingerprint']
+                and not (row.get('family') == 'contain' and cavity['status'] in ('unknown', 'conflicting_evidence'))]
         tx.put(DOSSIERS, dossier)
         return public_learning(dossier)
 
@@ -151,6 +213,7 @@ class ColonyLearningStore:
             dossier = self.initialize_resident(tx, resident, (first or {}).get('accepted_fighter'), (first or {}).get('id'))
             agent = next(iter(tx.find('islandAgents', {'world_id': scope, 'character_id': resident['id']}, limit=1)), {})
             records.append({'resident_id': resident['id'], 'property_fingerprint': dossier['property_fingerprint'],
+                            'evidence_fingerprint': dossier.get('evidence_fingerprint'),
                             'capabilities': sorted(agent.get('capabilities', [])),
                             'actions': sorted(agent.get('allowed_actions', []))})
         fingerprint = canonical_digest(records)
@@ -221,6 +284,12 @@ class ColonyLearningStore:
         dossiers = self._dossiers(tx, scope, spec.subject_ids)
         if actor['character_id'] not in spec.subject_ids:
             raise StoreError('The proposing resident must take part in its experiment.', 422, 'experiment_actor_missing')
+        if spec.family == 'contain' and any(
+                (row.get('simulation_properties', {}).get('cavity_model') or
+                 cavity_model(row.get('observed_evidence', {}).get('visible_features', [])))['status']
+                in ('unknown', 'conflicting_evidence') for row in dossiers):
+            raise StoreError('This containment test lacks a supported current cavity model. Missing historical features are not evidence of no cavity; refresh the dossier or clarify its evidence first.',
+                             422, 'containment_evidence_missing')
         related = tx.get(FINDINGS, spec.reply_to_finding_id) if spec.reply_to_finding_id else None
         if spec.reply_to_finding_id and (not related or related['world_id'] != scope):
             raise StoreError('The cited finding is not evidence from this island.', 422, 'finding_not_found')
@@ -253,6 +322,11 @@ class ColonyLearningStore:
                       'rule_version': RULE_VERSION, 'status': 'completed', 'request_fingerprint': fingerprint,
                       'created_at': timestamp, 'result': result, 'finding_id': finding_id,
                       'cost': {'ideas': 1}, 'property_fingerprints': property_fingerprints,
+                      'evidence_version': DOSSIER_EVIDENCE_VERSION,
+                      'dossier_revisions': [{'resident_id': row['resident_id'], 'revision': row.get('revision'),
+                          'evidence_fingerprint': row.get('evidence_fingerprint'),
+                          'cavity_model': deepcopy(row.get('simulation_properties', {}).get('cavity_model'))}
+                          for row in dossiers],
                       'reply_to_finding_id': spec.reply_to_finding_id}
         tx.put(EXPERIMENTS, experiment)
         finding = tx.get(FINDINGS, finding_id)
@@ -389,6 +463,9 @@ class ColonyLearningStore:
     def snapshot_tx(self, tx, scope):
         self._scope(scope)
         state = tx.get(STATE, key_for(scope, 'learning-state')) or {}
+        dossiers = tx.find(DOSSIERS, {'world_id': scope}, limit=80)
+        by_id = {row['resident_id']: row for row in dossiers}
+        findings = [annotated_evidence(row, by_id) for row in tx.find(FINDINGS, {'world_id': scope}, 'updated_at', 80)]
         return public_learning({'rule_version': RULE_VERSION, 'capability_fingerprint': state.get('capability_fingerprint'),
                                 'tools': {
                                     'experiment': {'cost': {'ideas': 1}, 'subject_id_field': 'character_id',
@@ -403,11 +480,12 @@ class ColonyLearningStore:
                                         'maximum_parts': 12, 'primary_kinds': {'hold': ['panel', 'connector'], 'contain': ['vessel'], 'support': ['beam', 'panel']},
                                         'arrangement': 'Primary part at (0,0,0); extra part i at x=(i/part_count-0.5)*tested_span, y=z=0. All rotations zero.',
                                         'construction': 'Costs and bonus are calculated by the server. Crew agreement and actual reserved build work are required.'},
-                                    'truth_boundary': 'Physical properties are simulation assumptions. Repetition does not increase confidence; changed conditions need a new test.'},
+                                    'truth_boundary': 'Physical properties are simulation assumptions. Missing observations are unknown, not proof of absence. Declared game capabilities may supply a separately labelled proxy; changed proxies need a new test. Repetition does not increase confidence.'},
                                 'last_change': state.get('last_change'), 'retrieval': state.get('retrieval', {'status': 'exact_only'}),
-                                'dossiers': tx.find(DOSSIERS, {'world_id': scope}, limit=80),
-                                'findings': tx.find(FINDINGS, {'world_id': scope, 'rule_version': RULE_VERSION}, 'updated_at', 40),
-                                'experiments': tx.find(EXPERIMENTS, {'world_id': scope}, 'created_at', 30),
+                                'dossiers': dossiers,
+                                'findings': [row for row in findings if row['evidence_status'] == 'current'][:40],
+                                'historical_findings': [row for row in findings if row['evidence_status'] != 'current'][:24],
+                                'experiments': [annotated_evidence(row, by_id) for row in tx.find(EXPERIMENTS, {'world_id': scope}, 'created_at', 30)],
                                 'blueprints': tx.find(BLUEPRINTS, {'world_id': scope}, 'created_at', 24),
                                 'research': tx.find(RESEARCH, {'world_id': scope}, 'updated_at', 24)})
 
@@ -418,7 +496,9 @@ class ColonyLearningStore:
         self._scope(scope)
         terms = set(re.findall(r'[a-z0-9]+', query.lower()))
         def retrieve(tx):
+            dossiers = {row['resident_id']: row for row in tx.find(DOSSIERS, {'world_id': scope}, limit=80)}
             rows = tx.find(FINDINGS, {'world_id': scope, 'rule_version': RULE_VERSION}, 'updated_at', MAX_FINDINGS)
+            rows = [row for row in rows if evidence_status(row, dossiers) == 'current']
             rows.sort(key=lambda row: (len(terms.intersection(re.findall(r'[a-z0-9]+', self.finding_text(row).lower()))), row['updated_at']), reverse=True)
             return {'status': 'exact_only', 'detail': 'Evidence-scoped text matching; vector search was not used.',
                     'findings': public_learning(rows[:max(1, min(12, limit))])}
@@ -438,8 +518,11 @@ class ColonyLearningStore:
         self._scope(scope)
         if not hasattr(self.repo, 'db') or embedder is None:
             return {'status': 'exact_only', 'prepared': 0, 'detail': 'Atlas embedding preparation is unavailable.'}
-        rows = await asyncio.to_thread(self.repo.read, lambda tx: tx.find(FINDINGS,
-                    {'world_id': scope, 'rule_version': RULE_VERSION}, 'updated_at', MAX_FINDINGS))
+        def current_findings(tx):
+            dossiers = {row['resident_id']: row for row in tx.find(DOSSIERS, {'world_id': scope}, limit=80)}
+            return [row for row in tx.find(FINDINGS, {'world_id': scope, 'rule_version': RULE_VERSION}, 'updated_at', MAX_FINDINGS)
+                    if evidence_status(row, dossiers) == 'current']
+        rows = await asyncio.to_thread(self.repo.read, current_findings)
         prepared = 0
         for finding in rows:
             text = self.finding_text(finding)
@@ -484,9 +567,10 @@ class ColonyLearningStore:
             matches = await asyncio.to_thread(lambda: list(collection.aggregate(pipeline, maxTimeMS=5000)))
             def resolve(tx):
                 result = []
+                dossiers = {row['resident_id']: row for row in tx.find(DOSSIERS, {'world_id': scope}, limit=80)}
                 for match in matches:
                     finding = tx.get(FINDINGS, match['id'])
-                    if finding and finding.get('world_id') == scope and finding.get('rule_version') == RULE_VERSION:
+                    if finding and finding.get('world_id') == scope and evidence_status(finding, dossiers) == 'current':
                         result.append({**public_learning(finding), 'retrieval_score': match['score']})
                 return result
             findings = await asyncio.to_thread(self.repo.read, resolve)
