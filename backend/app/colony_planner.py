@@ -203,6 +203,11 @@ class ColonyPlanner:
     def _pick(self, snapshot, state, colony_id=None, agent_id=None, *, allow_fallback=False, automatic=False):
         eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
         choices = self._available_colonies(snapshot, state if automatic else None)
+        if automatic and allow_fallback and len(choices) > 1:
+            # A busy island can finish something during every council. Its
+            # milestone (or a stream of arrivals) may wake the scheduler, but
+            # cannot take consecutive councils while its neighbour is eligible.
+            choices = [c for c in choices if c['id'] != state['last_colony_id']] or choices
         if colony_id:
             preferred = [c for c in choices if c['id'] == colony_id]
             # An automatic wake-up preference can become stale after an island
@@ -355,6 +360,11 @@ class ColonyPlanner:
                                        'population_changed' if changed else 'project_or_experiment_completed'))
             if candidates:
                 _, _, colony_id, trigger = sorted(candidates)[0]
+                if colony_id == state['last_colony_id']:
+                    neighbours = sorted((c for c in available if c['id'] != colony_id), key=lambda c: c['id'])
+                    if neighbours:
+                        colony_id = neighbours[0]['id']
+                        trigger = next((row[3] for row in candidates if row[2] == colony_id), 'review_progress')
                 state['next_due'] = min(state['next_due'], self.clock())
                 state.update(next_trigger=trigger, preferred_colony_id=colony_id)
             if state != original: tx.put('colonyPlanner', state)
