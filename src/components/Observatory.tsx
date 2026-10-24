@@ -9,6 +9,7 @@ import './Observatory.css'
 import { startIndependentPoll } from '../lib/independentPolling'
 import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
 import { colonyActivity, emptyActivityWindow } from '../lib/colonyActivity'
+import { startEventReconciliation } from '../lib/observatoryFeed'
 
 const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})
 const short = (value?: string | null) => value ? `${value.slice(0, 8)}…` : '—'
@@ -75,6 +76,43 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
     const controller = new AbortController()
     let source: EventSource | null = null
     let cancelled = false
+    let reconciliation: ReturnType<typeof startEventReconciliation> | null = null
+    function receive(incoming: AgentEvent[]) {
+      const fresh = incoming.filter(event => !seen.current.has(event.id))
+      for (const event of incoming) cursor.current = Math.max(cursor.current, event.sequence)
+      if (!fresh.length) return
+      fresh.forEach(event => seen.current.add(event.id))
+      if (seen.current.size > 1200) seen.current = new Set([...seen.current].slice(-600))
+      setEvents(current => mergeEvents(current, fresh))
+      if (modeRef.current === 'live' && !pausedRef.current) setPulse(fresh[fresh.length - 1])
+    }
+    function openStream() {
+      source?.close()
+      const stream = new EventSource(`/api/observatory/stream?after=${cursor.current}`)
+      source = stream
+      const current = () => !cancelled && source === stream
+      // An open socket alone is not proof that new committed events are arriving.
+      stream.onerror = () => { if (current()) setConnection('reconnecting') }
+      stream.addEventListener('agent', message => {
+        if (!current()) return
+        const event = JSON.parse((message as MessageEvent).data) as AgentEvent
+        reconciliation?.markLive()
+        receive([event])
+      })
+      stream.addEventListener('status', message => {
+        if (!current()) return
+        const status = JSON.parse((message as MessageEvent).data)
+        reconciliation?.markLive()
+        setTransport(status.transport)
+        setError(status.stream_error || '')
+      })
+      stream.addEventListener('resync', () => {
+        if (!current()) return
+        stream.close()
+        setError('Reconnecting at the saved event boundary…')
+        setRetry(value => value + 1)
+      })
+    }
     async function connect() {
       setConnection('connecting')
       try {
@@ -86,34 +124,26 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
         setTransport(batch.transport)
         setPersistence(batch.persistence)
         setError(batch.stream_error || '')
-        source = new EventSource(`/api/observatory/stream?after=${batch.cursor}`)
-        source.onopen = () => setConnection('connected')
-        source.onerror = () => setConnection('reconnecting')
-        source.addEventListener('agent', message => {
-          const event = JSON.parse((message as MessageEvent).data) as AgentEvent
-          cursor.current = Math.max(cursor.current, event.sequence)
-          if (seen.current.has(event.id)) return
-          seen.current.add(event.id)
-          if (seen.current.size > 1200) seen.current = new Set([...seen.current].slice(-600))
-          setEvents(current => mergeEvents(current, [event]))
-          if (modeRef.current === 'live' && !pausedRef.current) setPulse(event)
+        reconciliation = startEventReconciliation({
+          getCursor: () => cursor.current,
+          loadAfter: (after, signal) => observatory.eventsAfter(after, signal),
+          onBatch: next => {
+            if (next.resync_required) { setRetry(value => value + 1); return }
+            receive(next.events)
+            setTransport(next.transport); setError(next.stream_error || '')
+          },
+          onConnection: setConnection,
+          onError: () => setError('Saved event catch-up is unavailable. Displayed history may be out of date.'),
+          onStale: openStream,
+          signal: controller.signal,
         })
-        source.addEventListener('status', message => {
-          const status = JSON.parse((message as MessageEvent).data)
-          setTransport(status.transport)
-          setError(status.stream_error || '')
-        })
-        source.addEventListener('resync', () => {
-          source?.close()
-          setError('Reconnecting at the saved event boundary…')
-          setRetry(value => value + 1)
-        })
+        openStream()
       } catch (problem) {
         if (!cancelled) { setConnection('disconnected'); setError(problem instanceof Error ? problem.message : 'The local Observatory is unavailable.') }
       }
     }
     void connect()
-    return () => { cancelled = true; controller.abort(); source?.close() }
+    return () => { cancelled = true; controller.abort(); reconciliation?.stop(); source?.close() }
   }, [retry])
 
   useEffect(() => {
@@ -274,7 +304,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   return <main className="observatory">
     <header className="obs-heading">
       <div><button className="obs-back" onClick={() => onBack ? onBack() : window.location.assign('/')}><ArrowLeft size={14}/> BACK TO THE ISLANDS</button><div className="obs-eyebrow"><span/> LOCAL ENGINE / LIVE EVIDENCE</div><h1>THE OBSERVATORY<span>Inside the little minds.</span></h1><p>Follow a public plan through a checked action to a saved result. Every pulse comes from a recorded event.</p></div>
-      <div className="obs-engine-status"><span className={`obs-status-dot ${connection === 'connected' ? 'is-on' : ''}`}/><div><strong>{connection === 'connected' ? 'EVENT STREAM CONNECTED' : connection.toUpperCase()}</strong><small>{persistence === 'development_memory' ? 'Development memory · resets on restart' : transport === 'atlas_change_stream' ? 'MongoDB Atlas · Change Stream' : transport === 'atlas_polling' ? 'MongoDB Atlas · committed-event polling' : 'Connecting to persistent events'}</small></div><Database size={23}/></div>
+      <div className="obs-engine-status"><span className={`obs-status-dot ${connection === 'connected' ? 'is-on' : ''}`}/><div><strong>{connection === 'connected' ? 'EVENT STREAM LIVE' : connection === 'polling' ? 'CHECKING SAVED EVENTS' : connection.toUpperCase()}</strong><small>{connection === 'polling' ? 'Browser catch-up every 15 seconds' : persistence === 'development_memory' ? 'Development memory · resets on restart' : transport === 'atlas_change_stream' ? 'MongoDB Atlas · Change Stream' : transport === 'atlas_polling' ? 'MongoDB Atlas · committed-event polling' : 'Connecting to persistent events'}</small></div><Database size={23}/></div>
     </header>
 
     <section className="obs-controls" aria-label="Observatory controls">

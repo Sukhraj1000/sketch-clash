@@ -53,6 +53,7 @@ export const observatory = {
   receiptEvidence: (id: string, signal?: AbortSignal) => api<EventEvidence>(`/observatory/receipts/${encodeURIComponent(id)}/evidence`, {signal}),
   contributions: (signal?: AbortSignal) => api<Contributions>('/observatory/contributions?window=60', {signal}),
   events: (signal?: AbortSignal) => api<EventBatch>('/observatory/events?limit=300', {signal}),
+  eventsAfter: (cursor: number, signal?: AbortSignal) => api<EventBatch>(`/observatory/events?after=${cursor}&limit=500`, {signal}),
   sessionEvents: (id: string, signal?: AbortSignal) => api<EventBatch>(`/observatory/events?session_id=${encodeURIComponent(id)}&limit=500`, {signal}),
   metrics: (island: string, signal?: AbortSignal) => api<ObservatoryMetrics>(`/observatory/metrics?window=60${island === 'all' ? '' : `&island=${island}`}`, {signal}),
   sessions: (signal?: AbortSignal) => api<{sessions: CouncilSession[]}>('/observatory/sessions', {signal}),
