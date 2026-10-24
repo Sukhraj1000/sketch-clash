@@ -176,6 +176,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     from .observability import instrument_app, register_observatory_routes
     instrument_app(app)
     register_observatory_routes(app)
+    from .provider_diagnostics import register_provider_diagnostics
+    register_provider_diagnostics(app)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],
                        allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type', 'X-Request-ID'], allow_credentials=True)
 

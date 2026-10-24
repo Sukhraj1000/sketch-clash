@@ -1,6 +1,7 @@
 """Explicit local settings. Secret values are excluded from representations and logs."""
 from dataclasses import dataclass, field
 from pathlib import Path
+from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
 
@@ -35,14 +36,18 @@ class Settings:
     colony_reply_model: str = 'gemini-3.8-flash'
     colony_session_interval_seconds: int = 120
     gemini_provider_concurrency: int = 2
+    gemini_key_source: str = 'explicit_settings'
+    settings_loaded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
     def load(cls) -> 'Settings':
+        key_source = 'inherited_environment' if 'GEMINI_API_KEY' in os.environ else '.env.local'
         load_dotenv(PROJECT_ROOT / '.env.local', override=False)
         def boolean(key: str, default: str = 'true') -> bool:
             return os.getenv(key, default).lower() in {'1', 'true', 'yes'}
         return cls(
             gemini_api_key=os.getenv('GEMINI_API_KEY', ''),
+            gemini_key_source=key_source,
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-4-argon'),
             mongodb_uri=os.getenv('MONGODB_URI', ''),
             mongodb_database=os.getenv('MONGODB_DATABASE', 'sketch_clash'),
