@@ -33,6 +33,24 @@ def test_provider_shape_requires_real_identifiers_and_omits_unrelated_test_input
     assert AgentDecision.model_json_schema() == before, 'Per-turn schemas cannot alter server authority or leak the previous actor permissions'
 
 
+def test_hypothesis_bounds_are_described_and_still_strictly_validated():
+    # Gemini explicitly ignores JSON Schema minLength/maxLength during decoding.
+    # The description must communicate the bound; local validation remains final.
+    for branch in council_response_schema()['$defs']['ExperimentSpec']['anyOf']:
+        hypothesis = branch['properties']['hypothesis']
+        assert hypothesis['minLength'] == 5 and hypothesis['maxLength'] == 400
+        assert '5 to 400 characters' in hypothesis['description']
+        assert 'under 240 characters' in hypothesis['description']
+    valid = {'experiment': {'family': 'hold', 'subject_ids': ['own'],
+             'hypothesis': 'x' * 400, 'expected_success': True}}
+    assert AgentDecision.model_validate(valid).experiment.hypothesis == 'x' * 400
+    invalid = deepcopy(valid)
+    invalid['experiment']['hypothesis'] = 'x' * 401
+    with pytest.raises(ValidationError):
+        AgentDecision.model_validate(invalid)
+    assert invalid['experiment']['hypothesis'] == 'x' * 401, 'Never silently rewrite a rejected claim'
+
+
 @pytest.mark.parametrize('family,context', [('hold', {'wind_force': 1, 'load': 1, 'duration': 10}), ('contain', {'volume': .3, 'distance': 2, 'tilt_degrees': 0}), ('support', {'span': .6, 'load': .2, 'support_count': 2})])
 def test_family_specific_provider_payloads_remain_valid_sdk_decisions(family, context):
     value = {'experiment': {'family': family, 'subject_ids': ['actual-participant'], 'hypothesis': 'Test a useful supported function.', 'expected_success': True, 'context': context}, 'message': {'kind': 'reflection', 'text': 'Testing our existing arrangement.'}}
