@@ -2,7 +2,7 @@
 
 **Making AI’s view of the physical world more reliable through human feedback and interactive play.**
 
-Sketch Clash is a local two-player object battle game with a persistent 3D colony. Photograph an everyday object, review its identity and fictional character, challenge a friend, then give both fighters useful work on their island. Residents gather, build, gain experience and remember their contributions. A separate creator lab investigates recognition failures and requires human approval before adopting pipeline changes.
+Sketch Clash is a local two-player object battle game with two persistent 3D colonies. Photograph an everyday object, review its identity and fictional character, challenge a friend, then send the winner to Winner Island and the other fighter to Loser Island. Residents gather, build, gain experience and remember their contributions. A separate creator lab investigates recognition failures and requires human approval before adopting pipeline changes.
 
 The research question is **“Can human feedback help AI create more reliable and useful digital representations of real-world objects?”** Storing feedback changes neither Gemini’s weights nor the active pipeline automatically. Intended benefits remain things to measure, not demonstrated improvements.
 
@@ -31,29 +31,30 @@ The default repository is MongoDB and fails clearly if unavailable. `npm run dev
 4. Optionally choose **Keep** or **Change details**, with reasons and a short comment. Skipping creative feedback is not a negative rating. Style revisions preserve the identity, class and fixed combat stats. The original proposal and correction lineage remain recorded.
 5. Optionally opt in to reviewed evaluation/reference use of this object photo and feedback. This checkbox starts **off**. Declining does not affect gameplay. Player consent alone does not approve a dataset case.
 6. **Lock in my fighter**, then pass the device. Feedback is tied to the exact output and pipeline version before the winner is known. Failed feedback saves are labelled honestly; a valid fighter can continue without a false saved claim.
-7. Watch the recorded battle and enter the island after completion is confirmed. Both valid participants qualify, including the loser. Returning object types retain their original appearance, home and history. The review screen labels a distinct battle proposal and lets you inspect the saved resident separately.
+7. Watch the recorded battle and enter the islands after completion is confirmed. The winner joins Winner Island and the other fighter joins Loser Island. Each side retains one resident per canonical object type; repeated appearances preserve that side’s original identity and history. The original shared collection is also preserved.
 
 Normal capture time is 60 seconds per player; Quick Clash uses 20. Permission, normalization, recognition and saving pause active timing. Expiry never submits automatically. The camera stops when leaving capture. Refresh recovery includes a private handoff before showing the recovered photograph.
 
 Quick, Power and Guard still have fixed presets and 100 HP. The server owns attacks, damage and winner; replay shows the same recorded outcome without extra unlocks. Normal/reduced battles last 12.8 seconds; Quick Clash lasts 6.4 seconds. **WATCH THE SHOWDOWN** is the original scripted cinematic, with no recognition or island progression.
 
-## Give the island a purpose
+## Two islands, one rivalry
 
-Open **MY ISLAND** or **BUILD YOUR ISLAND** on the restored paper arcade home. Choose **START BUILDING** once to give existing residents persistent roles. New arrivals can join with **WELCOME NEW RESIDENTS**; up to 40 residents work at once, with the rest retained in the collection.
+Choose **ENTER THE ISLANDS**, then **START BOTH ISLANDS** once. Existing completed battles are enrolled using their recorded outcomes; future completed battles route both fighters atomically. The original island remains accessible through **Original island**.
 
-- Choose a blueprint or click its 3D building site to set the crew's priority. The garden, workshop, beacon and boardwalk each have three levels and improve resource production.
-- Select a resident in the scene or crew dock. Read its persona, current task, XP and memories; assign a job or return it to automatic useful work. Directions apply after its current task finishes.
-- Watch residents travel, carry supplies, water, plan, survey and construct. Buildings appear in stages. Orbit, zoom, follow a resident and reset the view; the roster provides a non-3D control path.
-- Earn permanent building upgrades and resident levels. After construction, expeditions consume supplies and add discoveries. A five-resident test crew reaches its first building in roughly two minutes; timing depends on roles and assignments.
-- Pause/resume the settlement separately from **OCCASIONAL AI PLANNING**. State, tasks, memories, resources and progress persist in Atlas. Original appearances, battle stats and histories are unchanged.
+- Switch between Winner Island and Loser Island. Each has its own crew, resources, projects, board and history. Set a building priority, select an object in the 3D scene or roster, follow it, or assign an allowed job.
+- Objects contribute through declared game capabilities: containers move supplies, suitable vessels collect water, stationery plans or measures, electronics observe signals, and batteries collect energy at a charging dock. All animated residents can move, gather basic materials and assist construction. A missing specialist creates a visible capability gap.
+- Same-island agents post requests, accept commitments and produce resources. The board links each verified contribution to an actual completed action receipt. A message alone cannot create resources or claim success.
+- **Under the hood** shows observation → memory → public intent → validation → task → receipt, plus real board connections. Rules, AI proposals and verified executor results are labelled separately. This displays public decisions, not private model reasoning.
+- Compare building levels, work, cooperation and resource gaps. Optional GBP values are **your estimates**, with coverage displayed; they never alter capabilities, combat or rewards. Winning does not imply being more expensive, and this comparison is not a controlled experiment.
+- Recognizable supported object silhouettes have blinking faces, moving limbs and work animation. Unsupported or conflicting identities preserve their source-photo card. These are procedural models, not arbitrary photo-to-3D reconstruction.
 
-The **local Python backend runs the agents**; MongoDB stores their durable state. They continue with the browser closed while the Mac and backend remain awake. After a backend stop, at most 120 seconds are simulated once. This is not a remotely hosted worker or unlimited offline progress.
+The **local Python backend runs the agents**; MongoDB stores durable state. The islands keep working with the browser closed while the Mac and backend stay awake. Restart catch-up is bounded to 120 seconds. Up to 40 residents work per island; additional residents remain in the collection. Resources are an abstract shared ledger; there is no physical cargo or collision/pathfinding simulation.
 
-Routine tasks use local simulation with no model request per action. Optional `gemini-3.5-flash-lite` reflection batches propose coherent personas and an allowed useful-job preference. At most six residents enter a batch, one automatic batch runs per 15 minutes, and the world has a hard ceiling of **12 provider requests / 84,000 reserved tokens per UTC day**. Each request has bounded input/output and no transport retry. Starting enables this planner; switching it off keeps local simulation running. An unknown or invalid result blocks automatic reflection until an explicit retry; its reserved budget remains spent. AI plans cannot grant resources, add powers, execute code or rewrite saved appearances. Prose is model-authored; event references are checked, not a proof of every sentence.
+Routine work needs no model calls. Optional `gemini-3.5-flash-lite` turns give **one resident at a time** its own observation, memory and same-island board context. One automatic turn is due every 15 minutes, alternating shores; explicit turns have a one-minute cooldown. Both islands and prior original-island usage share **24 provider requests / 168,000 reserved tokens per UTC day** by default. Set `COLONY_REQUESTS_PER_DAY` in backend configuration to change that ceiling. Each call uses at most 768 output tokens and no automatic transport retry. Unknown provider outcomes stop automatic decisions until an explicit retry; normal stale-board conflicts simply skip that turn. Local tasks continue when AI is off or the quota is exhausted.
 
-See [ISLAND_PLAN.md](ISLAND_PLAN.md) for the implemented plan and [Design.md](Design.md) for persistence details.
+Starting the two-island mode switches off the original island’s persona-only reflection to avoid competing planners. Its existing residents, saved appearance and history stay intact. The legacy view retains its own 12-request limit within the same usage counter.
 
-[Agent architecture and validation](AGENT_ARCHITECTURE.md) diagrams the current system and a proposed next step: residents that request help, negotiate commitments and make verified resource transfers. It includes a cooperative nursery scenario and a comparison against independent agents and a central planner. This is a design draft; peer communication and physical cargo have not been implemented.
+See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for the implemented architecture, SDK and validation boundaries. [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md) remains the earlier audit/design draft; its physical-transfer experiment is still a proposal. [ISLAND_PLAN.md](ISLAND_PLAN.md) describes the preserved original island.
 
 ## Recognition & World Quality
 
@@ -87,6 +88,8 @@ The fixed adoption policy requires at least three reviewed development cases and
 
 The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Island collections add `islandState`, `islandAgents`, `islandEvents`, `islandPlanner` and `islandReasoning`: transactional economy/buildings, durable tasks and personas, append-only action/command journals, daily budgets and recoverable plans. Quality collections hold exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
 
+Colony collections add `colonyModes`, `colonyResidents`, `colonyPlacements`, `colonyBoard`, `colonyCommitments`, `colonyDecisions`, `colonyContributions`, `colonyEstimates`, `colonyPlanner` and `colonyReasoning`. Scoped `islandState`, `islandAgents` and `islandEvents` hold each side’s simulation. Placement, action effects, commitments and idempotency are checked transactionally; model calls run outside transactions. The colony decision loop uses ordinary indexed queries, not a claim of Vector Search or MongoDB-hosted execution.
+
 Two retrieval systems are deliberately separate:
 
 1. **Type catalogue:** exact names/aliases first, then genuine Atlas Vector Search over approved descriptions. The historical live setup has 21 Gemini Embedding 2 vectors, 768 dimensions, in `character_types_vector`. To deliberately set up a fresh catalogue, configure the embedding settings and run `npm run setup:retrieval`; verify with `npm run verify:retrieval`.
@@ -110,7 +113,7 @@ npm run dev
 
 Without `uv`, create `.venv` using Python 3.12 and install the same Python lockfile with its pip. Vision setup downloads official YOLO11n and English EasyOCR weights to ignored `backend/models/`; runtime does not download them automatically. The secure Gemini/Atlas prompts preserve unrelated settings. Restart the backend after changing local settings.
 
-Supported environment names, with defaults documented in `.env.example`: `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`, `MONGODB_URI`, `MONGODB_DATABASE`, `SKETCH_WORLD_ID`, `SKETCH_REPOSITORY`, `FRONTEND_ORIGIN`, `MAX_UPLOAD_BYTES`, `MAX_IMAGE_PIXELS`, `INFERENCE_MAX_EDGE`, `RECOGNITION_CONCURRENCY`, `EVIDENCE_TIMEOUT_SECONDS`, `YOLO_MODEL`, `YOLO_ENABLED`, `OCR_ENABLED`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, `MONGODB_VECTOR_INDEX`. The operator gate also accepts an optional `SKETCH_OPERATOR_TOKEN` override; normal local use needs no override and uses the generated file. `operator:token` displays that generated file, not an environment override.
+Supported environment names, with defaults documented in `.env.example`: `COLONY_REQUESTS_PER_DAY`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`, `MONGODB_URI`, `MONGODB_DATABASE`, `SKETCH_WORLD_ID`, `SKETCH_REPOSITORY`, `FRONTEND_ORIGIN`, `MAX_UPLOAD_BYTES`, `MAX_IMAGE_PIXELS`, `INFERENCE_MAX_EDGE`, `RECOGNITION_CONCURRENCY`, `EVIDENCE_TIMEOUT_SECONDS`, `YOLO_MODEL`, `YOLO_ENABLED`, `OCR_ENABLED`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, `MONGODB_VECTOR_INDEX`. The operator gate also accepts an optional `SKETCH_OPERATOR_TOKEN` override; normal local use needs no override and uses the generated file. `operator:token` displays that generated file, not an environment override.
 
 Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VITE_`. Private captures, model weights, generated builds, caches and the operator token are excluded from commits.
 
@@ -119,7 +122,7 @@ Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VIT
 - **Gemini 4 Argon**, official Python `google-genai==2.33.0`, Interactions API, medium thinking: live recognition/character proposals and the bounded improvement reasoning/tool loop. Provider/version metadata is retained when returned. Feedback influences validated configuration and approved context, not model weights.
 - **Gemini Embedding 2**, official embedding API: existing catalogue description vectors and the explicitly prepared visual-reference adapter, both with versioned 768-dimensional provenance. No claim that visual references have been enrolled when the dataset is empty.
 - **YOLO11n** (`ultralytics==8.4.184`) and **EasyOCR** (`easyocr==1.7.2`): local still-image evidence. Their scores are distinct from Gemini uncertainty and are not calibrated identity confidence.
-- **Gemini 3.5 Flash-Lite**, the same official SDK and Interactions API, low thinking: optional island persona and useful-job reflection. Metadata and actual usage are persisted; routine colony tasks do not call it. It receives object metadata and recent simulation events, not photographs or player feedback.
+- **Gemini 3.5 Flash-Lite**, the same official SDK and Interactions API, low thinking: independent, capability-checked colony decisions and the preserved original island’s persona reflection. Metadata and actual usage are persisted; routine colony tasks do not call it. It receives object metadata and recent simulation events, not photographs or player feedback.
 - React 19.3.1, Motion, Three 0.186.1, React Three Fiber 9.8.2 and Drei 10.7.9: local rendering, including the shared preview/verification harness. It uses supported procedural templates and parameters, not generated meshes or photo-to-3D reconstruction.
 
 ## Verification, export and backup

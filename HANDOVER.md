@@ -1,6 +1,24 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment — the purposeful island
+## Current increment — two islands and useful cooperation
+
+The default island view now compares Winner Island and Loser Island. Immutable completed battle slots route to distinct per-side residents; the original collection and original island are preserved. Each side has its own resources, tasks, projects, capability-limited agents and shared work board. A typed internal SDK accepts requests, offers, actions and evidence-backed reports; transactions enforce ownership, accepted capability, exclusive commitments and exactly-once effects. See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for architecture, diagrams, limits and demo steps.
+
+The original paper arcade theme remains. Eighteen procedural object identities now improve coarse saved templates while retaining identity, palette, accessories and scale. Limbs, blinking, working poses, follow controls and a visible charging dock make the existing task state legible. The in-app **HOW THE ISLAND THINKS** diagram links actual public proposals, checks, tasks, receipts and same-island replies. Both explicit AI entries and deterministic coordination are labelled honestly.
+
+### Verification for this increment
+
+- Backend suite: **169 passed, 2 optional Mongo fixture tests skipped**. Real Atlas verification below ran separately. Coverage includes routing/replay, atomic rollback, scoped ownership, capability upgrades, truthful reports, concurrent claims, late decision causality, player priority, quota/recovery, read-only GET and optional-planner outage.
+- Production build, TypeScript, scene checks (801 timeline and 64,908 bounded pose samples), combat checks and 14 image-input assertions passed. The large lazy Three.js chunk remains a build advisory; physical camera capture remains unverified.
+- Live Atlas initialization enrolled **four residents per shore** from actual completed battles. Original `worldCharacters` API records matched the checkpoint exactly after initialization and again after restart. No fabricated battle or character was inserted into the shared world.
+- Full local backend restart preserved both resident lists, budget and completed progress. At the checkpoint after recovery: Winner Island had 60 completed tasks, 1 building upgrade, 6 fulfilled requests; Loser Island had 61 tasks, 2 upgrades, 4 fulfilled requests. The simulation continues, so these are dated observations rather than fixed scores. SDK v2 upgraded the pitcher to water keeper and TV to observation scout without rewriting source residents.
+- Three new real Flash-Lite calls: one accepted winner decision (1,896 reported tokens), one rejected structured response with no applied effects, then one accepted loser decision (3,542 reported tokens). Shared usage reached 15/24, including 12 prior original-island calls. No quota reset or refund hid failed work. The invalid response prompted bounded stored proposal diagnostics and a rejection test. Automatic scheduling remains enabled after the successful explicit turn.
+- Atlas timed out once during startup index setup; a subsequent restart recovered successfully. The app remains local, backed by Atlas. Gemini and Atlas secrets were not changed or exposed.
+- Browser verified restored home, both shores, selected resident detail, recognized shapes, live project progress, the shared board and the interactive evidence diagram. Switching shores revealed a nested React root cleanup error in the charging-dock HTML label; replacing it with a disposable WebGL sprite eliminated new console errors across reload and both switch directions. New screenshots are outside Git: `../sketch-clash-two-islands.png` and `../sketch-clash-agent-loop.png`. Responsive styles are implemented; new two-island mobile-width visual QA has not yet been performed.
+
+The two-island planner uses a default 24 calls per UTC day shared with original-island usage, one automatic actor turn every 15 minutes and a 60-second manual cooldown. Local tasks keep running without model calls. Both current crews lack an energy carrier; energy-dependent construction can wait for an appropriate object or a different player-selected project. Price fields are optional **user estimates**, not market data, and cannot affect power. The economy is an abstract ledger; physical cargo conservation and a controlled causal cooperation experiment remain future work. Append-only receipts grow with actual activity; only query windows/context are bounded.
+
+## Earlier increment — the purposeful island
 
 The original bold **paper arcade UI is restored**. The island is now a small persistent colony: object-based residents travel, gather, build, level up and remember actual contributions. The user requested this expansion; earlier statements that autonomous island behaviour was out of scope are superseded by [ISLAND_PLAN.md](ISLAND_PLAN.md). Everything remains local, with server-side Gemini and Atlas.
 

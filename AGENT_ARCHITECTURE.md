@@ -1,5 +1,7 @@
 # Sketch Clash agent architecture and validation
 
+> Implementation update, 24 October 2026: the two-island capability SDK, shared boards and receipt-backed contributions are now implemented. See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for the current system. This document retains its earlier audited snapshot and proposed physical-cargo experiment; those should not be read as current implementation claims.
+
 **Design draft · 24 October 2026 · current implementation audited at `f1e986f`**
 
 The current island performs useful *scripted* work, but its residents do not communicate or negotiate. A central scheduler chooses jobs; Gemini supplies personality text and one action preference. The next design should make an object's contribution traceable: **an observation leads to a request, a negotiated commitment leads to an executed action, and a verified result advances a shared objective**.
