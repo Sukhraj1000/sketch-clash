@@ -144,8 +144,8 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     body = <>
       <mesh position={[0, .78, 0]} castShadow><cylinderGeometry args={[.42, .32, 1.08, 10]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.325, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.33, 10]} /><Paint color="#385B6A" /></mesh>
-      <mesh position={[.45, .85, 0]} rotation={[0, Math.PI / 2, 0]} scale={[1, 1.2, 1]} castShadow><torusGeometry args={[.29, .075, 6, 12]} /><Paint color={accent} /></mesh>
-      <mesh position={[-.38, 1.25, 0]} rotation={[0, 0, -.9]} scale={[1, 1, .65]} castShadow><coneGeometry args={[.18, .36, 4]} /><Paint color={color} /></mesh>
+      <mesh position={[.45, .85, 0]} scale={[1, 1.2, 1]} castShadow><torusGeometry args={[.29, .075, 6, 12]} /><Paint color={accent} /></mesh>
+      <mesh position={[-.38, 1.25, 0]} rotation={[0, 0, .9]} scale={[1, 1, .65]} castShadow><coneGeometry args={[.18, .36, 4]} /><Paint color={color} /></mesh>
       {[0, 1, 2].map(i => <mesh key={i} position={[-.24, .55 + i * .12, .29]}><boxGeometry args={[.1, .02, .015]} /><Paint color={accent} /></mesh>)}
     </>
   } else {

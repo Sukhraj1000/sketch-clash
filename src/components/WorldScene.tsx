@@ -73,7 +73,7 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
       <mesh position={[0, .67, 0]} castShadow><cylinderGeometry args={[.48, .43, .96, 12]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.154, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.37, 12]} /><Material color="#6D5142" /></mesh>
       <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.427, .055, 5, 12]} /><Material color={accent} /></mesh>
-      <mesh position={[.52, .7, 0]} rotation={[0, Math.PI / 2, 0]} castShadow><torusGeometry args={[.285, .085, 6, 12]} /><Material color={color} /></mesh>
+      <mesh position={[.52, .7, 0]} castShadow><torusGeometry args={[.285, .085, 6, 12]} /><Material color={color} /></mesh>
       {eyes && <Face y={.82} z={.44} />}{arms && <Arms color={accent} width={.49} />}
     </group> : template === 'bottle' ? <group>
       <mesh position={[0, .76, 0]} castShadow><cylinderGeometry args={[.32, .36, 1.13, 10]} /><Material color={color} /></mesh>
