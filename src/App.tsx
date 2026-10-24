@@ -9,12 +9,13 @@ import { api, post, asFighter, asPair, type BattleRecord, type Health, type Pend
 import './LiveFlow.css';
 const WorldView = lazy(()=>import('./components/WorldView'));
 const Observatory = lazy(()=>import('./components/Observatory'));
+const IslandPlayground = lazy(()=>import('./components/IslandPlayground'));
 const ColoniesView = lazy(()=>import('./components/ColoniesView'));
 const QualityConsole = lazy(()=>import('./components/QualityConsole'));
 import BattleArena from './components/BattleArena';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 21 };
-const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE TALE OF TWO ISLANDS', QUALITY:'RECOGNITION & WORLD QUALITY', OBSERVATORY:'THE LIVING OBSERVATORY' };
+const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE TALE OF TWO ISLANDS', QUALITY:'RECOGNITION & WORLD QUALITY', OBSERVATORY:'THE LIVING OBSERVATORY', PLAYGROUND:'THE ISLAND PLAYGROUND' };
 
 function Star({ className = '', color = 'currentColor' }: { className?: string; color?: string }) {
   return <svg className={className} viewBox="0 0 100 100" fill={color} aria-hidden="true"><path d="M51 3 62 35 96 31 73 54 89 88 54 72 25 96 28 61 2 43 37 36Z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" /></svg>;
@@ -29,7 +30,7 @@ function ActionButton({children,onClick,className='',label,disabled=false}:{chil
   return <motion.button type="button" className={`arcade-button ${className}`} onClick={onClick} aria-label={label} disabled={disabled} whileHover={{y:-3,rotate:-1}} whileTap={{y:4,x:3,boxShadow:'0px 0px 0px var(--ink)'}} transition={spring}>{children}</motion.button>;
 }
 
-function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;onDemo:()=>void;onIsland:()=>void;quick:boolean;setQuick:(value:boolean)=>void}) {
+function LandingScreen({onPlay,onDemo,onIsland,onPlayground,aiPaused,quick,setQuick}:{onPlay:()=>void;onDemo:()=>void;onIsland:()=>void;onPlayground:()=>void;aiPaused:boolean;quick:boolean;setQuick:(value:boolean)=>void}) {
   const reduced=useReducedMotion();
   return <motion.main className="landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,y:-22}}>
     <div className="landing-note note-left">a little imagination.<br/>a lot of chaos.<svg viewBox="0 0 100 70" aria-hidden="true"><path d="M5 8q66-4 65 45m-13-9 13 15 13-17"/></svg></div>
@@ -46,9 +47,11 @@ function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;
         <h1 className="hero-logo" aria-label="Sketch Clash"><motion.span className="logo-sketch" initial={{y:-50,rotate:-9,opacity:0}} animate={{y:0,rotate:-4,opacity:1}} transition={{...spring,delay:.05}}>SKETCH</motion.span><motion.span className="logo-clash" initial={{scale:.6,rotate:8,opacity:0}} animate={{scale:1,rotate:-5,opacity:1}} transition={{...spring,delay:.2}}>CLASH<span className="logo-period">!</span></motion.span></h1>
         <motion.p className="hero-tagline" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:.4}}>SNAP. CLASH. PICK A SHORE.</motion.p>
         <p className="hero-description">Winners get an island. So do the losers.<br/>Whose little crew will build something great?</p>
-        <div className="hero-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={27}/></ActionButton><motion.button className="demo-button" onClick={onDemo} whileHover={{x:3}} whileTap={{scale:.97}}><Play size={15} fill="currentColor"/> WATCH THE SHOWDOWN <ArrowUpRight size={15}/></motion.button></div>
-        <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SEC / PLAYER</span></label>
+        <div className="hero-actions"><ActionButton className="camera-battle-entry" onClick={onPlay} disabled={aiPaused}>NEW CAMERA BATTLE <ArrowRight size={24}/></ActionButton><motion.button className={`demo-button ${aiPaused?'demo-battle-available':''}`} onClick={onDemo} whileHover={{x:3}} whileTap={{scale:.97}}><Play size={15} fill="currentColor"/> PLAY DEMO BATTLE <ArrowUpRight size={15}/></motion.button></div>
+        {aiPaused&&<p className="home-capture-paused">New photo recognition is paused during the Gemini outage.<br/>The demo battle still runs with preset fighters.</p>}
+        <label className="quick-toggle"><input type="checkbox" checked={quick} disabled={aiPaused} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SEC / PLAYER</span></label>
         <button className="home-colonies-entry" onClick={onIsland}><Globe2 size={16}/><span>ENTER THE ISLANDS<small>TWO CREWS. PLENTY TO PROVE.</small></span><ArrowUpRight size={17}/></button>
+        <button className="home-playground-entry" onClick={onPlayground}>TRY THE ISLAND PLAYGROUND <ArrowUpRight size={13}/></button>
       </div>
       <motion.div className="hero-fighter hero-fighter-right" initial={{x:60,opacity:0,rotate:13}} animate={{x:0,opacity:1,rotate:7}} transition={{...spring,delay:.28}}>
         <div className="fighter-paper mint-paper"><span className="tape tape-top"/><div className="paper-grid"/>
@@ -110,7 +113,7 @@ const readActive=()=>{try{return localStorage.getItem(ACTIVE_KEY)}catch{return n
 const saveActive=(id:string|null)=>{try{if(id)localStorage.setItem(ACTIVE_KEY,id);else localStorage.removeItem(ACTIVE_KEY)}catch{/* Server record remains the source of truth. */}};
 
 export default function App() {
-  const [phase,setPhase]=useState<Phase>(window.location.hash==='#/observatory'?'OBSERVATORY':window.location.hash==='#/islands'?'WORLD':'HOME');
+  const [phase,setPhase]=useState<Phase>(window.location.hash==='#/playground'?'PLAYGROUND':window.location.hash==='#/observatory'?'OBSERVATORY':window.location.hash==='#/islands'?'WORLD':'HOME');
   const [worldMode,setWorldMode]=useState<'colonies'|'legacy'>('colonies');
   const [quick,setQuick]=useState(false);
   const [isDemo,setIsDemo]=useState(false);
@@ -118,6 +121,7 @@ export default function App() {
   const [roundKey,setRoundKey]=useState(0);
   const [battle,setBattle]=useState<BattleRecord|null>(null);
   const [health,setHealth]=useState<Health|null>(null);
+  const [healthUnavailable,setHealthUnavailable]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [recovery,setRecovery]=useState<string|null>(readActive);
@@ -129,10 +133,15 @@ export default function App() {
   const createRequest=useRef<string|null>(null);
   const actionBusy=useRef(false);
   const reduced=!!useReducedMotion();
-  useEffect(()=>{const route=()=>{if(location.hash==='#/observatory')setPhase('OBSERVATORY');else if(location.hash==='#/islands'){setWorldMode('colonies');setPhase('WORLD')}else if(!location.hash)setPhase('HOME')};window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[]);
+  useEffect(()=>{const route=()=>{if(location.hash==='#/playground')setPhase('PLAYGROUND');else if(location.hash==='#/observatory')setPhase('OBSERVATORY');else if(location.hash==='#/islands'){setWorldMode('colonies');setPhase('WORLD')}else if(!location.hash)setPhase('HOME')};window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[]);
   useEffect(()=>{window.scrollTo({top:0,left:0,behavior:'instant'});},[phase]);
   const remember=useCallback((record:BattleRecord)=>{currentBattle.current=record;setBattle(record);saveActive(record.id)},[]);
-  useEffect(()=>{let alive=true;api<Health>('/health').then(value=>{if(alive)setHealth(value)}).catch(()=>{});return()=>{alive=false}},[]);
+  useEffect(()=>{
+    if(phase==='PLAYGROUND')return;
+    const controller=new AbortController();let loading=false;
+    const refresh=async()=>{if(loading)return;loading=true;try{const value=await api<Health>('/health',{signal:controller.signal});if(!controller.signal.aborted){setHealth(value);setHealthUnavailable(false)}}catch{if(!controller.signal.aborted)setHealthUnavailable(true)}finally{loading=false}};
+    void refresh();const interval=window.setInterval(refresh,15000);return()=>{controller.abort();window.clearInterval(interval)};
+  },[phase]);
   const home=useCallback(async()=>{
     if(actionBusy.current)return;
     const active=currentBattle.current;
@@ -222,21 +231,24 @@ export default function App() {
   const stage=phase==='DRAW_P1'||phase==='DRAW_P2'?0:phase==='REVEAL'?1:2;
   const memory=battle?.persistence==='development_memory'||health?.persistence==='development_memory';
   return <div className={`game-shell phase-${phase.toLowerCase()}`}><div className="paper-noise" aria-hidden="true"/>
-    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" onClick={()=>{location.hash='/observatory'}}><Sparkles size={15}/><span>OBSERVATORY</span></button><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}><Globe2 size={15}/> THE ISLANDS <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'||phase==='OBSERVATORY'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
-    {memory&&<div className="service-note">LOCAL MEMORY PREVIEW · Your island disappears when the backend restarts. MongoDB is not connected.</div>}
+    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" onClick={()=>{location.hash='/observatory'}}><Sparkles size={15}/><span>OBSERVATORY</span></button><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}><Globe2 size={15}/> THE ISLANDS <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'||phase==='OBSERVATORY'||phase==='PLAYGROUND'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
+    {health?.ai_paused&&!healthUnavailable&&['HOME','WORLD','OBSERVATORY','QUALITY'].includes(phase)&&<div className="ai-maintenance-note" role="status"><span className="ai-maintenance-dot"/><div><strong>GEMINI PAUSED</strong><span>Local island work continues. New AI discussions and recognition are on hold.</span></div><button onClick={()=>{location.hash='/playground'}}>TRY THE PLAYGROUND <ArrowUpRight size={14}/></button></div>}
+    {healthUnavailable&&['HOME','WORLD','OBSERVATORY'].includes(phase)&&<div className="ai-maintenance-note is-disconnected" role="status"><div><strong>LOCAL ENGINE DISCONNECTED</strong><span>The playground still runs in this browser. Saved islands reconnect when the backend is available.</span></div><button onClick={()=>{location.hash='/playground'}}>OPEN PLAYGROUND <ArrowUpRight size={14}/></button></div>}
+    {memory&&phase!=='PLAYGROUND'&&<div className="service-note">LOCAL MEMORY PREVIEW · Your island disappears when the backend restarts. MongoDB is not connected.</div>}
     {!memory&&health?.status==='configuration_required'&&phase==='HOME'&&<div className="service-note">Camera battles need your Atlas connection. The cinematic demo remains available.</div>}
     {busy&&<div className="flow-message" role="status">{busy}</div>}
     {error&&<div className="flow-message flow-error" role="alert">{error}<button onClick={()=>setError('')} aria-label="Dismiss message"><X size={16}/></button>{phase==='REVEAL'&&!isDemo&&<button onClick={()=>void startBattle()}>Retry arena</button>}</div>}
     {phase==='HOME'&&recovery&&<div className="recovery-card"><b>A round is waiting in your sketchbook.</b><button onClick={()=>void resume()}>RESUME ROUND</button><button onClick={()=>{saveActive(null);setRecovery(null);createRequest.current=null}}>DISMISS RECOVERY</button></div>}
-    {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&phase!=='OBSERVATORY'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
+    {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&phase!=='OBSERVATORY'&&phase!=='PLAYGROUND'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
     <AnimatePresence mode="wait" initial={false}><motion.div key={`${roundKey}-${phase}`} className="screen-wrap" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:.18}}>
-      {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} onIsland={()=>{setWorldMode('colonies');setPhase('WORLD')}} quick={quick} setQuick={setQuick}/>}
+      {phase==='HOME'&&<LandingScreen aiPaused={Boolean(health?.ai_paused)} onPlayground={()=>{location.hash='/playground'}} onPlay={()=>void play()} onDemo={demo} onIsland={()=>{setWorldMode('colonies');setPhase('WORLD')}} quick={quick} setQuick={setQuick}/>}
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
       {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?.duration_ms&&battle.winner_slot!==null?{events:battle.events,duration_ms:battle.duration_ms,winner_slot:battle.winner_slot}:undefined}/>}
       {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
-      {phase==='OBSERVATORY'&&<Suspense fallback={<div className="flow-message">Opening the living Observatory…</div>}><Observatory onBack={()=>{location.hash='/islands'}}/></Suspense>}
+      {phase==='PLAYGROUND'&&<Suspense fallback={<div className="flow-message">Opening the island playground…</div>}><IslandPlayground onBack={()=>void home()}/></Suspense>}
+      {phase==='OBSERVATORY'&&<Suspense fallback={<div className="flow-message">Opening the living Observatory…</div>}><Observatory aiPaused={Boolean(health?.ai_paused)} onBack={()=>{location.hash='/islands'}}/></Suspense>}
       {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>setPhase('HOME')}/></Suspense>}
       {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening the islands…</div>}>{worldMode==='colonies'?<ColoniesView onBack={()=>void home()} onLegacy={()=>{setWorldMode('legacy');window.scrollTo({top:0,behavior:'instant'})}}/>:<><div className="legacy-island-return"><button onClick={()=>{setWorldMode('colonies');window.scrollTo({top:0,behavior:'instant'})}}><Globe2 size={14}/> BACK TO THE TWO ISLANDS <ArrowRight size={14}/></button><span>Your original shared island and its memories are preserved.</span></div><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></>}</Suspense>}
     </motion.div></AnimatePresence>

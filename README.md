@@ -23,9 +23,21 @@ The MacBook can use the same URL through the existing SSH tunnel over Tailscale.
 
 The default repository is MongoDB and fails clearly if unavailable. `npm run dev:demo` explicitly selects temporary memory for development, labelled in the UI; its island disappears on backend restart. It is not a persistence demonstration.
 
+## Build and demonstrate during the Gemini outage
+
+```sh
+npm run dev:offline
+```
+
+This starts the normal local services with `SKETCH_AI_PAUSED=true`. Atlas still saves the real islands and the local executor still completes valid work. New Gemini recognition, councils, reflections and embeddings are blocked before provider dispatch. Camera battles stay visible with a pause explanation, and **PLAY DEMO BATTLE** still runs the preset showdown. The interface shows **Gemini paused**; the separately saved evaluation pause stays in place. This command does not change billing, credentials or model selection.
+
+Open **[Island Playground](http://127.0.0.1:5173/#/playground)** for a separate practice simulation. Add a useful object, inspect its job, watch supplies become construction and compare the two example crews. The board explains rule-based choices and completed contributions. Pause, speed up or reset the practice world. Its state lives only in browser memory: these are example residents, not actual battle outcomes, Gemini discussions or saved Atlas records. The playground also works with the API server stopped while Vite is running.
+
+The live islands now show shared supply shortages, productive tasks and the gains expected when each job completes. The Observatory distinguishes a public plan, a validated action and the saved receipt proving its effect. After the provider recovers, restart without `--offline` to remove the startup pause; the evaluation pause and existing provider-failure records are not automatically cleared. Resume and validate those deliberately before claiming new model-authored conversations.
+
 ## Play and give feedback
 
-1. Choose **LET’S PLAY**. The current brief is **Everyday Objects**; this does not implement rotating themes or theme disqualification.
+1. Choose **NEW CAMERA BATTLE**. The current brief is **Everyday Objects**; this does not implement rotating themes or theme disqualification.
 2. Pass the device privately to each player. Use camera or upload, select one object and crop or retake if needed. JPEG, PNG and WebP are supported; input limits remain 5 MiB and 24 megapixels, with a 1,600-pixel normalized image. Convert HEIC first.
 3. Review the **source photograph beside the actual procedural 3D preview**. Answer **Correct**, **Correct it**, or **Not sure**. Factual corrections re-examine the photograph; they are suggestions, not unquestioned ground truth.
 4. Optionally choose **Keep** or **Change details**, with reasons and a short comment. Skipping creative feedback is not a negative rating. Style revisions preserve the identity, class and fixed combat stats. The original proposal and correction lineage remain recorded.

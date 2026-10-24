@@ -26,7 +26,7 @@ export type BattleRecord = {
   persistence:'mongodb'|'development_memory';
   pipeline_version_id?:string;
 };
-export type Health = {status:string;persistence:string;persistent:boolean;gemini:{configured:boolean;model:string};message?:string;world_id:string};
+export type Health = {status:string;persistence:string;persistent:boolean;ai_paused?:boolean;ai_status?:'paused'|'configured'|'unconfigured';ai_pause_reason?:string|null;gemini:{configured:boolean;model:string};message?:string;world_id:string};
 export class ApiError extends Error { constructor(message:string, public code:string, public status:number){super(message);} }
 export async function api<T>(path:string,init:RequestInit={}):Promise<T>{
   const controller=new AbortController();

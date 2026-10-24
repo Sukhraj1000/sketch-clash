@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test:combat": "node scripts/verify-battle.mjs",
     "test:island-scene": "node scripts/verify-island-scene.mjs",
+    "test:playground": "node scripts/verify-playground.mjs",
     "setup:gemini": "node scripts/setup-gemini.mjs",
     "setup:mongodb": "node scripts/setup-mongodb.mjs",
     "operator:token": "node scripts/operator-token.mjs",
