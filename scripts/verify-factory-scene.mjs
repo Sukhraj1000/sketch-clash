@@ -1,0 +1,175 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { transformSync } from 'rolldown/utils';
+import * as THREE from 'three';
+
+// Inspect the components' actual JSX geometry without a GPU, live world or API.
+// Hooks are inert only for the existing structure wrapper's animation lifecycle;
+// construction progress, recipe geometry and selection handlers remain real code.
+const require = createRequire(import.meta.url);
+const sourceUrl = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const jsxRuntime = pathToFileURL(require.resolve('react/jsx-runtime')).href;
+function componentModule(filename, replacements = {}) {
+  const result = transformSync(filename, readFileSync(new URL(filename, import.meta.url), 'utf8'), {
+    lang: 'tsx', sourceType: 'module', jsx: { runtime: 'automatic' },
+  });
+  assert.equal(result.errors.length, 0, `${filename} compiles for inspection`);
+  let code = result.code;
+  for (const [from, to] of Object.entries({ 'react/jsx-runtime': jsxRuntime, ...replacements })) {
+    code = code.replaceAll(JSON.stringify(from), JSON.stringify(to)).replaceAll(`'${from}'`, JSON.stringify(to));
+  }
+  return sourceUrl(code);
+}
+const primitives = componentModule('../src/components/FactoryPrimitives.tsx');
+const equipmentUrl = new URL('../src/components/robotEquipment.ts', import.meta.url).href;
+const { robotEquipment } = await import(equipmentUrl);
+const { default: RobotShape } = await import(componentModule('../src/components/RobotShape.tsx', { './FactoryPrimitives': primitives, './robotEquipment': equipmentUrl }));
+const structuresUrl = componentModule('../src/components/FactoryStructures.tsx', { './FactoryPrimitives': primitives });
+const { FactoryStructureVisual } = await import(structuresUrl);
+const { default: FactoryEnvironment } = await import(componentModule('../src/components/FactoryEnvironment.tsx', { './FactoryPrimitives': primitives }));
+const { default: IslandStructure } = await import(componentModule('../src/components/IslandStructures.tsx', {
+  './FactoryStructures': structuresUrl,
+  '../lib/island': new URL('../src/lib/island.ts', import.meta.url).href,
+  react: sourceUrl('export const useRef = value => ({ current: value }); export const useEffect = () => {};'),
+  '@react-three/fiber': sourceUrl('export const useFrame = () => {};'),
+  three: pathToFileURL(require.resolve('three')).href,
+}));
+
+function inspect(node, parent = new THREE.Matrix4(), result = { named: new Map(), geometry: [], colors: new Set() }) {
+  if (node == null || typeof node === 'boolean' || typeof node === 'string' || typeof node === 'number') return new THREE.Box3();
+  if (Array.isArray(node)) return node.reduce((box, child) => box.union(inspect(child, parent, result)), new THREE.Box3());
+  if (typeof node.type === 'function') return inspect(node.type(node.props), parent, result);
+  const props = node.props ?? {};
+  if (typeof node.type === 'string' && node.type.endsWith('Geometry')) {
+    const Constructor = THREE[node.type[0].toUpperCase() + node.type.slice(1)];
+    assert.equal(typeof Constructor, 'function', `${node.type} has a real Three geometry`);
+    assert.ok((props.args ?? []).every(value => typeof value !== 'number' || Number.isFinite(value)), 'All geometry arguments are finite');
+    const geometry = new Constructor(...(props.args ?? []));
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox.clone().applyMatrix4(parent);
+    geometry.dispose();
+    assert.ok([...box.min, ...box.max].every(Number.isFinite), 'Actual world-space geometry is finite');
+    result.geometry.push({ type: node.type, args: props.args, matrix: parent.toArray(), bounds: [...box.min, ...box.max] });
+    return box;
+  }
+  if (typeof node.type === 'string' && node.type.endsWith('Material') && props.color) result.colors.add(props.color);
+  const transform = new THREE.Object3D();
+  if (props.position) transform.position.fromArray(props.position);
+  if (props.rotation) transform.rotation.fromArray(props.rotation);
+  if (typeof props.scale === 'number') transform.scale.setScalar(props.scale);
+  else if (props.scale) transform.scale.fromArray(props.scale);
+  transform.updateMatrix();
+  const matrix = parent.clone().multiply(transform.matrix);
+  const box = inspect(props.children, matrix, result);
+  if (props.name) result.named.set(props.name, { bounds: [...box.min, ...box.max], matrix: matrix.toArray(), props });
+  return box;
+}
+function scene(node) {
+  const result = { named: new Map(), geometry: [], colors: new Set() };
+  return { ...result, bounds: inspect(node, new THREE.Matrix4(), result) };
+}
+function frozen(value) {
+  if (value && typeof value === 'object') { Object.values(value).forEach(frozen); Object.freeze(value); }
+  return value;
+}
+
+const character = frozen({
+  id: 'saved-bottle', object_type: 'bottle', image_ref: '/api/media/fixture',
+  visual_spec: { palette: ['#5577AA', '#F2BC41'], template_id: 'generic', scale: 1.6, proportions: { width: .5, height: 1.5 }, accessories: ['eyes', 'feet', 'arms'], animation_style: 'wobbly' },
+});
+const originalCharacter = JSON.stringify(character);
+const permissions = [
+  [[], 'none'], [['water'], 'water'], [['tend'], 'water'], [['plan'], 'plan'], [['measure'], 'measure'],
+  [['charge'], 'charge'], [['signal'], 'signal'], [['build'], 'build'], [['carry'], 'carry'],
+  [['rest', 'explore'], 'none'], [['waterproof', 'building', 'recharge', 'signal_boost'], 'none'],
+];
+for (const [actions, expected] of permissions) {
+  frozen(actions);
+  assert.equal(robotEquipment(actions).id, expected, 'Equipment follows exact saved permissions, never object-name guesses');
+  const robot = scene(RobotShape({ character, allowedActions: actions }));
+  const size = robot.bounds.getSize(new THREE.Vector3());
+  assert.ok(robot.bounds.min.y >= -.001 && robot.bounds.min.y <= .001, 'The actual robot feet rest on the ground');
+  assert.ok(size.x > .4 && size.x < .9 && size.y > .7 && size.y < 1.15 && size.z < .8, 'Every module keeps a compact, undeformed robot silhouette');
+  for (const name of ['sc-character', 'sc-eyes', 'sc-arm-left', 'sc-arm-right', 'sc-foot-left', 'sc-foot-right']) {
+    assert.ok(robot.named.has(name), `${expected} robot retains its shared animation rig: ${name}`);
+  }
+  const modules = [...robot.named.keys()].filter(name => name.startsWith('factory-module-'));
+  assert.deepEqual(modules, expected === 'none' ? [] : [`factory-module-${expected}`], 'A robot shows only its permitted accessory');
+  assert.match(robot.named.get('sc-character').props.userData.rigKey, /^factory-robot:/, 'Switching object geometry invalidates cached rig bindings');
+  for (const name of ['sc-foot-left', 'sc-foot-right']) assert.ok(Number.isFinite(robot.named.get(name).props.userData.restY), 'Feet retain their animation rest height');
+  assert.ok(robot.colors.has('#5577AA') && robot.colors.has('#F2BC41'), 'The robot preserves its object palette');
+}
+const oddProportions = { ...character, visual_spec: { ...character.visual_spec, scale: 50, proportions: { width: 100, height: .01 } } };
+assert.deepEqual(scene(RobotShape({ character: oddProportions })).geometry, scene(RobotShape({ character })).geometry, 'Saved photographic proportions cannot distort the robot mesh');
+assert.equal(JSON.stringify(character), originalCharacter, 'Rendering leaves the accepted object record untouched');
+
+const baseProject = {
+  id: 'saved-project', name: 'Fixture structure', kind: 'workshop', position: { x: 2.1, z: -1.5 },
+  progress: 0, required_progress: 100, status: 'building', level: 0, max_level: 3,
+};
+const completedShapes = new Set();
+for (const kind of ['garden', 'workshop', 'beacon', 'boardwalk']) {
+  const project = frozen({ ...baseProject, kind });
+  const initial = scene(FactoryStructureVisual({ project, progress: 0 }));
+  const complete = scene(FactoryStructureVisual({ project, progress: 1 }));
+  assert.ok(complete.geometry.length > initial.geometry.length, `${kind} visibly builds from real construction progress`);
+  completedShapes.add(JSON.stringify(complete.geometry));
+  for (const progress of [-5, 0, .2, .5, .8, 1, 20, NaN, Infinity]) {
+    const rendered = scene(FactoryStructureVisual({ project, progress }));
+    const size = rendered.bounds.getSize(new THREE.Vector3());
+    assert.ok(size.x < 3 && size.z < 3 && size.y < 3, `${kind} stays inside its existing worksite footprint`);
+  }
+  assert.deepEqual(scene(FactoryStructureVisual({ project, progress: -5 })).geometry, initial.geometry, 'Negative progress clamps to the starting structure');
+  assert.deepEqual(scene(FactoryStructureVisual({ project, progress: 20 })).geometry, complete.geometry, 'Excess progress clamps to the completed structure');
+  // Once built, the same wrapper keeps the entire building during its next upgrade.
+  const upgraded = scene(IslandStructure({ project: { ...project, level: 1, progress: 0 }, selected: false, active: false, reducedMotion: true, presentation: 'factory' }));
+  const priorComplete = scene(IslandStructure({ project: { ...project, level: 1, status: 'complete', progress: 100 }, selected: false, active: false, reducedMotion: true, presentation: 'factory' }));
+  assert.deepEqual(upgraded.geometry, priorComplete.geometry, 'Starting an upgrade never removes an existing factory structure');
+}
+assert.equal(completedShapes.size, 4, 'Different existing project kinds have distinct factory forms');
+
+const assembly = frozen({ ...baseProject, kind: 'assembly', progress: 60, blueprint_id: 'approved-fixture', assembly: {
+  family: 'support', context: { span: .6 }, parts: [
+    { kind: 'beam', resident_id: 'ruler', position: { x: 0, y: .1, z: 0 }, rotation: 90, geometry: { width: .8, height: .12, depth: .4, length: 1.8 }, material_assumption: 'wood' },
+    { kind: 'vessel', resident_id: 'mug', position: { x: -.5, y: 0, z: .2 }, rotation: 0, geometry: { width: .6, height: .7, depth: .6, length: .6 }, material_assumption: 'ceramic' },
+    { kind: 'connector', resident_id: 'clip', position: { x: .5, y: 0, z: -.1 }, rotation: 0, geometry: { width: .3, height: .4, depth: .3, length: .3 }, material_assumption: 'metal' },
+  ],
+} });
+assert.equal(FactoryStructureVisual({ project: assembly, progress: .6 }), null, 'Factory decoration cannot replace an approved object assembly');
+const assemblySnapshot = JSON.stringify(assembly);
+const assemblyViews = [];
+for (const presentation of ['island', 'factory']) {
+  const selectedIds = [];
+  const node = IslandStructure({ project: assembly, selected: false, onSelect: id => selectedIds.push(id), active: false, reducedMotion: true, presentation });
+  node.props.onClick({ delta: 0, stopPropagation() {} });
+  node.props.onClick({ delta: 10, stopPropagation() { assert.fail('Camera drags must not become project selection'); } });
+  assert.deepEqual(selectedIds, [assembly.id], 'Both appearances select the same saved project, and ignore drag gestures');
+  const rendered = scene(node);
+  assemblyViews.push([...rendered.named.entries()].filter(([name]) => name.startsWith('assembly')).map(([name, detail]) => [name, detail.bounds, detail.matrix]));
+}
+assert.equal(assemblyViews[0].length, 4, 'The approved assembly and all three attributed recipe parts remain visible');
+assert.deepEqual(assemblyViews[1], assemblyViews[0], 'Factory view preserves exact approved part geometry, proportions, positions and construction state');
+assert.equal(JSON.stringify(assembly), assemblySnapshot, 'Both appearances leave the persisted blueprint untouched');
+
+const environment = scene(FactoryEnvironment({}));
+assert.ok(environment.geometry.length > 0, 'The factory environment contains real scene geometry');
+for (const [resource, x, z] of [['materials', -3.25, 1.2], ['water', -.25, -2.9], ['ideas', .15, .7], ['energy', 3.65, .55]]) {
+  const station = environment.named.get(`factory-station-${resource}`);
+  assert.ok(station, `The ${resource} station remains identifiable`);
+  const position = new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().fromArray(station.matrix));
+  assert.deepEqual([position.x, position.z], [x, z], 'Factory stations retain existing authoritative resource positions');
+}
+
+// Narrow integration checks protect React identity and the shared authoritative
+// motion path. Camera/selection continuity is also exercised in browser review.
+const world = readFileSync(new URL('../src/components/WorldScene.tsx', import.meta.url), 'utf8');
+assert.match(world, /presentation\s*=\s*'island'/, 'Other scene callers keep their island appearance by default');
+assert.match(world, /<Resident\s+key=\{character\.id\}/, 'Appearance changes cannot remount resident animation clocks or arrival state');
+assert.match(world, /<IslandStructure\s+key=\{project\.id\}/, 'Appearance changes cannot remount saved project effects');
+assert.doesNotMatch(world.match(/<Canvas\b[^>]+>/)?.[0] ?? '', /\bkey=/, 'The camera and renderer survive a presentation switch');
+assert.match(world, /factory\s*\?\s*\[1,\s*1,\s*1\]\s*:\s*characterDisplayScale/, 'The robot has a uniform outer scale independent of accepted photo proportions');
+assert.match(world, /residentDisplayPose\(agent\.task,\s*agent\.position,\s*worldTime\(clock\),\s*displaySlot\.current\)/, 'Robot and object movement use the same server task, time and position');
+assert.match(world, /<RobotShape\s+character=\{character\}\s+allowedActions=\{agent\?\.allowed_actions\}/, 'Robot equipment reads saved agent permissions');
+console.log('Factory scene checks passed: exact-permission robot modules, grounded rigid geometry, original palettes, staged workstations, upgrade continuity, approved assembly conservation, stable IDs and shared task motion.');

@@ -7,6 +7,8 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { safeIslandPoint } from '../lib/island'
 import type { IslandAgent, IslandSimulation, IslandTaskKind } from '../lib/island'
 import IslandStructure from './IslandStructures'
+import FactoryEnvironment from './FactoryEnvironment'
+import RobotShape from './RobotShape'
 import ObjectShapes from './ObjectShapes'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
 import { objectSilhouette } from './objectIdentity'
@@ -17,7 +19,7 @@ import type { Object3D } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { WorldCharacter } from './WorldView'
 
-type SceneProps = { characters: WorldCharacter[]; layoutSeed: number; selectedId: string | null; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arrivalIds: string[]; onArrived: (id: string) => void; onFailure: () => void; simulation?: IslandSimulation; selectedProjectId?: string | null; onProjectSelect?: (id: string) => void; cameraResetKey?: number; followSelected?: boolean }
+type SceneProps = { presentation?: 'island' | 'factory'; characters: WorldCharacter[]; layoutSeed: number; selectedId: string | null; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arrivalIds: string[]; onArrived: (id: string) => void; onFailure: () => void; simulation?: IslandSimulation; selectedProjectId?: string | null; onProjectSelect?: (id: string) => void; cameraResetKey?: number; followSelected?: boolean }
 type WorldClock = { serverMs: number; receivedAt: number; paused: boolean }
 const worldTime = (clock: WorldClock) => clock.serverMs + (clock.paused ? 0 : performance.now() - clock.receivedAt)
 const INK = '#1E1C29'
@@ -162,7 +164,7 @@ function WorkProp({ kind, active, reducedMotion }: { kind?: IslandTaskKind; acti
   return <group ref={effect} position={[0, .5, .48]}><mesh castShadow><boxGeometry args={[.53, .4, .35]} /><Material color="#D3A16A" /></mesh>{[-.17, .17].map(x => <mesh key={x} position={[x, 0, .184]}><boxGeometry args={[.05, .41, .03]} /><Material color="#745236" /></mesh>)}<mesh position={[0, 0, .184]}><boxGeometry args={[.54, .045, .03]} /><Material color="#745236" /></mesh></group>
 }
 
-function Resident({ character, agent, clock, positions, slot, selected, onSelect, active, reducedMotion, arriving, onArrived }: { character: WorldCharacter; agent?: IslandAgent; clock: WorldClock; positions: Map<string, Vector3>; slot: { x: number; z: number }; selected: boolean; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arriving: boolean; onArrived: (id: string) => void }) {
+function Resident({ character, agent, clock, positions, slot, selected, onSelect, active, reducedMotion, arriving, onArrived, presentation }: { presentation: 'island' | 'factory'; character: WorldCharacter; agent?: IslandAgent; clock: WorldClock; positions: Map<string, Vector3>; slot: { x: number; z: number }; selected: boolean; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arriving: boolean; onArrived: (id: string) => void }) {
   const root = useRef<Group>(null)
   const body = useRef<Group>(null)
   const work = useRef<Group>(null)
@@ -174,7 +176,9 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
   const displaySlot = useRef({ ...slot })
   const home = safeIslandPoint({ x: character.home_position.x, z: character.home_position.z })
   const initial = agent ? residentDisplayPose(agent.task, agent.position, worldTime(clock), slot) : { ...displayIslandPoint(home, slot), heading: .6 }
-  const displayScale = characterDisplayScale(character, .7)
+  // Robot proportions are fixed; saved photo/template dimensions must not stretch the chassis.
+  const factory = presentation === 'factory'
+  const displayScale: [number, number, number] = factory ? [1, 1, 1] : characterDisplayScale(character, .7)
   useEffect(() => { positions.set(character.id, new Vector3(initial.x, .5, initial.z)); return () => { positions.delete(character.id) } }, [character.id, positions])
   useFrame((_, delta) => {
     if (!root.current || !body.current || !active) return
@@ -205,7 +209,7 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
     root.current.rotation.y += reducedMotion ? angleDelta : angleDelta * Math.min(1, delta * 5)
     const taskKind = agent?.task?.kind
     const gesture = working || (taskTravelling && (taskKind === 'carry' || taskKind === 'forage')) ? taskKind : undefined
-    animateCharacterBody(body.current, spec.animation_style, moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
+    animateCharacterBody(body.current, factory ? 'calm' : spec.animation_style, moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
     if (work.current) work.current.visible = !!agent?.task && taskVisible && (working || (taskTravelling && ['carry', 'forage'].includes(agent.task.kind)))
     const arrival = arriving ? reducedMotion ? 1 : Math.min(1, time / 1.15) : 1
     if (arriving && arrival === 1 && !arrivalReported.current) { arrivalReported.current = true; onArrived(character.id) }
@@ -216,8 +220,8 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
   const choose = (event: ThreeEvent<MouseEvent>) => { if (event.delta > 4) return; event.stopPropagation(); onSelect(character.id) }
   return <group ref={root} position={[initial.x, .03, initial.z]} rotation={[0, initial.heading, 0]} onClick={choose}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .012, 0]}><circleGeometry args={[selected ? .64 : .43, 20]} /><meshBasicMaterial color={selected ? '#FFD166' : '#182B3C'} transparent opacity={selected ? .8 : .13} depthWrite={false} /></mesh>
-    {selected && <mesh position={[0, 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
-    <group scale={displayScale}><group ref={body}><CharacterShape character={character} /><group ref={work}><WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} /></group></group></group>
+    {selected && <mesh position={[0, factory ? 1.3 : 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
+    <group scale={displayScale}><group ref={body}>{factory ? <RobotShape character={character} allowedActions={agent?.allowed_actions} /> : <CharacterShape character={character} />}<group ref={work} scale={factory ? .65 : 1}><WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} /></group></group></group>
   </group>
 }
 
@@ -377,7 +381,8 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, pos
   return <OrbitControls ref={orbit} makeDefault target={[0, .25, 0]} enabled={active} enablePan enableZoom minZoom={12} maxZoom={115} minPolarAngle={.42} maxPolarAngle={1.25} enableDamping={!reducedMotion && active} dampingFactor={.09} />
 }
 
-export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, followSelected = false }: SceneProps) {
+export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, followSelected = false, presentation = 'island' }: SceneProps) {
+  const factory = presentation === 'factory'
   const positions = useRef(new Map<string, Vector3>())
   const slots = useMemo(() => residentDisplaySlots(characters.slice(0, 40).map(character => character.id)), [characters])
   const agents = useMemo(() => new Map((simulation?.agents ?? []).map(agent => [agent.character_id, agent])), [simulation?.agents])
@@ -391,16 +396,16 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   const routeFrom = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.from, selectedSlot) : null
   const routeTo = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.to, selectedSlot) : null
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
-  return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved island residents and projects. Use the collection and project controls for accessible details.</span>} aria-label="Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building">
-    <color attach="background" args={['#82CDE8']} />
+  return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building"}>
+    <color attach="background" args={[factory ? '#CCD4CF' : '#82CDE8']} />
     <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} positions={positions.current} active={active} reducedMotion={reducedMotion} />
     <ambientLight intensity={.55} />
-    <fog attach="fog" args={['#9DDDEF', 25, 60]} />
-    <hemisphereLight args={['#FFF9DC', '#83AA67', 1.4]} />
+    <fog attach="fog" args={[factory ? '#CCD4CF' : '#9DDDEF', 25, 60]} />
+    <hemisphereLight args={['#FFF9DC', factory ? '#57646B' : '#83AA67', 1.4]} />
     <directionalLight position={[-5, 10, 7]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-8} shadow-camera-right={8} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-normalBias={.04} />
-    <Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} />
-    {simulation?.projects.map(project => <IslandStructure key={project.id} project={project} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
+    {factory ? <FactoryEnvironment /> : <><Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} /></>}
+    {simulation?.projects.map(project => <IslandStructure key={project.id} presentation={presentation} project={project} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
     {routeFrom && routeTo && <Line points={[[routeFrom.x, .055, routeFrom.z], [routeTo.x, .055, routeTo.z]]} color="#FFF2AF" lineWidth={2} dashed dashSize={.14} gapSize={.09} />}
-    {characters.slice(0, 40).map(character => <Resident key={character.id} character={character} agent={agents.get(character.id)} clock={clock} positions={positions.current} slot={slots.get(character.id) ?? { x: 0, z: 0 }} selected={selectedId ===character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}
+    {characters.slice(0, 40).map(character => <Resident key={character.id} presentation={presentation} character={character} agent={agents.get(character.id)} clock={clock} positions={positions.current} slot={slots.get(character.id) ?? { x: 0, z: 0 }} selected={selectedId ===character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}
   </Canvas>
 }
