@@ -20,6 +20,7 @@ from .repository import StoreError, key_for, public
 from .colony_deliberation import DeliberationMixin, model_controlled, review_model_plan
 from .colony_learning import ColonyLearningStore
 from .observability import record_event, agent_span
+from .board_presentation import board_text, report_commentary
 
 COLONY_IDS = ('winners', 'losers')
 COLONY_NAMES = {'winners': 'Winner Island', 'losers': 'Loser Island'}
@@ -601,11 +602,12 @@ class _ColonyIsland(IslandStore):
         record_event(tx, self.repo.root_world_id, event_id=key_for(identifier, 'published'), kind='board.message',
                      island_id=self.repo.colony_id, actor_id=value['actor_id'], actor_name=value['actor_name'],
                      session_id=value.get('session_id'),
-                     message=(value.get('interpretation') or value.get('text', '')) if value['origin'] == 'model' else value.get('text', ''),
+                     message=board_text(value),
                      data={'message_id': identifier, 'message_kind': kind, 'origin': value['origin'],
                            'reply_to_id': value.get('reply_to_id'), 'project_id': value.get('project_id'),
                            'receipt_ids': deepcopy(value.get('receipt_ids', [])),
-                           'evidence_kind': 'execution_report' if value.get('receipt_ids') else 'board_message'})
+                           'evidence_kind': 'execution_report' if value.get('receipt_ids') else 'board_message',
+                           **report_commentary(value)})
         return value
 
     def _request(self, tx, state, agent, resource, quantity, project_id, now, identifier, origin='deterministic', note=''):
@@ -1122,11 +1124,12 @@ class ColoniesStore(DeliberationMixin):
                     record_event(tx, self.world_id, event_id=key_for(row['id'], 'model-publication'),
                                  kind='agent.message' if row.get('origin') == 'model' else 'research.recorded',
                                  island_id=colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
-                                 session_id=provenance.get('session_id'), message=row.get('interpretation') or row.get('text', ''),
+                                 session_id=provenance.get('session_id'), message=board_text(row),
                                  data={'message_id': row['id'], 'reply_to_id': row.get('reply_to_id'), 'model': row.get('model'),
-                                       'origin': row.get('origin'), 'run_id': run_id,
+                                       'origin': row.get('origin'), 'run_id': run_id, 'message_kind': row['kind'],
                                        'receipt_ids': deepcopy(row.get('receipt_ids', [])),
-                                       'evidence_kind': 'execution_report' if row.get('receipt_ids') else 'board_message'})
+                                       'evidence_kind': 'execution_report' if row.get('receipt_ids') else 'board_message',
+                                       **report_commentary(row)})
             tx.put('islandAgents', agent)
             state['revision'] += 1
             tx.put('islandState', state)

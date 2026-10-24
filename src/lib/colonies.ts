@@ -15,6 +15,7 @@ export type ColonyBoardEntry = {
   project_id?: string; council_id?: string; proposal_id?: string
   session_id?: string; reply_to_id?: string; model?: string; run_id?: string; turn_index?: number
   interpretation?: string | null
+  request_reused?: boolean; effect?: string
 }
 export type ColonyAgent = IslandAgent & {
   intent?: string; contribution?: Record<string, number>

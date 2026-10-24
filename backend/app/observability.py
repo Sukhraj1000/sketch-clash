@@ -30,6 +30,7 @@ from opentelemetry.trace import Link, SpanContext, Status, StatusCode, TraceFlag
 
 from .repository import Repository, StoreError, key_for, now_iso
 from .observatory_evidence import ReceiptEvidence
+from .board_presentation import board_text, report_commentary
 
 logger = logging.getLogger('sketch_clash.observatory')
 OPERATION_DAYS = 7
@@ -375,6 +376,46 @@ class Observatory:
         with suppress_instrumentation():
             return self.repository.read(lambda tx: tx.find(collection, {'world_id': self.world_id, **query}, sort, limit))
 
+    def _present_events(self, rows):
+        """Read-time repair of old report wording; never rewrite saved history.
+
+        Historical report events may contain model commentary as their headline.
+        Resolve the owned board record and receipts before presenting it as work.
+        A missing or foreign record is unknown, never a verified contribution.
+        """
+        result = [_public(row) for row in rows]
+        reports = [row for row in result if (row.get('data') or {}).get('message_kind') == 'report'
+                   or (row.get('data') or {}).get('evidence_kind') == 'execution_report']
+        if not reports:
+            return result
+        def read(tx):
+            cache = {}
+            def get(collection, identifier):
+                key = (collection, identifier)
+                if key not in cache:
+                    cache[key] = tx.get(collection, identifier) if identifier else None
+                return cache[key]
+            for row in reports:
+                data = row['data']
+                board = get('colonyBoard', data.get('message_id'))
+                scope = key_for(self.world_id, 'colony-world', row['island_id'])[:32] if row.get('island_id') in ('winners', 'losers') else None
+                owned = bool(board and scope and board.get('world_id') == scope
+                             and board.get('actor_id') == row.get('actor_id') and board.get('kind') == 'report')
+                receipts = [get('islandEvents', identifier) for identifier in board.get('receipt_ids', [])] if owned else []
+                valid = bool(receipts and all(receipt and receipt.get('world_id') == scope
+                             and receipt.get('character_id') == board.get('character_id')
+                             and 'sequence' in receipt for receipt in receipts))
+                if valid:
+                    row['message'] = safe(board_text(board))
+                    data.update(report_text_basis='executor_receipt', **safe(report_commentary(board)))
+                else:
+                    data['recorded_unverified_report_text'] = row.get('message', '')
+                    data['report_text_basis'] = 'evidence_unavailable'
+                    row['message'] = 'Report evidence unavailable. No contribution can be verified from this event.'
+        with suppress_instrumentation():
+            self.repository.read(read)
+        return result
+
     def events(self, *, after: int | None = None, island_id: str | None = None,
                session_id: str | None = None, limit: int = 200) -> dict:
         limit = min(500, max(1, limit))
@@ -399,7 +440,7 @@ class Observatory:
             rows = [r for r in rows if after is None or r['sequence'] > after]
             rows = rows[-limit:] if after is None else rows[:limit]
         expired = bool(after and first and after < first['sequence'] - 1)
-        return {'events': [_public(r) for r in rows], 'cursor': rows[-1]['sequence'] if rows else after or 0,
+        return {'events': self._present_events(rows), 'cursor': rows[-1]['sequence'] if rows else after or 0,
                 'resync_required': expired, 'persistence': self.repository.persistence,
                 'transport': self.transport, 'stream_error': self.stream_error,
                 'server_time': now_iso()}
