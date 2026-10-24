@@ -42,9 +42,10 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
   const outputId = response.output_id ?? fighter.output_id
   const version = response.pipeline_version_id ?? fighter.pipeline_version_id
   const available = !!outputId && !!version && version !== 'legacy-unknown'
-  const canConfirm = !available || recognition === 'correct'
+  const eligibility = response.theme_validation
+  const canConfirm = (!available || recognition === 'correct') && (!eligibility || eligibility.verdict === 'eligible')
   const scope = response.saved_resident_preview ? 'Battle preview · saved island resident is kept' : 'Proposed island appearance'
-  const previewFighter = {image_ref:String(fighter.image_ref ?? response.image_url), display_name:String(fighter.display_name), object_type:String(fighter.object_type), visual_spec: fighter.visual_spec as WorldCharacter['visual_spec']}
+  const previewFighter = {image_ref:String(fighter.image_ref ?? response.image_url), display_name:String(fighter.display_name), object_type:String(fighter.object_type), canonical_type_id: fighter.canonical_type_id, observed_object: fighter.observed_object ?? response.observed_object, visual_spec: fighter.visual_spec as WorldCharacter['visual_spec']}
   const keyFor = (scope:string,payload:object) => {
     const signature=scope+JSON.stringify(payload)
     if(!keys.current.has(signature))keys.current.set(signature,crypto.randomUUID())
@@ -76,6 +77,7 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
   return <section className="fighter-review" aria-label="Review your fighter">
     <div className="review-topline"><span className="review-label">YOUR OBJECT, YOUR CALL</span><span className="review-class">{fighter.combat_profile?'ATTRIBUTE PROFILE':'CAMERA OBJECT'} <i/> 100 HP</span></div>
     <div className="review-intro"><div><h2>{fighter.display_name}</h2><p>We see <strong>{response.observed_object?.label??fighter.observed_object?.label??fighter.object_type}</strong>. You decide if we got it right.</p></div><span className="review-output" title={outputId??'Historical output'}>{outputId?`PROPOSAL ${outputId.slice(0,7)}`:'RECOVERED FIGHTER'}</span></div>
+    {eligibility&&<div className={`review-theme review-theme-${eligibility.verdict}`} role="status"><strong>{eligibility.verdict==='eligible'?'FITS THE ROUND':eligibility.verdict==='outside_theme'?'OUTSIDE THE THEME · CAPTURE DISQUALIFIED':'THEME CHECK NEEDS A CLEARER IDENTITY'} <span>{eligibility.theme_name}</span></strong><p>{eligibility.reason}</p>{eligibility.verdict!=='eligible'&&<button type="button" className="review-secondary" disabled={!!working} onClick={onRetake}>Choose another photograph <ArrowRight size={15}/></button>}</div>}
     {fighter.combat_profile?<><div className="review-combat-stats" aria-label="Preview combat attributes">{COMBAT_STATS.map(stat=><span key={stat}>{stat}<b>{fighter.combat_profile!.stats[stat]}</b></span>)}</div><p className="review-combat-note">Balanced game profile · 20 points total. Unknown prices give neither fighter an advantage. The accepted evidence freezes when the battle starts.</p></>:<p className="review-combat-note">Attributes are set from the accepted object evidence when the battle starts. Both fighters start with 100 HP.</p>}
     {response.evidence?.identity_support?.detail&&<p className="review-notice"><strong>YOLO + Gemini cross-check: </strong>{response.evidence.identity_support.detail}</p>}
     <div className="review-visuals">

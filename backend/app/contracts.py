@@ -54,6 +54,24 @@ class ObservedObject(Contract):
     label: str | None = Field(default=None, max_length=100)
     visible_features: list[str] = Field(default_factory=list, max_length=24)
 
+class RoundTheme(Contract):
+    id: str
+    name: str
+    instructions: str
+    examples: list[str]
+    rotation_index: int | None = None
+    policy_version: str
+    enforced: bool = True
+
+class ThemeValidation(Contract):
+    theme_id: str
+    theme_name: str
+    policy_version: str
+    verdict: Literal['eligible', 'outside_theme', 'uncertain']
+    reason: str
+    evidence_labels: list[str] = Field(default_factory=list)
+    basis: Literal['recognition_identity_rules'] = 'recognition_identity_rules'
+
 class FeedbackSubmission(Contract):
     idempotency_key: Identifier
     output_id: Identifier
@@ -77,6 +95,7 @@ class CorrectionRequest(Contract):
 
 class PendingFighter(Contract):
     combat_profile: dict[str, Any] | None = None
+    market_price: dict[str, Any] | None = None
     output_id: str | None = None
     pipeline_version_id: str = 'legacy-unknown'
     parent_output_id: str | None = None
@@ -96,6 +115,7 @@ class PendingFighter(Contract):
     config_versions: dict[str, str] = Field(default_factory=dict)
 
 class Observation(Contract):
+    theme_validation: ThemeValidation | None = None
     output_id: str | None = None
     pipeline_version_id: str = 'legacy-unknown'
     parent_output_id: str | None = None
@@ -141,6 +161,7 @@ class BattleEvent(Contract):
     receipt: dict[str, Any] | None = None
 
 class Battle(Contract):
+    theme: RoundTheme | None = None
     pipeline_version_id: str = 'legacy-unknown'
     id: Identifier
     request_id: Identifier

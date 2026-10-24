@@ -2,6 +2,9 @@ import type { BattleEvent } from '../game/battle';
 import type { Fighter } from '../types';
 import { cameraFighter } from './camera-combat.ts';
 import type { CameraCombat, CombatProfile } from './camera-combat';
+export type RoundTheme = {id:string;name:string;instructions:string;examples:string[];rotation_index:number|null;policy_version:string;enforced:boolean};
+export type ThemeValidation = {theme_id:string;theme_name:string;policy_version:string;verdict:'eligible'|'outside_theme'|'uncertain';reason:string;evidence_labels:string[];basis:'recognition_identity_rules'};
+export const LEGACY_THEME:RoundTheme={id:'everyday',name:'Everyday Objects',instructions:'Choose one real object around you. Both players share this brief.',examples:['mug','book','phone','shoe'],rotation_index:null,policy_version:'legacy-unrestricted',enforced:false};
 export type PendingFighter = {
   battle_id:string; player_slot:0|1; capture_id:string; image_hash:string;
   canonical_type_id:string; object_type:string; display_name:string; image_ref:string;
@@ -21,6 +24,7 @@ export type CorrectionInput = {
   kind:'factual'|'style'; canonical_label?:string; details?:string; reasons:string[];
 };
 export type BattleRecord = {
+  theme?:RoundTheme|null;
   id:string;request_id:string;world_id:string;status:'draft'|'ready'|'running'|'completed'|'cancelled'|'failed';
   pending_fighters:[PendingFighter|null,PendingFighter|null];confirmed_capture_ids:[string|null,string|null];active_capture_ids:[string|null,string|null];
   fighters:PendingFighter[];events:BattleEvent[];winner_slot:0|1|null;duration_ms:number|null;
@@ -104,7 +108,7 @@ export async function prepareCapture<T>(battleId:string,form:FormData,signal:Abo
     catch(recoveryError){
       if(signal.aborted)throw recoveryError;
       if(recoveryError instanceof ApiError&&recoveryError.code==='capture_processing'){
-        throw new ApiError('This photo is still queued or being checked. Slow mode spaces Gemini calls at least 60 seconds apart. Retry this photograph to recover the same capture; do not upload it again.','capture_processing',409);
+        throw new ApiError('This photo is still queued or being checked. Camera checks run independently of island pacing. Retry this photograph to recover the same capture; do not upload it again.','capture_processing',409);
       }
       if(recoveryError instanceof ApiError&&recoveryError.code==='capture_failed')throw recoveryError;
       throw error;

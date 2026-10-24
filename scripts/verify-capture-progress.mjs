@@ -91,6 +91,7 @@ try {
   const transformed = await transformWithOxc(readFileSync(component, 'utf8'), component.pathname, { jsx: { runtime: 'automatic' } })
   let code = transformed.code.replace(/^\s*import\s+['"][^'"]+\.css['"];?\s*$/gm, '')
   const replacements = {
+    '../lib/api': new URL('../src/lib/api.ts', import.meta.url).href,
     '../lib/imageInput': new URL('../src/lib/imageInput.ts', import.meta.url).href,
     './FighterReview': 'data:text/javascript,export default function UnusedReview(){return null}',
     react: import.meta.resolve('react'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'),

@@ -17,6 +17,7 @@ from .config import Settings
 from .camera_combat import capture_profile, simulate_capture_battle
 from .contracts import FeedbackSubmission
 from .capture_progress import progress_record
+from .round_themes import legacy_theme, theme_for_round, validate_theme
 from .pipeline import (BASELINE_VERSION, LEGACY_VERSION, BASELINE_CONFIG, BASE_PROMPT_HASH,
                        BASE_SYSTEM_INSTRUCTION, active_key, version_key)
 
@@ -82,6 +83,7 @@ class Repository:
         battle.setdefault('confirmed_capture_ids', [None, None])
         # Historical accepted fighters remain unchanged; only their provenance is unknown.
         battle.setdefault('pipeline_version_id', LEGACY_VERSION)
+        battle.setdefault('theme', legacy_theme())
         return battle
 
     def initialize_pipeline(self) -> None:
@@ -144,7 +146,16 @@ class Repository:
             pointer = tx.get('qualityState', active_key(self.world_id))
             if not pointer or not tx.get('pipelineVersions', version_key(self.world_id, pointer['active_version_id'])):
                 raise StoreError('The active recognition pipeline is unavailable.', 503, 'pipeline_unavailable')
+            # The cursor and battle commit together. Retrying the same request,
+            # retaking an image or replaying cannot consume another theme.
+            rotation_key = key_for(self.world_id, 'round-theme-rotation')
+            rotation = tx.get('qualityState', rotation_key) or {'_id': rotation_key,
+                'id': 'round-theme-rotation', 'world_id': self.world_id, 'next_index': 0}
+            theme = theme_for_round(rotation['next_index'])
+            rotation.update(next_index=rotation['next_index'] + 1, updated_at=timestamp)
+            tx.put('qualityState', rotation)
             battle = {'_id': battle_id, 'id': battle_id, 'request_id': request_id, 'world_id': self.world_id,
+                      'theme': theme,
                       'pipeline_version_id': pointer['active_version_id'],
                       'status': 'draft', 'created_at': timestamp, 'updated_at': timestamp,
                       'active_capture_ids': [None, None], 'confirmed_capture_ids': [None, None], 'pending_fighters': [None, None],
@@ -261,6 +272,7 @@ class Repository:
                 existing = deepcopy(capture['observation'])
                 existing['stale'] = not active
                 return existing
+            observation['theme_validation'] = validate_theme(battle.get('theme'), observation)
             if observation.get('pending_fighter') and observation.get('status') == 'recognized':
                 observation['pending_fighter']['combat_profile'] = capture_profile(observation['pending_fighter'], observation)
             capture.update({'status': 'done', 'observation': observation, 'error': None,
@@ -324,7 +336,7 @@ class Repository:
             return None
         # The public island's already saved resident only, never another player's pending capture.
         return {key: deepcopy(resident.get(key)) for key in
-                ('id', 'canonical_type_id', 'object_type', 'display_name', 'image_ref', 'visual_spec', 'archetype')}
+                ('id', 'canonical_type_id', 'object_type', 'display_name', 'image_ref', 'visual_spec', 'archetype', 'observed_object', 'market_price')}
 
     def confirm_capture(self, battle_id: str, slot: int, capture_id: str) -> dict:
         def operation(tx):
@@ -340,6 +352,11 @@ class Repository:
                 return battle
             if battle['status'] not in ('draft', 'ready'):
                 raise StoreError('Only a battle being prepared can accept fighter confirmations.')
+            capture = tx.get('captures', key_for(battle_id, capture_id))
+            eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {})
+            if eligibility['verdict'] != 'eligible':
+                raise StoreError(eligibility['reason'], 409,
+                                 'outside_theme' if eligibility['verdict'] == 'outside_theme' else 'theme_uncertain')
             battle['confirmed_capture_ids'][slot] = capture_id
             battle['status'] = 'ready' if all(battle['pending_fighters']) and battle['confirmed_capture_ids'] == battle['active_capture_ids'] else 'draft'
             battle['updated_at'] = self.clock()
@@ -366,6 +383,10 @@ class Repository:
                 if not tx.get('media', media_id):
                     raise StoreError('A fighter image has not been saved.', 409, 'media_missing')
                 capture = tx.get('captures', key_for(battle_id, fighter['capture_id']))
+                eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {})
+                if eligibility['verdict'] != 'eligible':
+                    raise StoreError(eligibility['reason'], 409,
+                                     'outside_theme' if eligibility['verdict'] == 'outside_theme' else 'theme_uncertain')
                 observations.append(deepcopy((capture or {}).get('observation') or {}))
             combat = simulate_capture_battle(fighters, observations, chosen_seed, playback_mode)
             for fighter, profile in zip(fighters, combat['fighters']):
@@ -419,6 +440,8 @@ class Repository:
                                 'canonical_type_id': type_id, 'object_type': fighter['object_type'],
                                 'display_name': fighter['display_name'], 'image_ref': fighter['image_ref'],
                                 'visual_spec': deepcopy(fighter['visual_spec']), 'archetype': fighter['archetype'],
+                                'observed_object': deepcopy(fighter.get('observed_object')),
+                                'market_price': deepcopy(fighter.get('market_price')),
                                 'first_battle_id': battle_id, 'unlocked_at': timestamp,
                                 'home_position': {'x': round(cos(angle) * radius, 3), 'y': 0, 'z': round(sin(angle) * radius, 3)},
                                 'state': {'activity': 'wander', 'mood': 'curious'}, 'distinct_battle_count': 0}

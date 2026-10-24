@@ -3,13 +3,14 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Camera, Check, Crop, ImageUp, RotateCcw, ScanLine, X } from 'lucide-react'
 import { cameraFailureMessage, captureVideoFrame, clampImageCrop, normalizeImage } from '../lib/imageInput'
 import type { ImageCrop, NormalizedImage } from '../lib/imageInput'
-import type { FeedbackInput, CorrectionInput, CaptureProgress, CaptureProgressListener } from '../lib/api'
+import { LEGACY_THEME, type RoundTheme, type ThemeValidation, type FeedbackInput, type CorrectionInput, type CaptureProgress, type CaptureProgressListener } from '../lib/api'
 import type { WorldCharacter } from './WorldView'
 import FighterReview from './FighterReview'
 import './SketchCanvas.css'
 import './CaptureStudio.css'
 
 export type CaptureResponse = {
+  theme_validation?: ThemeValidation | null
   capture_id: string
   output_id?: string
   pipeline_version_id?: string
@@ -29,6 +30,7 @@ export type CaptureResponse = {
 
 export type CaptureInput = { captureId: string; file: File; source: 'camera' | 'upload'; crop?: ImageCrop }
 export type CaptureStudioProps = {
+  theme?: RoundTheme | null
   player: 1 | 2
   duration: number
   onPrepare: (input: CaptureInput, signal: AbortSignal, onProgress?: CaptureProgressListener) => Promise<CaptureResponse>
@@ -86,7 +88,8 @@ function EvidenceDetails({ response }: { response: CaptureResponse }) {
   </details>
 }
 
-export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel, initialResponse, onFeedback, onCorrect }: CaptureStudioProps) {
+export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel, initialResponse, onFeedback, onCorrect, theme: savedTheme }: CaptureStudioProps) {
+  const theme = savedTheme ?? LEGACY_THEME
   const [stage, setStage] = useState<Stage>('handoff')
   const [remaining, setRemaining] = useState(duration)
   const [processingSeconds, setProcessingSeconds] = useState(0)
@@ -397,7 +400,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
       <div className="sketch-heading-copy">
         <span className="sketch-eyebrow"><span /> PLAYER {player} / {stage === 'recognized' ? 'THE REVIEW' : 'CAPTURE STUDIO'}</span>
         <h1>{stage === 'recognized' ? <>A LITTLE MORE <em>YOU.</em></> : <>FIND YOUR <em>CHAMPION.</em></>}</h1>
-        <p>{stage === 'recognized' ? 'A real object. A fictional fighter. Give it your seal of approval.' : 'One everyday object. A whole new personality.'}</p>
+        <p>{stage === 'recognized' ? 'A real subject. A fictional fighter. Check its identity and round eligibility.' : theme.instructions}</p>
       </div>
       <div className={`sketch-clock ${remaining <= 10 && started ? 'sketch-clock-urgent' : ''}`} aria-label={`${remaining} seconds of active capture time remaining`} title="Paused while permission or recognition is pending. Nothing submits automatically.">
         <Camera size={20} aria-hidden="true" /><span>{String(remaining).padStart(2, '0')}<small>s</small></span>
@@ -409,7 +412,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
       <div className="sketch-side-note" aria-hidden="true">one object.<br />big attitude.<svg viewBox="0 0 85 60"><path d="M6 7Q15 45 63 34M51 20l14 15-20 8" /></svg></div>
       <div className="sketch-notebook">
         <div className="sketch-binding" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</div>
-        <div className="sketch-paper-top"><span className="sketch-player-badge"><b>P{player}</b> YOUR TURN</span><span className="sketch-theme">THEME <strong>EVERYDAY OBJECTS</strong><ScanLine size={19} aria-hidden="true" /></span></div>
+        <div className="sketch-paper-top"><span className="sketch-player-badge"><b>P{player}</b> YOUR TURN</span><span className="sketch-theme">THEME <strong>{theme.name.toUpperCase()}</strong><ScanLine size={19} aria-hidden="true" /></span></div>
         <div ref={surfaceRef} className={`sketch-canvas-surface capture-surface ${!started ? 'is-ready' : ''}`}>
           {(stage === 'camera' || stage === 'permission') && <video ref={videoRef} className="capture-video" muted playsInline autoPlay aria-label="Camera preview, not mirrored" onLoadedData={() => setFrameReady(!!videoRef.current?.videoWidth && (videoRef.current?.readyState ?? 0) >= 2)} onCanPlay={() => setFrameReady(!!videoRef.current?.videoWidth && (videoRef.current?.readyState ?? 0) >= 2)} />}
           {stage === 'camera' && <div className="capture-framing-guide" aria-hidden="true"><span>ONE OBJECT. CENTRE STAGE.</span></div>}
@@ -421,11 +424,11 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
             })}
             {cropMode && crop && <div className="capture-crop-outline" style={displayBox(crop)} aria-hidden="true"><span>YOUR FIGHTER</span></div>}
           </div>}
-          {stage === 'idle' && !preview && <div className="capture-empty"><Camera size={48} strokeWidth={1.2} aria-hidden="true" /><h2>REAL OBJECT. REAL ATTITUDE.</h2><p>Put a mug, bottle or any clear object in the spotlight.</p><button type="button" className="sketch-start-button" onClick={() => void startCamera()}>OPEN CAMERA <span aria-hidden="true">↗</span></button><button className="capture-text-button" onClick={() => inputRef.current?.click()}>or upload a photograph</button></div>}
+          {stage === 'idle' && !preview && <div className="capture-empty"><Camera size={48} strokeWidth={1.2} aria-hidden="true" /><h2>{theme.name.toUpperCase()}</h2><p>Try {theme.examples.join(', ')}. One clear subject in the spotlight.</p><button type="button" className="sketch-start-button" onClick={() => void startCamera()}>OPEN CAMERA <span aria-hidden="true">↗</span></button><button className="capture-text-button" onClick={() => inputRef.current?.click()}>or upload a photograph</button></div>}
           {stage === 'permission' && <div className="capture-processing"><Camera size={32} /><strong>CAMERA PERMISSION</strong><span>Choose Allow in your browser. Your timer is paused.</span><button type="button" className="capture-text-button" onClick={() => { discard(); setStage('idle'); inputRef.current?.click() }}>Use an uploaded photo instead</button></div>}
           {busy && <CaptureProgressPanel normalizing={stage === 'normalizing'} progress={progress} unavailable={progressUnavailable} seconds={processingSeconds} />}
-          {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> READY TO BATTLE</span>}
-          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : 'Find one object. Take its photo. Give the ordinary a fighting chance.'}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>Your timer runs only while framing or selecting.</small></div>}
+          {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> {response?.theme_validation&&response.theme_validation.verdict!=='eligible'?'CHECK THE ROUND THEME':'READY FOR REVIEW'}</span>}
+          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : theme.instructions}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>{theme.examples.join(' · ')}<br/>Your timer runs only while framing or selecting.</small></div>}
         </div>
         <div className="sketch-paper-bottom"><span>ORIGINAL PHOTO. UNLIMITED ATTITUDE.</span><span>CAPTURE No. 00{player}</span></div>
       </div>

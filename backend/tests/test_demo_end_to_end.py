@@ -19,7 +19,7 @@ from app.config import Settings
 from app.engine import PRESETS
 from app.combat_v2 import ENGINE_VERSION
 from app.recognition import RecognitionService
-from app.repository import MemoryRepository, StoreError
+from app.repository import MemoryRepository, StoreError, key_for
 from app.service import BattleService
 from test_colonies import Clock, side
 from test_provider_queue import queue_with_advancing_clock
@@ -129,6 +129,12 @@ async def test_capture_correction_battle_two_crews_research_build_receipts_wait_
     monkeypatch.setattr('app.repository.secrets.randbelow', lambda _: 0)
 
     async def capture_battle(request, correct=False):
+        # This scenario isolates agent learning, so explicitly arrange its two
+        # later crews in a matching Desk round. Rotation itself is tested in
+        # test_round_themes; no production eligibility bypass is used.
+        if request in {'planners', 'new-capability'}:
+            rotation = repo._data['qualityState'][key_for(repo.world_id, 'round-theme-rotation')]
+            rotation['next_index'] = 2
         battle = repo.create_battle(request)
         assert repo.create_battle(request) == battle
         for slot in (0, 1):
