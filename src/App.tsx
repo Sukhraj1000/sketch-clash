@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useTransform, type MotionValue } from 'motion/react';
-import { ArrowRight, ArrowUpRight, Camera, CheckCircle2, Globe2, Pencil, Play, RotateCcw, SlidersHorizontal, Sparkles, Swords, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Globe2, Pencil, Play, RotateCcw, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import type { Fighter, Phase } from './types';
 import { PRESET_FIGHTERS } from './game/fixtures';
 import { useTimeline } from './game/director';
@@ -9,7 +9,6 @@ import { api, post, asFighter, asPair, type BattleRecord, type Health, type Pend
 import './LiveFlow.css';
 const WorldView = lazy(()=>import('./components/WorldView'));
 const QualityConsole = lazy(()=>import('./components/QualityConsole'));
-const CharacterPreview = lazy(()=>import('./components/CharacterPreview'));
 import BattleArena from './components/BattleArena';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 21 };
@@ -28,35 +27,35 @@ function ActionButton({children,onClick,className='',label,disabled=false}:{chil
   return <motion.button type="button" className={`arcade-button ${className}`} onClick={onClick} aria-label={label} disabled={disabled} whileHover={{y:-3,rotate:-1}} whileTap={{y:4,x:3,boxShadow:'0px 0px 0px var(--ink)'}} transition={spring}>{children}</motion.button>;
 }
 
-const ILLUSTRATIVE_FIGHTER = {
-  display_name:'A mug with a little ambition',object_type:'mug',image_ref:'',
-  visual_spec:{template_id:'mug' as const,palette:['#FFB7A3','#CBEAD7','#243A31'],scale:1,proportions:{width:1,height:1},accessories:['eyes','arms','feet'],animation_style:'bouncy' as const,schema_version:'1',appearance_seed:21},
-};
-function LandingScreen({onPlay,onDemo,quick,setQuick}:{onPlay:()=>void;onDemo:()=>void;quick:boolean;setQuick:(value:boolean)=>void}) {
-  return <motion.main className="landing studio-landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
-    <div className="studio-hero">
-      <div className="studio-hero-copy">
-        <span className="studio-kicker"><span/> AN OBJECT EXPERIMENT, DISGUISED AS A GAME</span>
-        <h1>SMALL OBJECTS.<br/><em>BIG PERSONALITIES.</em></h1>
-        <p className="studio-intro">That thing on your desk?<br/>It has main character energy.</p>
-        <p className="studio-description">Photograph it. Shape its alter ego. Challenge a friend.<br/>Then give your everyday champions a world of their own.</p>
-        <div className="studio-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={22}/></ActionButton><button className="demo-button" onClick={onDemo}><Play size={13}/> WATCH THE SHOWDOWN</button></div>
-        <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SECONDS / PLAYER</span></label>
-        <div className="studio-game-facts"><span><span className="fact-dot"/> TWO PLAYERS</span><span>ONE DEVICE</span><span>EVERYDAY OBJECTS</span></div>
+function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;onDemo:()=>void;onIsland:()=>void;quick:boolean;setQuick:(value:boolean)=>void}) {
+  const reduced=useReducedMotion();
+  return <motion.main className="landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,y:-22}}>
+    <div className="landing-note note-left">a little imagination.<br/>a lot of chaos.<svg viewBox="0 0 100 70" aria-hidden="true"><path d="M5 8q66-4 65 45m-13-9 13 15 13-17"/></svg></div>
+    <div className="landing-note note-right">fight for glory.<br/>build something after.<Star /></div>
+    <div className="hero-eyebrow"><span className="tiny-star">✳</span> ORDINARY OBJECTS. EXTRAORDINARY GRUDGES. <span className="tiny-star">✳</span></div>
+    <div className="hero-grid">
+      <motion.div className="hero-fighter hero-fighter-left" initial={{x:-60,opacity:0,rotate:-14}} animate={{x:0,opacity:1,rotate:-8}} transition={{...spring,delay:.18}}>
+        <div className="fighter-paper coral-paper"><span className="tape tape-top"/><div className="paper-grid"/>
+          <motion.img src={PRESET_FIGHTERS[0].image} alt="Scratch, a mischievous hand-drawn cat" animate={reduced?{}:{y:[0,-8,0],rotate:[-3,1,-3]}} transition={{duration:4,repeat:Infinity,ease:'easeInOut'}} draggable={false}/>
+          <div className="mini-player">P1 <span>SCRATCH</span></div><div className="paper-caption">HAS CLAWS. WILL DOODLE.</div>
+        </div><Star className="fighter-star star-one" color="var(--yellow)"/>
+      </motion.div>
+      <div className="hero-center">
+        <h1 className="hero-logo" aria-label="Sketch Clash"><motion.span className="logo-sketch" initial={{y:-50,rotate:-9,opacity:0}} animate={{y:0,rotate:-4,opacity:1}} transition={{...spring,delay:.05}}>SKETCH</motion.span><motion.span className="logo-clash" initial={{scale:.6,rotate:8,opacity:0}} animate={{scale:1,rotate:-5,opacity:1}} transition={{...spring,delay:.2}}>CLASH<span className="logo-period">!</span></motion.span></h1>
+        <motion.p className="hero-tagline" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:.4}}>SNAP. CLASH. BUILD A WORLD.</motion.p>
+        <p className="hero-description">Your desk is full of unlikely heroes.<br/>Win the clash. Put their talents to work.</p>
+        <div className="hero-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={27}/></ActionButton><motion.button className="demo-button" onClick={onDemo} whileHover={{x:3}} whileTap={{scale:.97}}><Play size={15} fill="currentColor"/> WATCH THE SHOWDOWN <ArrowUpRight size={15}/></motion.button></div>
+        <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SEC / PLAYER</span></label>
       </div>
-      <div className="studio-specimen">
-        <div className="specimen-top"><span><Sparkles size={13}/> THE PERSONALITY LAB</span><span>No. 001</span></div>
-        <div className="specimen-canvas"><Suspense fallback={<div className="specimen-loading">Opening the studio…</div>}><CharacterPreview fighter={ILLUSTRATIVE_FIGHTER} presentation="hero" scope="Illustrative character · your object creates its own fighter"/></Suspense></div>
-        <div className="specimen-note"><span className="specimen-orbit-dot"/><p><b>Ordinary mug. Extraordinary ambition.</b><span>Procedural character • live 3D preview</span></p><ArrowUpRight size={22}/></div>
-        <div className="specimen-tag"><span>100</span><small>HP<br/>ALL HEART</small></div>
-      </div>
+      <motion.div className="hero-fighter hero-fighter-right" initial={{x:60,opacity:0,rotate:13}} animate={{x:0,opacity:1,rotate:7}} transition={{...spring,delay:.28}}>
+        <div className="fighter-paper mint-paper"><span className="tape tape-top"/><div className="paper-grid"/>
+          <motion.img src={PRESET_FIGHTERS[1].image} alt="Chomps, a goofy hand-drawn dinosaur" animate={reduced?{}:{y:[-5,3,-5],rotate:[2,-2,2]}} transition={{duration:4.6,repeat:Infinity,ease:'easeInOut'}} draggable={false}/>
+          <div className="mini-player">P2 <span>CHOMPS</span></div><div className="paper-caption">SMALL ARMS. BIG ENERGY.</div>
+        </div><Star className="fighter-star star-two" color="var(--coral)"/>
+      </motion.div>
     </div>
-    <div className="studio-path" aria-label="How to play">
-      <div><span className="studio-step-icon"><Camera size={20}/></span><p><small>01 / CAPTURE</small><b>Bring the real world in.</b><span>One clear object. Camera or upload.</span></p></div>
-      <div><span className="studio-step-icon"><CheckCircle2 size={20}/></span><p><small>02 / MAKE IT YOURS</small><b>Your eye. AI’s imagination.</b><span>Check the identity. Refine its personality.</span></p></div>
-      <div><span className="studio-step-icon"><Swords size={20}/></span><p><small>03 / CLASH & COLLECT</small><b>A rivalry. Then a home.</b><span>Both fighters join your persistent island.</span></p></div>
-    </div>
-    <p className="studio-research">Can human feedback make AI’s view of real objects more reliable? <span>Play is how we explore it.</span></p>
+    <button className="no-skills-stamp island-stamp" onClick={onIsland}>AFTER THE CLASH…<br/><b>BUILD YOUR ISLAND</b><span>MEET YOUR LITTLE WORKFORCE <ArrowUpRight size={11}/></span></button>
+    <div className="how-strip"><div><span className="step-number">01</span><p><b>FIND AN OBJECT</b><span>A mug. A bottle. Your everyday champion.</span></p></div><div><span className="step-number">02</span><p><b>SNAP YOUR FIGHTER</b><span>Two players. Camera or photo upload.</span></p></div><div><span className="step-number">03</span><p><b>CLASH. THEN CREATE.</b><span>Every resident has a job on your island.</span></p></div></div>
   </motion.main>;
 }
 
@@ -226,7 +225,7 @@ export default function App() {
     {phase==='HOME'&&recovery&&<div className="recovery-card"><b>A round is waiting in your sketchbook.</b><button onClick={()=>void resume()}>RESUME ROUND</button><button onClick={()=>{saveActive(null);setRecovery(null);createRequest.current=null}}>DISMISS RECOVERY</button></div>}
     {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
     <AnimatePresence mode="wait" initial={false}><motion.div key={`${roundKey}-${phase}`} className="screen-wrap" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:.18}}>
-      {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} quick={quick} setQuick={setQuick}/>}
+      {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} onIsland={()=>setPhase('WORLD')} quick={quick} setQuick={setQuick}/>}
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
@@ -235,6 +234,6 @@ export default function App() {
       {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>setPhase('HOME')}/></Suspense>}
       {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening your island…</div>}><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></Suspense>}
     </motion.div></AnimatePresence>
-    <footer className="game-footer"><span><span className="footer-asterisk">✳</span> REAL OBJECTS. A WORLD OF POSSIBILITY.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">CAPTURE · CREATE · CLASH · COLLECT</span></footer>
+    <footer className="game-footer"><span><span className="footer-asterisk">✳</span> REAL OBJECTS. UNREASONABLE AMBITION.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">CAPTURE · CLASH · BUILD · GROW</span></footer>
   </div>;
 }

@@ -75,6 +75,62 @@
 }
 @media (prefers-reduced-motion: reduce) { .capture-loading-mark { animation: none; } }
 
-/* A focused capture desk, followed by a side-by-side human review. */
-.capture-screen{width:min(960px,calc(100% - 64px));margin-top:32px}.capture-screen .sketch-heading{margin-bottom:24px}.capture-screen .sketch-heading h1{font-size:48px;letter-spacing:.5px}.capture-screen .sketch-heading h1 em::after{height:8px;bottom:3px;background:#b8d5ac;opacity:.7}.capture-screen .sketch-eyebrow{font-size:9px;letter-spacing:1.5px;color:#76866d}.capture-screen .sketch-heading p{font-size:12px;color:#7f8576}.capture-screen .sketch-clock{background:#fffdf5;border:1px solid #b9c5ae;border-radius:11px;box-shadow:0 4px 14px #26352f08;transform:none;min-width:90px;height:62px;overflow:hidden}.capture-screen .sketch-clock>span{font-size:32px}.capture-screen .sketch-clock>svg{width:16px}.capture-screen .sketch-clock-urgent{background:#f6d5c5}.capture-screen .sketch-workspace{width:min(790px,100%)}.capture-screen .sketch-side-note,.capture-screen .sketch-star-doodle,.capture-screen .sketch-binding{display:none}.capture-screen .sketch-notebook{padding-left:0;border:1px solid #b8c2ad;border-radius:16px;box-shadow:0 12px 40px #26352f12;overflow:hidden}.capture-screen .sketch-notebook:after{display:none}.capture-screen .sketch-paper-top{padding:13px 20px;background:#f5f6eb;border-color:#d7ddce}.capture-screen .sketch-player-badge{font-size:8px;letter-spacing:1px}.capture-screen .sketch-player-badge b{font:700 11px 'DM Sans',sans-serif;padding:6px 8px;border:1px solid #26352f30;border-radius:5px;box-shadow:none;transform:none}.capture-screen .sketch-theme{font-size:8px;letter-spacing:.6px}.capture-screen .sketch-theme strong{font-size:9px;letter-spacing:.8px}.capture-screen .sketch-theme svg{width:15px}.capture-screen .sketch-paper-bottom{padding:11px 20px;font-size:7px;letter-spacing:1px;background:#f5f6eb}.capture-screen .sketch-canvas-surface{aspect-ratio:16/9;background-color:#fafbf2;background-image:radial-gradient(#96a18822 .7px,transparent .7px);background-size:20px 20px;min-height:300px}.capture-screen .sketch-ready-overlay{background:#fafbf2eb;padding:25px}.capture-screen .sketch-ready-sticker{border:1px solid #b4c4a5;border-radius:10px;box-shadow:none;transform:none;padding:10px 16px;background:#e1ecd7;font-size:32px}.capture-screen .sketch-ready-overlay h2{font-size:36px;letter-spacing:.5px;margin-top:17px}.capture-screen .sketch-ready-kicker{font-size:7px;letter-spacing:1.4px;margin-bottom:14px;color:#86927b}.capture-screen .sketch-ready-overlay p{font-size:11px;line-height:1.8;max-width:360px;margin-bottom:17px}.capture-screen .sketch-ready-overlay small{font-size:8px;color:#929c87;margin-top:14px}.capture-screen .sketch-start-button{background:#304a38;color:#fffdf3;border:1px solid #243a2a;border-radius:9px;box-shadow:0 3px 0 #1d3022;font:700 11px 'DM Sans',sans-serif;letter-spacing:.5px;padding:13px 20px;min-height:44px;gap:20px}.capture-screen .sketch-start-button:hover{transform:translateY(-2px);box-shadow:0 5px 0 #1d3022}.capture-screen .sketch-bottom-bar{justify-content:center;gap:25px;margin-top:21px}.capture-screen .sketch-toolbar{border:1px solid #c8d0bc;border-radius:10px;background:#fafcf3;box-shadow:none;padding:7px 10px;gap:7px}.capture-screen .capture-tool{width:50px;min-height:44px;height:44px;border:0;border-radius:6px;color:#70816a}.capture-screen .capture-tool.is-selected{transform:none;background:#d9e9cf;color:#345339}.capture-screen .capture-tool>span{font-size:7px}.capture-screen .sketch-toolbar-rule{background:#d5ddcd}.capture-screen .sketch-footnote{font-size:9px;color:#89947e;align-items:flex-start;gap:18px;margin-top:20px;line-height:1.7}.capture-screen .sketch-footnote>span[role=status]{max-width:530px}.capture-screen .sketch-footnote button{font-size:9px;white-space:nowrap}.capture-screen .sketch-counter{font-size:8px;white-space:nowrap}.capture-next-step{font-size:10px;color:#819073}.capture-screen .capture-empty h2{font-size:32px}.capture-screen .capture-empty p{font-size:11px;color:#87927b}.capture-screen .capture-empty>svg{color:#90a17f;transform:none;width:36px}.capture-screen .capture-processing{background:#fafbf2f0}.capture-screen .capture-processing strong{font-size:29px;letter-spacing:.5px}.capture-screen .capture-loading-mark{color:#9bb38d;-webkit-text-stroke:0;font-size:45px}.capture-screen .capture-processing>span:not(.capture-loading-mark){color:#7b8b6d}.capture-screen .capture-ready-seal{border-radius:5px;transform:none;box-shadow:none;background:#d9e8cc;border:1px solid #b4c5a5}.capture-screen .capture-evidence{max-width:none;background:#f4f5eb;border:1px solid #d3dbc7;border-radius:11px;margin-top:23px;padding:14px 17px;color:#748367;font-size:10px}.capture-screen .capture-evidence summary{font-size:10px;font-weight:600}.capture-screen .capture-evidence p,.capture-screen .capture-evidence dd,.capture-screen .capture-evidence li{font-size:10px;line-height:1.7}.capture-reviewing .sketch-workspace{display:none}.capture-reviewing .fighter-review{margin-top:0}.capture-reviewing .sketch-clock{opacity:.65}.capture-reviewing .sketch-bottom-bar{margin-top:17px}.capture-screen .capture-crop-tools{border:1px solid #c9d2bd;border-radius:11px;background:#f6f8ee;padding:14px}.capture-screen .capture-crop-tools input{border:1px solid #bfccb0;border-radius:5px;padding:5px}.capture-screen .capture-crop-apply{background:#dbe9d0;border:1px solid #a4b692;border-radius:6px;box-shadow:none}
-@media(max-width:700px){.capture-screen{width:calc(100% - 32px);margin-top:25px}.capture-screen .sketch-heading{gap:13px}.capture-screen .sketch-heading h1{font-size:34px}.capture-screen .sketch-heading p{font-size:10px;line-height:1.7}.capture-screen .sketch-eyebrow{font-size:7px;letter-spacing:1px}.capture-screen .sketch-clock{min-width:72px;height:55px;padding-inline:10px;gap:5px}.capture-screen .sketch-clock>span{font-size:27px}.capture-screen .sketch-clock>svg{width:13px}.capture-screen .sketch-clock small{font-size:17px}.capture-screen .sketch-canvas-surface{min-height:330px}.capture-screen .sketch-paper-top{padding:12px}.capture-screen .sketch-theme{font-size:6px;gap:6px}.capture-screen .sketch-theme strong{font-size:8px;letter-spacing:.3px}.capture-screen .sketch-theme svg{display:none}.capture-screen .sketch-paper-bottom{font-size:6px;padding:10px 12px;letter-spacing:.5px}.capture-screen .sketch-ready-overlay h2{font-size:29px}.capture-screen .sketch-ready-overlay p{font-size:10px}.capture-screen .sketch-ready-overlay{padding:20px}.capture-screen .sketch-ready-kicker{font-size:6px;letter-spacing:1px}.capture-screen .sketch-bottom-bar{flex-direction:column;gap:12px}.capture-screen .sketch-toolbar{gap:3px;padding:7px;max-width:100%;width:100%;justify-content:center}.capture-screen .capture-tool{width:46px;min-width:0}.capture-screen .capture-tool svg{width:17px}.capture-screen .sketch-footnote{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:9px}.capture-screen .sketch-footnote>span[role=status]{order:3;width:100%;max-width:none;text-align:left}.capture-screen .capture-crop-tools{flex-wrap:wrap}.capture-screen .capture-crop-tools label{font-size:9px}.capture-screen .capture-crop-tools input{width:54px}.capture-reviewing .sketch-clock{display:none}}
+/* The original paper arcade, with the newer human-review layout retained. */
+.capture-screen{width:min(960px,calc(100% - 64px));margin-top:28px}
+.capture-screen .sketch-workspace{width:min(790px,100%)}
+.capture-screen .sketch-canvas-surface{min-height:300px}
+.capture-screen .sketch-bottom-bar{justify-content:center;gap:22px}
+.capture-screen .capture-tool{min-height:44px}
+.capture-screen .sketch-footnote{line-height:1.7;gap:18px;align-items:flex-start}
+.capture-screen .sketch-footnote>span[role=status]{max-width:530px}
+.capture-screen .sketch-footnote button{white-space:nowrap}
+.capture-next-step{font-size:10px;color:#8a765b}
+.capture-reviewing .sketch-workspace{display:none}
+.capture-reviewing .fighter-review{margin-top:0}
+.capture-reviewing .sketch-clock{opacity:.65}
+.capture-reviewing .sketch-bottom-bar{margin-top:17px}
+.capture-screen .fighter-review{background:#fff9eb;border:2px solid var(--ink);border-radius:3px;box-shadow:5px 6px 0 var(--ink)}
+.capture-screen .review-topline{background:#ffe8b3;border-bottom:1px solid #b9a784}
+.capture-screen .review-source{border:1.5px solid var(--ink);border-radius:2px;background:#eee3cd}
+.capture-screen .review-source figcaption{background:#fff9eb;border-color:#bdad8d}
+.capture-screen .review-decisions fieldset,.capture-screen .review-resident{border-color:#c7b99d}
+.capture-screen .review-decisions legend>span{background:var(--yellow);border:1px solid var(--ink);border-radius:0;color:var(--ink)}
+.capture-screen .review-choice-row>button,.capture-screen .review-secondary{background:#fff9eb;border:1.5px solid #a9987b;border-radius:3px}
+.capture-screen .review-choice-row>button.selected{background:var(--mint);border-color:var(--ink);box-shadow:2px 2px var(--ink)}
+.capture-screen .review-choice-row>button:hover,.capture-screen .review-secondary:hover{border-color:var(--ink);background:#f2e6c9}
+.capture-screen .review-correction{background:#efe4ce;border-radius:3px}
+.capture-screen .review-correction input:not([type=checkbox]),.capture-screen .review-correction textarea{border:1px solid #ad9b7e;border-radius:2px;background:#fffaf0}
+.capture-screen .review-confirm{font:23px/1 var(--font-display);letter-spacing:.5px;background:var(--yellow);color:var(--ink);border:2px solid var(--ink);border-radius:2px;box-shadow:3px 4px var(--ink)}
+.capture-screen .review-confirm:not(:disabled):hover{background:var(--mint)}
+.capture-screen .review-reasons input,.capture-screen .review-consent input{accent-color:var(--ink)}
+.capture-screen .review-error,.capture-screen .review-notice{border-radius:3px}
+@media(max-width:700px){
+  .capture-screen{width:calc(100% - 36px);margin-top:25px}
+  .capture-screen .sketch-heading{gap:13px}
+  .capture-screen .sketch-heading h1{font-size:34px}
+  .capture-screen .sketch-heading p{font-size:10px;line-height:1.7}
+  .capture-screen .sketch-eyebrow{font-size:7px;letter-spacing:1px}
+  .capture-screen .sketch-clock{min-width:72px;height:55px;padding-inline:10px;gap:5px}
+  .capture-screen .sketch-clock>span{font-size:27px}
+  .capture-screen .sketch-clock>svg{width:13px}
+  .capture-screen .sketch-clock small{font-size:17px}
+  .capture-screen .sketch-canvas-surface{min-height:330px}
+  .capture-screen .sketch-paper-top{padding:12px 10px}
+  .capture-screen .sketch-theme{font-size:6px;gap:6px}
+  .capture-screen .sketch-theme strong{font-size:8px;letter-spacing:.3px}
+  .capture-screen .sketch-theme svg{display:none}
+  .capture-screen .sketch-paper-bottom{font-size:5px;padding:10px;letter-spacing:.5px}
+  .capture-screen .sketch-ready-overlay h2{font-size:28px}
+  .capture-screen .sketch-ready-overlay p{font-size:10px}
+  .capture-screen .sketch-ready-overlay{padding:16px}
+  .capture-screen .sketch-ready-kicker{font-size:6px;letter-spacing:1px}
+  .capture-screen .sketch-bottom-bar{flex-direction:column;gap:12px}
+  .capture-screen .sketch-toolbar{gap:3px;padding:7px;max-width:100%;width:100%;justify-content:center}
+  .capture-screen .capture-tool{width:42px;min-width:0}
+  .capture-screen .capture-tool svg{width:17px}
+  .capture-screen .sketch-footnote{flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:9px}
+  .capture-screen .sketch-footnote>span[role=status]{order:3;width:100%;max-width:none;text-align:left}
+  .capture-screen .capture-crop-tools{flex-wrap:wrap}
+  .capture-screen .capture-crop-tools input{width:54px}
+  .capture-reviewing .sketch-clock{display:none}
+}
