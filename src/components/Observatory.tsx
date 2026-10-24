@@ -12,7 +12,7 @@ const short = (value?: string | null) => value ? `${value.slice(0, 8)}…` : '�
 const iconFor = (event: AgentEvent) => ({model: Sparkles, learning: FlaskConical, discussion: MessageSquare, work: CheckCheck}[eventCategory(event)])
 const displayValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 
-export default function Observatory({ onBack }: { onBack?: () => void }) {
+export default function Observatory({ onBack, aiPaused=false }: { onBack?: () => void; aiPaused?: boolean }) {
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [sessionEvents, setSessionEvents] = useState<AgentEvent[]>([])
   const [snapshot, setSnapshot] = useState<ColoniesSnapshot | null>(null)
@@ -173,6 +173,7 @@ export default function Observatory({ onBack }: { onBack?: () => void }) {
     setMode(next); setPaused(next === 'replay'); setPulse(null); setPosition(0)
   }, [])
   const current = active && (island === 'all' || active.island_id === island) && (session === 'all' || active.session_id === session) && (category === 'all' || eventCategory(active) === category) ? active : null
+  const reasoningPaused = aiPaused || Boolean(snapshot?.planner?.paused)
   const reasoningIssue = snapshot?.planner?.error
   const totalTokens = metrics?.totals.total_tokens || (metrics?.totals.input_tokens || 0) + (metrics?.totals.output_tokens || 0)
   const modelRequests = Object.entries(metrics?.event_counts || {}).filter(([key]) => /model.requested/.test(key)).reduce((sum, [, count]) => sum + count, 0)
@@ -190,7 +191,7 @@ export default function Observatory({ onBack }: { onBack?: () => void }) {
 
   return <main className="observatory">
     <header className="obs-heading">
-      <div><button className="obs-back" onClick={() => onBack ? onBack() : window.location.assign('/')}><ArrowLeft size={14}/> BACK TO THE ISLANDS</button><div className="obs-eyebrow"><span/> LOCAL ENGINE / LIVE EVIDENCE</div><h1>THE OBSERVATORY<span>Inside the little minds.</span></h1><p>Watch your objects discuss, test an idea, and turn it into a memory the island can use.</p></div>
+      <div><button className="obs-back" onClick={() => onBack ? onBack() : window.location.assign('/')}><ArrowLeft size={14}/> BACK TO THE ISLANDS</button><div className="obs-eyebrow"><span/> LOCAL ENGINE / LIVE EVIDENCE</div><h1>THE OBSERVATORY<span>Inside the little minds.</span></h1><p>Follow a public plan through a checked action to a saved result. Every pulse comes from a recorded event.</p></div>
       <div className="obs-engine-status"><span className={`obs-status-dot ${connection === 'connected' ? 'is-on' : ''}`}/><div><strong>{connection === 'connected' ? 'ENGINE CONNECTED' : connection.toUpperCase()}</strong><small>{persistence === 'development_memory' ? 'Development memory · resets on restart' : transport === 'atlas_change_stream' ? 'MongoDB Atlas · Change Stream' : transport === 'atlas_polling' ? 'MongoDB Atlas · committed-event polling' : 'Connecting to persistent events'}</small></div><Database size={23}/></div>
     </header>
 
@@ -202,13 +203,19 @@ export default function Observatory({ onBack }: { onBack?: () => void }) {
     </section>
     {error && <div className="obs-notice" role="status"><WifiOff size={15}/><span>{error}</span><button onClick={() => setRetry(value => value + 1)}><RefreshCw size={13}/> Reconnect</button></div>}
 
-    {reasoningIssue && <div className="obs-notice obs-model-notice" role="status"><Sparkles size={15}/><span><strong>Gemini needs attention.</strong> {reasoningIssue}</span><button onClick={() => setCategory('model')}>Inspect model events <ArrowRight size={13}/></button></div>}
+    {reasoningIssue && !reasoningPaused && <div className="obs-notice obs-model-notice" role="status"><Sparkles size={15}/><span><strong>Gemini needs attention.</strong> {reasoningIssue}</span><button onClick={() => setCategory('model')}>Inspect model events <ArrowRight size={13}/></button></div>}
 
+    <section className="obs-reading-guide" aria-label="What the activity means">
+      <div><span>01</span><p><b>THE PLAN</b><small>{reasoningPaused?'Gemini paused. Existing discussions remain readable.':'Resident messages are proposals, not completed work.'}</small></p></div>
+      <div><span>02</span><p><b>THE ACTION</b><small>Local rules check abilities and spend available resources.</small></p></div>
+      <div><span>03</span><p><b>THE PROOF</b><small>A receipt records the result; Atlas saves the memory.</small></p></div>
+      <a href="#/playground">TRY IT IN THE PLAYGROUND <ArrowRight size={14}/></a>
+    </section>
     <section className={`obs-machine ${mode === 'replay' ? 'is-replay' : ''}`} aria-label="Live agent and MongoDB activity">
       <div className="obs-machine-top"><span><Activity size={12}/> {mode === 'replay' ? 'RECORDED PLAYBACK' : 'THE LIVING SYSTEM'}</span><span>{current ? time(current.created_at) : 'Waiting for the next committed event'}</span></div>
       <div className="obs-system-grid" aria-hidden="true"/>
       <svg className="obs-wires" viewBox="0 0 1100 440" preserveAspectRatio="none" aria-hidden="true"><path d="M210 210 C340 210 350 260 475 260 M890 210 C760 210 750 260 625 260"/><path d="M550 85 L550 200 M550 310 L550 380"/></svg>
-      <div className={`obs-model-node ${(current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length) ? 'is-active' : ''}`}><Sparkles size={18}/><div><b>GEMINI</b><span>{mode === 'live' && pendingActors.length ? `${pendingActors.length} model ${pendingActors.length === 1 ? 'turn' : 'turns'} queued / processing` : current && eventCategory(current) === 'model' ? eventLabel(current.kind) : reasoningIssue ? 'Reasoning paused · see diagnostic' : 'Proposes · discusses · reflects'}</span></div><i className={(current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length) ? 'is-on' : ''}/></div>
+      <div className={`obs-model-node ${(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-active' : ''}`}><Sparkles size={18}/><div><b>GEMINI</b><span>{mode === 'live' && reasoningPaused ? 'Paused · local work continues' : mode === 'live' && pendingActors.length ? `${pendingActors.length} model ${pendingActors.length === 1 ? 'turn' : 'turns'} queued / processing` : current && eventCategory(current) === 'model' ? eventLabel(current.kind) : reasoningIssue ? 'Reasoning paused · see diagnostic' : 'Proposes · discusses · reflects'}</span></div><i className={(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-on' : ''}/></div>
       <div className="obs-islands">
         {(['winners', 'losers'] as const).map(side => {
           const colony = snapshot?.colonies.find(item => item.id === side)
