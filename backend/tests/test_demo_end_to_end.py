@@ -2,8 +2,8 @@
 
 Real services/executor and memory transactions are used. YOLO, OCR and Gemini
 responses are explicit controlled fixtures, not a recognition-quality claim.
-The current camera battle uses legacy combat; attribute combat is a separate
-fixture arena and is intentionally tested separately rather than misrepresented.
+Camera battles use accepted-evidence attribute combat; the fixture arena remains
+separate and cannot unlock residents.
 """
 from copy import deepcopy
 import json
@@ -16,7 +16,8 @@ from app.colonies import ColoniesStore
 from app.colony_experiments import BENEFITS
 from app.colony_planner import ColonyPlanner
 from app.config import Settings
-from app.engine import ENGINE_VERSION, PRESETS
+from app.engine import PRESETS
+from app.combat_v2 import ENGINE_VERSION
 from app.recognition import RecognitionService
 from app.repository import MemoryRepository, StoreError
 from app.service import BattleService
@@ -151,9 +152,10 @@ async def test_capture_correction_battle_two_crews_research_build_receipts_wait_
                 assert repo.get_capture(battle['id'], original['capture_id'])['observation'] == original
             repo.confirm_capture(battle['id'], slot, obs['capture_id'])
         started = repo.start_battle(battle['id'], 'quick')
-        # This records the current gap: real captures still use v1 archetypes.
-        assert started['engine_version'] == ENGINE_VERSION == 'clash-integer-1'
-        assert 'counterfactual' not in started
+        assert started['engine_version'] == ENGINE_VERSION == 'object-combat-2'
+        assert started['combat']['counterfactual']['without_price']['changed_winner'] is False
+        assert all(profile['price']['amount_gbp'] is None for profile in started['combat']['fighters'])
+        assert started['combat']['events'] == started['events']
         with pytest.raises(StoreError) as early:
             repo.finalize_battle(battle['id'])
         assert early.value.code == 'playback_pending'

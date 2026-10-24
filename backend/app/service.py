@@ -79,7 +79,9 @@ class BattleService:
         canonical = ProcessedImage(media['data'], media['width'], media['height'], media['mime_type'])
         crop = Crop.model_validate(capture['crop']) if capture.get('crop') else None
         correction = {'request': request, 'parent_capture_id': capture_id, 'parent_output_id': observation['output_id'],
-                      'original_fighter': observation.get('pending_fighter'), 'original_observed_object': observation.get('observed_object')}
+                      'original_fighter': observation.get('pending_fighter'), 'original_observed_object': observation.get('observed_object'),
+                      'original_visible_features': observation.get('visible_features', []),
+                      'original_uncertainty': observation.get('uncertainty', [])}
         return await self._process(battle_id, revision, capture['player_slot'], capture['source'], canonical, crop,
                                    expected_capture_id=capture_id, correction=correction)
 
@@ -154,6 +156,8 @@ class BattleService:
                             fighter[key] = deepcopy(original.get(key))
                         fighter['visual_spec']['template_id'] = original['visual_spec']['template_id']
                         observation['observed_object'] = deepcopy(capture['correction'].get('original_observed_object'))
+                        observation['visible_features'] = deepcopy(capture['correction'].get('original_visible_features', []))
+                        observation['uncertainty'] = deepcopy(capture['correction'].get('original_uncertainty', []))
                         observation['proposed_label'] = original['object_type']
                         observation['canonical_type_candidate'] = original['canonical_type_id']
                     observation['observed_object'] = observation.get('observed_object') or {

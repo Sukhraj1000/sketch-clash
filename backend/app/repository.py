@@ -14,7 +14,7 @@ import secrets
 import json
 
 from .config import Settings
-from .engine import simulate_match
+from .camera_combat import capture_profile, simulate_capture_battle
 from .contracts import FeedbackSubmission
 from .capture_progress import progress_record
 from .pipeline import (BASELINE_VERSION, LEGACY_VERSION, BASELINE_CONFIG, BASE_PROMPT_HASH,
@@ -261,6 +261,8 @@ class Repository:
                 existing = deepcopy(capture['observation'])
                 existing['stale'] = not active
                 return existing
+            if observation.get('pending_fighter') and observation.get('status') == 'recognized':
+                observation['pending_fighter']['combat_profile'] = capture_profile(observation['pending_fighter'], observation)
             capture.update({'status': 'done', 'observation': observation, 'error': None,
                             'progress': progress_record('complete', self.clock())})
             tx.put('captures', capture)
@@ -347,7 +349,7 @@ class Repository:
 
     def start_battle(self, battle_id: str, playback_mode: str) -> dict:
         # No LLM, media conversion or unbounded simulation is performed in this transaction.
-        # A maximum of 11 integer steps is cheaper than an additional race-prone pre-read.
+        # Three bounded, ten-round simulations also freeze the counterfactual evidence.
         chosen_seed = secrets.randbelow(2**31)
         def operation(tx):
             battle = self._battle(tx, battle_id)
@@ -356,13 +358,21 @@ class Repository:
             if battle['status'] != 'ready' or not all(battle['pending_fighters']) or battle['confirmed_capture_ids'] != battle['active_capture_ids']:
                 raise StoreError('Both players need a confirmed, checked object before starting.')
             fighters = deepcopy(battle['pending_fighters'])
+            observations = []
             for slot, fighter in enumerate(fighters):
                 if fighter['capture_id'] != battle['active_capture_ids'][slot]:
                     raise StoreError('A fighter was replaced. Confirm the current capture first.')
                 media_id = fighter['image_ref'].rsplit('/', 1)[-1]
                 if not tx.get('media', media_id):
                     raise StoreError('A fighter image has not been saved.', 409, 'media_missing')
-            result = simulate_match(fighters, chosen_seed, playback_mode)
+                capture = tx.get('captures', key_for(battle_id, fighter['capture_id']))
+                observations.append(deepcopy((capture or {}).get('observation') or {}))
+            combat = simulate_capture_battle(fighters, observations, chosen_seed, playback_mode)
+            for fighter, profile in zip(fighters, combat['fighters']):
+                fighter['combat_profile'] = deepcopy(profile)
+            result = {key: deepcopy(combat[key]) for key in ('events', 'winner_slot', 'final_health', 'duration_ms',
+                                                            'engine_version', 'seed', 'playback_mode')}
+            result['combat'] = combat
             started = datetime.fromisoformat(self.clock())
             from datetime import timedelta
             battle.update(result)

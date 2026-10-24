@@ -143,6 +143,31 @@ async def test_style_correction_lineage_is_bounded_and_never_rerolls_identity_or
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('original_features', [[], ['ceramic body']])
+async def test_style_correction_preserves_empty_or_uncertain_combat_evidence(original_features):
+    class StyleEvidenceAttempt(ControlledRecognizer):
+        async def recognize_capture(self, data, **kw):
+            result = await super().recognize_capture(data, **kw)
+            changed = bool(kw.get('correction_context'))
+            result.visible_features = ['steel body', 'curved side handle'] if changed else original_features
+            result.uncertainty = [] if changed else ['Material could be plastic']
+            return result
+    settings = Settings(repository='memory')
+    repo = MemoryRepository(settings)
+    service = BattleService(settings, repo, StyleEvidenceAttempt())
+    battle, original = await prepare(repo, service)
+    changed = await service.correct_capture(battle['id'], original['capture_id'], correction(original))
+    assert changed['visible_features'] == original['visible_features']
+    assert changed['uncertainty'] == original['uncertainty']
+    assert changed['observed_object'] == original['observed_object']
+    before = original['pending_fighter']['combat_profile']
+    after = changed['pending_fighter']['combat_profile']
+    assert after['traits'] == before['traits'] == []
+    assert after['stats'] == before['stats']
+    assert after['provenance']['uncertainty'] == before['provenance']['uncertainty']
+
+
+@pytest.mark.asyncio
 async def test_factual_correction_uses_recognizer_and_locked_fighter_rejects_changes(setup):
     repo, service, model = setup
     battle, original = await prepare(repo, service)

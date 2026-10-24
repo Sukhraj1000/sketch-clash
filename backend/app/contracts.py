@@ -76,6 +76,7 @@ class CorrectionRequest(Contract):
     reasons: list[Literal['resemblance', 'colour_proportions', 'name', 'style_accessory', 'rendering_defect']] = Field(default_factory=list, max_length=5)
 
 class PendingFighter(Contract):
+    combat_profile: dict[str, Any] | None = None
     output_id: str | None = None
     pipeline_version_id: str = 'legacy-unknown'
     parent_output_id: str | None = None
@@ -137,6 +138,7 @@ class BattleEvent(Contract):
     damage: int = Field(ge=1, le=100)
     kind: Literal['swipe', 'heavy', 'finisher']
     word: str
+    receipt: dict[str, Any] | None = None
 
 class Battle(Contract):
     pipeline_version_id: str = 'legacy-unknown'
@@ -161,4 +163,5 @@ class Battle(Contract):
     eligible_at: str | None = None
     completed_at: str | None = None
     completion: dict[str, Any] | None = None
+    combat: dict[str, Any] | None = None
     persistence: Literal['mongodb', 'development_memory']
