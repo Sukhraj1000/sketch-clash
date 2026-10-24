@@ -63,3 +63,19 @@ These repairs do not establish accuracy on every photographed object. The physic
 The camera battle still uses its existing v1 combat and persistent island placement. The fixture arena uses v2 attributes, sample prices and conditional weaknesses but does not admit practice fighters to live islands. The cinematic demo is scripted. Those product boundaries remain explicit.
 
 The worker processes run on the local Mac; MongoDB stores durable state and coordinates reservations. In-memory regression tests do not substitute for a fresh Atlas failover or multi-process load test.
+
+## Winner Island inactivity follow-up
+
+The reported absence of Winner Island discussion had a saved-state cause: Winner Island was enabled but paused, with four residents. Paused islands are intentionally excluded from automatic councils. The island was resumed through the existing idempotent command API; all four residents have automatic assignments. Both islands are now enabled and unpaused. Gemini remains on Slow and evaluation batches remain paused (zero evaluation jobs).
+
+A focused scheduler regression proves that resuming Winner Island does not interrupt the current six-turn Loser council, and the next automatic selection includes Winner Island while retaining at least 60 seconds between dispatches. The planner/recovery suites passed 37 tests. No scheduler behavior change or extra model probe was needed.
+
+The UI now distinguishes island pause, Gemini pause, another island's council, provider admission, retry cooldown and unavailable state. The Discussion view exposes the existing island Resume action. A bounded event window no longer claims that a crew has never recorded activity; displayed event summaries have timestamps. Current control state is explicitly separate from replayed events.
+
+Read-only verification at 15:31 UTC found Winner Island ticking and saving rest receipts. Its supplies were stocked and no unfinished project had yet been agreed. These receipts correctly record zero resource or construction gain. The Loser council was on its third turn; this check establishes resumed local execution and council eligibility, not a completed new Winner conversation.
+
+The already-open Observatory tab also showed stale history despite a connected label. A reload recovered current records. Independent probes verified both backend and Vite streams replayed the correct retained events and delivered new events; no backend stream fault was reproduced. Browser event recovery is addressed separately from the island's saved pause.
+
+Browser recovery now reconciles saved events every 15 seconds from its latest cursor without overlapping reads. A stream is labelled live only after an actual event or status heartbeat; 30 seconds of silence triggers one reconnect attempt per silent period while HTTP catch-up continues. Duplicate events are merged, stale callbacks are ignored and requests are cancelled when leaving the view. Fake-clock tests cover silent streams, racing cursor updates, failed reads and cleanup. Browser verification observed new Winner receipts arrive without another reload and the connection return to live.
+
+Validation for this follow-up: 37 planner/recovery tests, all seven `test:polish` scripts (including actual conversation component rendering and event-feed recovery), and the TypeScript/Vite build passed. The existing 3D bundle-size advisory remains. No provider settings, evaluation controls, billing settings or credentials were changed.
