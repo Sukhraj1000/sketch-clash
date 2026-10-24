@@ -56,13 +56,13 @@ const captureStageTitles: Record<string, string> = {
 export function CaptureProgressPanel({ normalizing, progress, unavailable, seconds }: { normalizing: boolean; progress: CaptureProgress | null; unavailable: boolean; seconds: number }) {
   const queued = !unavailable && progress?.stage === 'queued'
   const wait = progress?.queue?.dispatch_wait_seconds
-  const spacing = progress?.queue?.min_dispatch_interval_seconds
+  const waitReason = progress?.queue?.wait_reason
   return <div className="capture-processing" role="status">
     <span className="capture-loading-mark" aria-hidden="true">✳</span>
     <strong>{normalizing ? 'DEVELOPING YOUR PHOTO…' : unavailable ? 'PROGRESS UNAVAILABLE' : progress ? captureStageTitles[progress.stage] || 'PREPARING YOUR FIGHTER' : 'SENDING YOUR PHOTOGRAPH…'}</strong>
     <span>{normalizing ? 'Making a clean, correctly oriented image.' : unavailable ? 'The original request is still pending. Your photograph is kept for recovery.' : progress?.message || 'Waiting for the backend to register this capture. No preparation stage has been reported yet.'}</span>
     {queued && typeof wait === 'number' && wait > 0 && <small>Next admission check in about {Math.ceil(wait)} seconds. This is not a completion estimate.</small>}
-    {queued && typeof spacing === 'number' && spacing > 0 && <small>Shared Gemini safety spacing: at least {Math.ceil(spacing)} seconds between requests. Camera checks have priority over island discussions.</small>}
+    {queued && <small>{waitReason === 'provider_cooldown' ? 'Gemini is cooling down after a provider error.' : waitReason === 'local_concurrency' ? 'Other normal Gemini requests are running. Your photograph is waiting for a free slot.' : 'Camera checks run independently of the island pace.'}</small>}
     {!normalizing && progress?.model && !unavailable && <small>Model: {progress.model}{progress.attempt && progress.attempt > 1 ? ` · attempt ${progress.attempt}` : ''}</small>}
     <small>Your capture timer is paused.</small>
     {!normalizing && <small>Elapsed {Math.floor(seconds / 60)}m {String(seconds % 60).padStart(2, '0')}s · this photograph is kept for recovery.</small>}

@@ -20,7 +20,7 @@ const resourceSummary = (values: unknown, prefix = '') => { const ledger = recei
 const count = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
 const guardWaitLabels: Record<string, string> = {
   ai_paused: 'Gemini activity paused',
-  local_dispatch_spacing: 'Shared Gemini safety spacing',
+  local_dispatch_spacing: 'Island thinking pace',
   local_background_spacing: 'Island thinking pace',
   local_minute_cap: 'Local minute limit reached',
   local_daily_cap: 'Local 24-hour limit reached',
@@ -32,9 +32,9 @@ export function IslandPacingControls({ pacing, paceSaving, paceError, reasoningP
   pacing: RequestPacing | null; paceSaving: boolean; paceError: string; reasoningPaused: boolean; changePace: (next: RequestPaceMode) => void | Promise<void>
 }) {
   return <section className="obs-pace" aria-label="Island AI request pace">
-      <div className="obs-pace-intro"><span className="obs-eyebrow"><Timer size={13}/> ISLAND AI REQUEST PACE</span><h2>SET THE ISLAND THINKING TEMPO</h2><p>Spaces out island discussions and other background AI work. Camera recognition gets priority and uses the shared safety limits.</p></div>
+      <div className="obs-pace-intro"><span className="obs-eyebrow"><Timer size={13}/> ISLAND AI REQUEST PACE</span><h2>SET THE ISLAND THINKING TEMPO</h2><p>Limits how often island agents request Gemini. Camera recognition runs normally and does not wait for this pace.</p></div>
       <div className="obs-pace-options" aria-label="Choose island AI pace">{pacing?.options.map(option => <button key={option.mode} aria-pressed={pacing.mode === option.mode} disabled={paceSaving} onClick={() => void changePace(option.mode)}><strong>{option.label}</strong><span>Up to {option.requests_per_minute} / minute</span><small>At least {option.min_dispatch_interval_seconds}s apart</small></button>)}{!pacing && <p>Reading the saved island AI pace…</p>}</div>
-      <div className="obs-pace-state" role="status">{paceSaving ? 'Saving the island AI pace…' : paceError ? paceError : pacing ? <><b>{pacing.paused || reasoningPaused ? 'Gemini remains paused.' : `Background ceiling: ${pacing.effective_requests_per_minute} request${pacing.effective_requests_per_minute === 1 ? '' : 's'} per minute.`}</b> {pacing.paused || reasoningPaused ? 'The selected island pace will apply when Gemini is resumed.' : 'This is a maximum for background work; demand and shared limits may send fewer requests.'} <span>All requests share the daily cap, concurrency limits and provider cooldowns. Local actions and replay run at their own speed.</span></> : 'Existing safety limits remain in force.'}</div>
+      <div className="obs-pace-state" role="status">{paceSaving ? 'Saving the island AI pace…' : paceError ? paceError : pacing ? <><b>{pacing.paused || reasoningPaused ? 'Gemini remains paused.' : `Island ceiling: ${pacing.effective_requests_per_minute} request${pacing.effective_requests_per_minute === 1 ? '' : 's'} per minute.`}</b> {pacing.paused || reasoningPaused ? 'The selected island pace will apply when Gemini is resumed.' : 'This is a maximum for island agents; they may send fewer requests when there is less work.'} <span>Island agents also have a daily budget. Google cooldowns still apply to all Gemini requests. Local actions and replay run at their own speed.</span></> : 'Existing safety limits remain in force.'}</div>
     </section>
 }
 
@@ -45,17 +45,18 @@ export function GeminiSafeguards({ providerQueue, reasoningPaused }: { providerQ
   const guardPaused = reasoningPaused || providerQueue?.paused
   const guardWait = providerQueue?.wait_reason
   const guardStatus = guardPaused ? 'Gemini activity paused' : guardWait ? (guardWaitLabels[guardWait] || 'Waiting before dispatch') : 'Ready within local limits'
-  return <section className="obs-guardrails" aria-label="Current local Gemini safeguards">
-      <header><span><ShieldCheck size={14}/> SHARED GEMINI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
+  return <section className="obs-guardrails" aria-label="Current island AI safeguards">
+      <header><span><ShieldCheck size={14}/> ISLAND AI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
       <dl>
-        <div><dt>SHARED REQUEST LIMIT</dt><dd>{count(localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} reserved in the last minute · at least {count(localLimits.min_dispatch_interval_seconds)}s apart</small></div>
+        <div><dt>ISLAND REQUEST LIMIT</dt><dd>{count(localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} reserved in the last minute · selected pace: at least {count(localLimits.background_min_dispatch_interval_seconds ?? localLimits.min_dispatch_interval_seconds)}s apart</small></div>
         <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
-        <div><dt>SHARED QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.active)} active · {count(providerQueue?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
+        <div><dt>ISLAND QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.scopes?.island?.active)} active · {count(providerQueue?.scopes?.island?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
       </dl>
       <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
-      <p className="obs-guard-note">These application safety limits cover camera recognition and island AI. They are not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The rolling request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
+      <p className="obs-guard-note">These application limits apply only to island agents. They are not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The island request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
+      {providerQueue?.interactive_limits && <p className="obs-guard-note"><b>Camera recognition:</b> normal requests with no artificial pacing or minute/day cap. Up to {count(providerQueue.interactive_limits.concurrency)} run at once, independently of island work. {count(providerQueue.scopes?.interactive?.active)} active · {count(providerQueue.scopes?.interactive?.waiting)} waiting. Google cooldowns are respected.</p>}
       {providerQueue?.admission_ledger?.historical_usage_unknown && !providerQueue.admission_ledger.rolling_window_complete && <p className="obs-guard-note">Earlier usage was not fully recorded. Known requests were carried forward conservatively; complete rolling coverage starts after the first 24 hours.</p>}
-      {providerQueue?.admission_ledger_error && <p className="obs-guard-note" role="alert">Saved request budget is unavailable. New model requests are blocked until storage recovers.</p>}
+      {providerQueue?.admission_ledger_error && <p className="obs-guard-note" role="alert">Saved request history is unavailable. New model requests are blocked until storage recovers.</p>}
       {providerQueue?.last_local_error?.message && <p className="obs-guard-note"><b>Last local limit event:</b> {providerQueue.last_local_error.message}</p>}
     </section>
 }

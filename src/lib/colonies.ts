@@ -64,13 +64,17 @@ export type ColonyRun = {
 export type GeminiQueueStatus = {
   paused?: boolean; active?: number; waiting?: number; completed?: number; throttled?: number
   local_limits?: {
+    scope?: 'island'
     requests_per_minute?: number; requests_per_day?: number; max_pending?: number
     min_dispatch_interval_seconds?: number; background_min_dispatch_interval_seconds?: number; concurrency?: number
   }
   local_usage?: {
+    scope?: 'island'; all_requests_last_24_hours?: number
     requests_last_minute?: number; requests_last_24_hours?: number
     requests_remaining_minute?: number; requests_remaining_day?: number
   }
+  interactive_limits?: { concurrency?: number; min_dispatch_interval_seconds?: number; requests_per_minute?: null; requests_per_day?: null }
+  scopes?: Partial<Record<'island' | 'interactive' | 'evaluation', { active?: number; waiting?: number }>>
   wait_reason?: string | null; dispatch_wait_seconds?: number
   counter_scope?: 'database_rolling_window' | 'process_lifetime'
   admission_ledger?: { historical_usage_unknown?: boolean; rolling_window_complete?: boolean; cutover_at_epoch?: number }
