@@ -1,6 +1,20 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment — autonomous crews and clearer islands
+## Current increment — rotating briefs, resemblance and useful research
+
+New camera rounds save one rotating brief shared by both players. Eight themes cover everyday, kitchen, desk, tools, animals, nature, play and wearables. Recognition identity feeds conservative deterministic eligibility checks; a definite mismatch blocks confirm/start, unknown identity requests clarification, and old battles keep their original unrestricted policy. Recovery does not reroll. Correcting the identity or retaking remains available. Off-theme status stays consistent in the review and capture footer.
+
+The shared 3D vessel renderer now uses accepted handles, lids, spouts and silhouette evidence. The original blue tumbler and ceramic mug were checked in a browser using saved real recognition outputs; their proportions and handles are visible. Historical residents retain their saved appearance, with accepted accessories used when photographic observation fields were not saved.
+
+A fourth analytical research family, reflection, supports tested optical relays. Accepted reflective-surface evidence and a passing production benchmark are required. Council agreement and costed construction precede the capped +1 idea bonus on an existing signal task. It creates neither energy nor new agent powers. The complete discussion → test → blueprint → build → contribution chain passed with scripted model responses; it is not presented as a fresh live Gemini conversation.
+
+Optional eBay pricing now has a production Browse/OAuth connector, hidden `npm run setup:ebay` prompts, bounded requests, conservative comparable filtering, source URLs/timestamps and immutable battle snapshots. Model estimates are ignored. At least three suitable GBP fixed-price offers are required; missing prices disable both bonuses, and the maximum bonus remains 1% damage. Separate sourced coverage appears beside island user estimates. No eBay credentials are configured, so live prices remain neutral; controlled HTTP fixtures verify the connector, not live market access.
+
+Verification: full backend suite 652 passed with 2 opt-in tests skipped; the real Atlas suite then passed both tests separately. The latest pricing checks pass all 10 cases. Production build, theme/camera/polish tests, scene geometry, task motion and benefit presentation checks passed. Browser replay covered two uploads, acceptance, explained battle, island routing, theme rotation and an off-theme rejection that survives recovery. No browser errors were observed. The existing WorldScene bundle-size warning remains. Test-only telemetry assertions were corrected to distinguish exported HTTP spans from gameplay effects; temporary Atlas test databases clean up with existing permissions and no leftovers remain.
+
+Live checkpoint after restart: MongoDB ready, the same eight saved shore residents (four per shore), island Gemini enabled on Slow, evaluations paused. The configured rolling island allowance is still 200/200 with no requests remaining; no fresh live Gemini council was forced and no allowance was raised/reset. A full fresh live capture-to-council-to-construction demonstration remains pending available island allowance. Physical MacBook camera access remains owner-verified only. Screenshot artifacts outside Git: `../sketch-clash-vessel-repair.png`, `../sketch-clash-theme-validation.png`.
+
+## Earlier increment — autonomous crews and clearer islands
 
 Both islands now choose projects through a persisted crew council. Whole-upgrade feasibility separates missing capabilities from supplies the crew can gather; existing tasks/reservations remain intact. Rules cast capability-based actor preferences, and bounded Gemini turns can submit proposals, support and objections. One actor has one active project stance, retained up to six hours or full project completion so the next automatic actor can read it. Supply requests keep their separate five-minute expiry. Manual priority is an explicit optional override with a return-to-crew command.
 
