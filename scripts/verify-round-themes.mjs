@@ -61,6 +61,22 @@ const eligible = renderToStaticMarkup(createElement(Review,{response:{...respons
 assert.match(eligible,/FITS THE ROUND/)
 assert.doesNotMatch(eligible,/<button[^>]*class="review-confirm"[^>]*disabled/)
 
+// Keep player decisions ahead of optional detail, without hiding disagreement
+// or changing the explicit feedback/evaluation choices.
+const reviewable = renderToStaticMarkup(createElement(Review,{response:{...response,output_id:'output-1',pipeline_version_id:'review-v1',
+  evidence:{identity_support:{detail:'YOLO suggested person; Gemini proposed table. Check the photograph.'}},
+  theme_validation:{...response.theme_validation,verdict:'eligible'}},...props}))
+assert.ok(reviewable.indexOf('YOUR PHOTOGRAPH') < reviewable.indexOf('Is this your object?'))
+assert.ok(reviewable.indexOf('Lock in my fighter') < reviewable.indexOf('Battle attributes &amp; evidence'),'Confirm must precede optional evidence in reading order')
+assert.match(reviewable,/<details class="review-evidence">/,'Evidence starts collapsed')
+assert.doesNotMatch(reviewable,/<details class="review-evidence"[^>]*open/)
+assert.ok(reviewable.indexOf('YOLO suggested person') < reviewable.indexOf('<details'),'Detector disagreement must remain outside collapsed evidence')
+assert.match(reviewable,/<button[^>]*class="review-confirm"[^>]*disabled=""/,'Fresh proposals still need an explicit identity confirmation')
+assert.doesNotMatch(reviewable,/<input[^>]*checked=""/,'Optional shared evaluation must remain off')
+assert.match(reviewable,/Check the photograph and choose Correct to continue/)
+assert.match(reviewable,/Allow this object photo and feedback/)
+assert.match(reviewable,/Shared evaluation is off/)
+
 // Pricing integration renders its real component recursively, not a stub. A
 // market receipt must stay inspectable before confirmation and cannot override
 // an off-theme decision.
