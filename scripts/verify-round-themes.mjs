@@ -64,20 +64,47 @@ assert.doesNotMatch(eligible,/<button[^>]*class="review-confirm"[^>]*disabled/)
 // Pricing integration renders its real component recursively, not a stub. A
 // market receipt must stay inspectable before confirmation and cannot override
 // an off-theme decision.
-const price={amount_gbp:12,source:'ebay_browse',label:'Comparable asking prices; not sold prices.',observed_at:'2026-10-24T21:00:00Z',confidence:'matched_listings',
-  listings:[{item_id:'fixture-mug',title:'Ceramic mug controlled listing',amount_gbp:12,url:'https://www.ebay.co.uk/itm/123456789012',condition:'Used'}]}
+const price={amount_gbp:12,source:'retailer_page',label:'Comparable UK retail prices from retailer pages.',observed_at:'2026-10-24T21:00:00Z',confidence:'retail_reference',
+  cache:{hit:true,persistence:'mongodb',stored_at:'2026-10-24T21:01:00Z',expires_at:'2026-10-31T21:01:00Z',snapshot_id:'saved-quote'},
+  listings:[{item_id:'fixture-mug',title:'Ceramic mug controlled listing',amount_gbp:12,url:'https://shop.example/mug',condition:'New',retailer:'Example Shop',checked_at:'2026-10-24T21:00:00Z'}]}
 const pricedResponse={...response,fighter:{...response.fighter,combat_profile:{stats:{impact:5,resilience:5,agility:5,control:5},price}}}
 const priced=renderToStaticMarkup(createElement(Review,{response:pricedResponse,...props}))
-assert.match(priced,/See 1 sourced asking prices/)
-assert.match(priced,/Comparable asking prices; not sold prices\./)
-assert.match(priced,/href="https:\/\/www\.ebay\.co\.uk\/itm\/123456789012" target="_blank" rel="noopener noreferrer"/)
+assert.match(priced,/Retailer page reference/)
+assert.match(priced,/1 saved price reference/)
+assert.match(priced,/Comparable UK retail prices from retailer pages\./)
+assert.match(priced,/href="https:\/\/shop\.example\/mug" target="_blank" rel="noopener noreferrer"/)
 assert.match(priced,/Ceramic mug controlled listing/)
 assert.match(priced,/£12\.00/)
-assert.match(priced,/Used/)
+assert.match(priced,/Example Shop · New/)
+assert.match(priced,/Cache hit · MongoDB Atlas/)
+assert.match(priced,/24 Oct 2026/)
+assert.match(priced,/Cache refresh due/)
+assert.match(priced,/Price adds at most 1% to damage; unknown prices are neutral/)
+assert.doesNotMatch(priced,/verified appraisal|eBay|Checked retail reference/)
 assert.match(priced,/<button[^>]*class="review-confirm"[^>]*disabled=""/,'A sourced price cannot override rejected theme eligibility')
-const unpriced=renderToStaticMarkup(createElement(Review,{response:{...pricedResponse,fighter:{...pricedResponse.fighter,combat_profile:{...pricedResponse.fighter.combat_profile,price:{amount_gbp:null,source:'unavailable',label:'Marketplace is not configured; neutral price.'}}}},...props}))
-assert.match(unpriced,/Marketplace is not configured; neutral price\./)
-assert.doesNotMatch(unpriced,/sourced asking prices|ebay\.co\.uk/)
+const renderPrice=price=>renderToStaticMarkup(createElement(Review,{response:{...pricedResponse,fighter:{...pricedResponse.fighter,combat_profile:{...pricedResponse.fighter.combat_profile,price}}},...props}))
+const starter=renderPrice({...price,source:'curated_retail',cache:{...price.cache,hit:false},label:'Manually checked UK retail reference.'})
+assert.match(starter,/Checked retail reference/)
+assert.match(starter,/Sourced starter · MongoDB Atlas/)
+assert.doesNotMatch(starter,/Retailer page reference/)
+const memory=renderPrice({...price,cache:{...price.cache,hit:true,persistence:'development_memory'}})
+assert.match(memory,/Cache hit · temporary cache/)
+assert.doesNotMatch(memory,/Cache hit · MongoDB Atlas/)
+const unpriced=renderPrice({...price,amount_gbp:null,source:'unavailable',label:'No matching sourced retail price; neutral price.'})
+assert.match(unpriced,/No sourced price · neutral/)
+assert.match(unpriced,/No matching sourced retail price; neutral price\./)
+assert.match(unpriced,/If either object has no price, both price bonuses are zero/)
+assert.doesNotMatch(unpriced,/saved price reference|shop\.example|Retailer page reference|Cache hit/,'Unknown prices never expose stale priced receipts')
+const unsafe=renderPrice({...price,listings:[
+  {...price.listings[0],item_id:'script',url:'javascript:alert(1)',title:'<img src=x onerror=alert(1)>'},
+  {...price.listings[0],item_id:'credentials',url:'https://user:secret@shop.example/private'},
+]})
+assert.doesNotMatch(unsafe,/href="(?:javascript:|data:|http:|https:\/\/user:)/)
+assert.doesNotMatch(unsafe,/<script>|<img src="x"/,'Source titles render as text only')
+assert.match(unsafe,/&lt;img src=x onerror=alert\(1\)&gt;/)
+const {safePriceSourceUrl}=await import(await sourceModule(new URL('../src/components/MarketPriceEvidence.tsx',import.meta.url)))
+for (const url of ['javascript:alert(1)','data:text/html,unsafe','//shop.example/item','http://shop.example/item','https://user:secret@shop.example/item','not a url']) assert.equal(safePriceSourceUrl(url),undefined)
+assert.equal(safePriceSourceUrl('https://shop.example/item?q=mug'),'https://shop.example/item?q=mug')
 
 const theme={id:'animals',name:'Animal Kingdom',instructions:'Choose a clear photograph of an animal.',examples:['cat','dog','rabbit','parrot'],rotation_index:4,policy_version:'round-themes-1',enforced:true}
 for (const player of [1,2]) {

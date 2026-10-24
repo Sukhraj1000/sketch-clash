@@ -2,11 +2,28 @@ import { api, post } from './api';
 import type { BattleEvent, BattleOutcome, BattlePlayback } from '../game/battle';
 import type { Fighter } from '../types';
 
+export type MarketPrice = {
+  amount_gbp: number | null;
+  source: string;
+  label: string;
+  observed_at: string | null;
+  confidence: string;
+  policy_version?: string;
+  listings?: {
+    item_id: string; title: string; amount_gbp: number; url: string; condition: string;
+    retailer?: string; checked_at?: string;
+  }[];
+  cache?: {
+    hit: boolean; snapshot_id?: string; stored_at?: string; expires_at?: string;
+    policy_version?: string; category?: string; persistence?: 'mongodb' | 'development_memory';
+  };
+};
+
 export type ArenaFixture = {
   id: string; name: string; object_type: string; description: string;
   stats: { impact: number; resilience: number; agility: number; control: number };
   health: 100; traits: string[]; capabilities: string[]; limitations: string[];
-  price: { amount_gbp: number | null; source: string; label: string; observed_at: string | null; confidence: string; listings?: { item_id: string; title: string; amount_gbp: number; url: string; condition: string }[] };
+  price: MarketPrice;
   provenance: { kind: string; label: string; profile_version: string }; profile_version: string;
 };
 export type ArenaRule = { id: string; name: string; description: string };

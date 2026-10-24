@@ -10,7 +10,7 @@ import MarketPriceEvidence from './MarketPriceEvidence';
 
 function FrozenProfile({ profile, slot }: { profile: CombatProfile; slot: number }) {
   return <article className={`cb-profile ob-player-${slot}`}>
-    <div className="cb-profile-heading"><span>P{slot + 1}</span><div><h3>{profile.name}</h3><p>{humanize(profile.object_type)}</p></div><b>{pounds(profile.price.amount_gbp)}<small>{profile.price.amount_gbp === null ? 'NO PRICE ADVANTAGE' : 'RECORDED VALUE'}</small></b></div>
+    <div className="cb-profile-heading"><span>P{slot + 1}</span><div><h3>{profile.name}</h3><p>{humanize(profile.object_type)}</p></div><b>{pounds(profile.price.amount_gbp)}<small>{profile.price.amount_gbp === null ? 'NO PRICE ADVANTAGE' : 'REFERENCE PRICE'}</small></b></div>
     <p>{profile.description}</p>
     <MarketPriceEvidence price={profile.price}/>
     <div className="ob-stats">{COMBAT_STATS.map(stat => <div key={stat}><small>{humanize(stat)}</small><b>{profile.stats[stat]}</b></div>)}</div>
