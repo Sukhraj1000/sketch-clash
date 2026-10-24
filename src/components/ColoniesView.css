@@ -48,9 +48,9 @@
 .colony-presentation-switch>button:last-child[aria-pressed=true]{background:var(--yellow);color:#234d47}
 .colony-presentation-switch>button:not([aria-pressed=true]):hover{background:#fff8e8}
 .colony-presentation-switch>button:focus-visible{outline:3px solid #28766d;outline-offset:3px}
-.colony-scene.presentation-factory{background:#d4dad7}
+.colony-scene.presentation-factory{background:#333d44;border-color:#475158;box-shadow:0 8px 24px #18242b26}
 .colony-scene.presentation-factory .colony-map-caption{color:#e7f1e9;text-shadow:0 1px 2px #182d2d,0 0 5px #182d2d}
-.colony-scene.presentation-factory .colony-scene-tag{background:#fff4c9f2}
+.colony-scene.presentation-factory .colony-scene-tag{background:#263239ed;color:#dce4e5;border:1px solid #71818a;box-shadow:none;letter-spacing:.7px}.colony-scene.presentation-factory .colony-camera-controls button{background:#263239ed;color:#dce4e5;border-color:#71818a;box-shadow:none}
 .colony-scene-transition{position:absolute;inset:0;z-index:3;background:#fff4da;pointer-events:none;animation:colony-presentation-reveal 420ms ease-out both}
 @keyframes colony-presentation-reveal{from{opacity:.8}to{opacity:0}}
 .colony-representation-note{display:flex;align-items:flex-start;gap:9px;grid-column:1;background:#e8eee1;border:1px solid #b5c3ab;border-left:3px solid #498477;padding:11px 12px;margin:14px 0;color:var(--ink)}

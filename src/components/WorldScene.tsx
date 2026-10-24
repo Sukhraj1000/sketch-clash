@@ -8,6 +8,8 @@ import { safeIslandPoint } from '../lib/island'
 import type { IslandAgent, IslandSimulation, IslandTaskKind } from '../lib/island'
 import IslandStructure from './IslandStructures'
 import FactoryEnvironment from './FactoryEnvironment'
+import FactoryLighting from './FactoryLighting'
+import FactoryWorkProp from './FactoryWorkProp'
 import RobotShape from './RobotShape'
 import ObjectShapes from './ObjectShapes'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
@@ -209,19 +211,25 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
     root.current.rotation.y += reducedMotion ? angleDelta : angleDelta * Math.min(1, delta * 5)
     const taskKind = agent?.task?.kind
     const gesture = working || (taskTravelling && (taskKind === 'carry' || taskKind === 'forage')) ? taskKind : undefined
-    animateCharacterBody(body.current, factory ? 'calm' : spec.animation_style, moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
+    animateCharacterBody(body.current, factory ? 'calm' : spec.animation_style, factory ? 'idle' : moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
+    if (factory) {
+      // A mobile industrial chassis rolls level; it never hops, stretches or blinks.
+      body.current.position.y = 0
+      body.current.rotation.set(0, 0, 0)
+      const rig = characterRig(body.current)
+      if (rig.eyes) rig.eyes.scale.y = 1
+    }
     if (work.current) work.current.visible = !!agent?.task && taskVisible && (working || (taskTravelling && ['carry', 'forage'].includes(agent.task.kind)))
     const arrival = arriving ? reducedMotion ? 1 : Math.min(1, time / 1.15) : 1
     if (arriving && arrival === 1 && !arrivalReported.current) { arrivalReported.current = true; onArrived(character.id) }
-    body.current.position.y += (1 - arrival) * .75
-    body.current.scale.multiplyScalar(.92 + arrival * .08)
+    if (!factory) { body.current.position.y += (1 - arrival) * .75; body.current.scale.multiplyScalar(.92 + arrival * .08) }
     positions.get(character.id)?.copy(root.current.position).setY(.5)
   })
   const choose = (event: ThreeEvent<MouseEvent>) => { if (event.delta > 4) return; event.stopPropagation(); onSelect(character.id) }
   return <group ref={root} position={[initial.x, .03, initial.z]} rotation={[0, initial.heading, 0]} onClick={choose}>
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .012, 0]}><circleGeometry args={[selected ? .64 : .43, 20]} /><meshBasicMaterial color={selected ? '#FFD166' : '#182B3C'} transparent opacity={selected ? .8 : .13} depthWrite={false} /></mesh>
-    {selected && <mesh position={[0, factory ? 1.3 : 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
-    <group scale={displayScale}><group ref={body}>{factory ? <RobotShape character={character} allowedActions={agent?.allowed_actions} /> : <CharacterShape character={character} />}<group ref={work} scale={factory ? .65 : 1}><WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} /></group></group></group>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .012, 0]}>{factory ? <ringGeometry args={[selected ? .39 : .3, selected ? .42 : .31, 48]} /> : <circleGeometry args={[selected ? .64 : .43, 20]} />}<meshBasicMaterial color={factory ? '#8AB2BC' : selected ? '#FFD166' : '#182B3C'} transparent opacity={factory ? selected ? .85 : 0 : selected ? .8 : .13} depthWrite={false} /></mesh>
+    {selected && !factory && <mesh position={[0, 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
+    <group scale={displayScale}><group ref={body}>{factory ? <RobotShape character={character} allowedActions={agent?.allowed_actions} /> : <CharacterShape character={character} />}<group ref={work}>{factory ? <FactoryWorkProp kind={agent?.task?.kind} /> : <WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} />}</group></group></group>
   </group>
 }
 
@@ -397,13 +405,13 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   const routeTo = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.to, selectedSlot) : null
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
   return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building"}>
-    <color attach="background" args={[factory ? '#CCD4CF' : '#82CDE8']} />
+    <color attach="background" args={[factory ? '#333D44' : '#82CDE8']} />
     <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} positions={positions.current} active={active} reducedMotion={reducedMotion} />
-    <ambientLight intensity={.55} />
-    <fog attach="fog" args={[factory ? '#CCD4CF' : '#9DDDEF', 25, 60]} />
-    <hemisphereLight args={['#FFF9DC', factory ? '#57646B' : '#83AA67', 1.4]} />
-    <directionalLight position={[-5, 10, 7]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-8} shadow-camera-right={8} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-normalBias={.04} />
-    {factory ? <FactoryEnvironment /> : <><Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} /></>}
+    <ambientLight intensity={factory ? .25 : .55} />
+    <fog attach="fog" args={[factory ? '#333D44' : '#9DDDEF', 25, 60]} />
+    <hemisphereLight args={[factory ? '#DBE7EF' : '#FFF9DC', factory ? '#42494D' : '#83AA67', factory ? .75 : 1.4]} />
+    <directionalLight position={[-5, 10, 7]} intensity={factory ? 2.1 : 2.4} color={factory ? '#F5F0E7' : '#FFFFFF'} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-8} shadow-camera-right={8} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-normalBias={.04} />
+    {factory ? <><FactoryLighting /><FactoryEnvironment /></> : <><Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} /></>}
     {simulation?.projects.map(project => <IslandStructure key={project.id} presentation={presentation} project={project} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
     {routeFrom && routeTo && <Line points={[[routeFrom.x, .055, routeFrom.z], [routeTo.x, .055, routeTo.z]]} color="#FFF2AF" lineWidth={2} dashed dashSize={.14} gapSize={.09} />}
     {characters.slice(0, 40).map(character => <Resident key={character.id} presentation={presentation} character={character} agent={agents.get(character.id)} clock={clock} positions={positions.current} slot={slots.get(character.id) ?? { x: 0, z: 0 }} selected={selectedId ===character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}

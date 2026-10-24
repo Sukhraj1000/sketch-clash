@@ -37,7 +37,7 @@ The live islands now show shared supply shortages, productive tasks and the gain
 
 ## Island / Factory appearance
 
-On the **Islands** page, use **Island / Factory** above the 3D scene to switch appearances. The factory shows the same residents as compact robots and the same projects as grow shelves, fabrication benches, communication terminals and service walkways. Approved assemblies retain their tested parts. Select a robot to see its original object, capability-based robot module, abilities, current task and contributions in the existing inspector.
+On the **Islands** page, use **Island / Factory** above the 3D scene to switch appearances. The factory shows the same residents as wheeled industrial robots and the same projects as metal grow racks, fabrication benches, equipment terminals and service walkways. Bevelled surfaces, local room reflections, concrete flooring and muted materials give this view a more realistic workshop appearance; object colours remain as small identification markings. Approved assemblies retain their tested parts. Select a robot to see its original object, capability-based robot module, abilities, current task and contributions in the existing inspector.
 
 The switch is local presentation only: it preserves selection, camera and task motion, adds no model calls or saved world changes, and defaults to Island when the page is reopened. Other pages keep their original appearance. Reduced-motion preferences skip the transition.
 
