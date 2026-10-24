@@ -12,12 +12,13 @@ Resource = Literal['materials', 'water', 'ideas', 'energy']
 Action = Literal['forage', 'carry', 'water', 'plan', 'measure', 'charge', 'signal', 'tend', 'build', 'rest', 'explore']
 SDK_VERSION = 'colony-capabilities-v2'
 MAX_BOARD_QUANTITY = 8
+PUBLIC_TEXT_LIMIT = 600
 
 
 class BoardMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
     kind: Literal['request', 'offer', 'report', 'proposal', 'support', 'objection', 'question', 'reflection']
-    text: str = Field(default='', max_length=240)
+    text: str = Field(default='', max_length=PUBLIC_TEXT_LIMIT, description='Concise public dialogue, at most 600 characters. Preserve actual meaning; no private reasoning.')
     request_id: str | None = Field(default=None, max_length=128)
     resource: Resource | None = None
     quantity: int | None = Field(default=None, ge=1, le=MAX_BOARD_QUANTITY)
@@ -41,7 +42,7 @@ class BoardMessage(BaseModel):
 class AgentDecision(BaseModel):
     model_config = ConfigDict(extra='forbid')
     action: Action | None = None
-    reason: str = Field(default='', max_length=240)
+    reason: str = Field(default='', max_length=PUBLIC_TEXT_LIMIT, description='Brief public reason, at most 600 characters.')
     claim_request_id: str | None = Field(default=None, max_length=128)
     message: BoardMessage | None = None
     experiment: ExperimentSpec | None = None

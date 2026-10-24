@@ -49,6 +49,21 @@ def _validated(model, body, code):
         raise StoreError('The research proposal has unsupported fields or invalid values.', 422, code) from None
 
 
+def _covered_structure_actions(projects, resource):
+    """Reserved or delivered capped benefits must not be sold as new utility."""
+    covered = set()
+    for project in projects:
+        if project.get('kind') != 'assembly' or project.get('status') not in ('planned', 'building', 'complete'):
+            continue
+        benefit = project.get('benefit', {})
+        amount = benefit.get('amount', 0)
+        if (benefit.get('kind') == 'task_yield_bonus' and benefit.get('resource') == resource
+                and isinstance(amount, (int, float)) and not isinstance(amount, bool)
+                and math.isfinite(amount) and amount >= 1):
+            covered.update(benefit.get('eligible_actions', []))
+    return covered
+
+
 class ColonyLearningStore:
     def __init__(self, repo):
         self.repo = repo
@@ -306,6 +321,13 @@ class ColonyLearningStore:
             raise StoreError('A resident must contribute to the construction it proposes.', 422, 'blueprint_actor_missing')
         validated = validate_blueprint(proposal, {row['resident_id']: row for row in dossiers}, experiment)
         state = tx.get('islandState', key_for(scope, 'island-state')) or {}
+        benefit = validated['benefit']
+        actions = set(benefit.get('eligible_actions', []))
+        if (benefit.get('kind') == 'task_yield_bonus' and actions
+                and actions <= _covered_structure_actions(state.get('projects', []), benefit['resource'])):
+            raise StoreError('An existing or planned structure already covers this capped bonus. '
+                             'Choose a construction that adds a missing benefit or test a different capability.',
+                             422, 'duplicate_structure_benefit')
         if len([project for project in state.get('projects', []) if project.get('kind') == 'assembly']) >= 12:
             raise StoreError('This island has room for twelve constructed experiments.', 409, 'assembly_limit')
         position = {'x': proposal.position.x, 'z': proposal.position.z}

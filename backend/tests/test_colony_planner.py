@@ -172,7 +172,7 @@ async def test_invalid_provider_proposal_keeps_bounded_diagnostic_without_fake_r
     repo,colonies,provider,_,worker=fixture
     async def invalid(**kwargs):
         provider.calls.append(kwargs)
-        return SimpleNamespace(output_text=json.dumps({'action':'carry','reason':'x'*241}),
+        return SimpleNamespace(output_text=json.dumps({'action':'carry','reason':'x'*601}),
             model_dump=lambda **kw:{'usage':{'total_tokens':100},'status':'completed'})
     provider.aio.interactions.create=invalid
     run=worker.request('invalid-schema','winners'); await worker.run(run['id'])

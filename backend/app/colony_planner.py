@@ -13,6 +13,8 @@ from .island_planner import IslandPlanner, iso, utc_day
 from .provider_queue import ProviderQueue, ProviderFailure, AI_PAUSE_REASON, require_ai_enabled
 from .repository import StoreError, key_for, public
 from .colony_context import bounded_council_context
+from .colony_response_schema import council_response_schema
+from .colony_opportunities import work_opportunities
 
 log = logging.getLogger('sketch_clash.colony_planner')
 MODEL = 'gemini-4-argon'
@@ -22,7 +24,7 @@ RECOVERABLE_CONFLICTS = {'request_unavailable', 'commitment_busy', 'colony_pause
     'invalid_experiment', 'missing_support', 'experiment_subject_unavailable', 'experiment_actor_missing',
     'finding_not_found', 'invalid_blueprint', 'experiment_not_found', 'blueprint_actor_missing',
     'blueprint_part_unavailable', 'blueprint_evidence_mismatch', 'blueprint_evidence_stale',
-    'blueprint_function_mismatch', 'untested_arrangement', 'assembly_limit',
+    'blueprint_function_mismatch', 'untested_arrangement', 'assembly_limit', 'duplicate_structure_benefit',
     'invalid_construction_position', 'construction_overlap', 'production_benchmark_not_met',
     'capability_denied', 'action_required', 'self_claim', 'request_not_found',
     'invalid_report_evidence', 'invalid_proposal_evidence', 'research_scope_mismatch',
@@ -56,6 +58,18 @@ Read recent_validation_feedback before retrying a rejected design. A rejected pr
 execute a physical experiment and does not establish a finding; revise its invalid parameters.
 If resources or capabilities are missing, discuss a useful feasible alternative instead of waiting
 for the player. Before switching, read current commitments and avoid wasting accepted work.
+Read work_opportunities first. Its options are executor facts, not a chosen strategy. When a
+useful unfinished project is feasible, discuss and explicitly propose/support its supplied project_id
+so the crew can build it. When no useful project exists, use a current production-eligible tested_design
+to propose a blueprint instead of repeating its successful test. Use an offered free site and the
+tested participant order and part arrangement. A blueprint submission uses a question/reflection
+message; its project_id is assigned by the executor and appears in the NEXT speaker's observation.
+That next speaker can propose/support the real new project. Finish this handoff before starting a
+different design. If all existing projects need unavailable energy, consider a tested construction
+whose costs use the available materials and ideas. Never claim it supplies missing energy.
+Bonus coverage is capped: another structure with an already covered benefit adds no operational
+yield. Do not manufacture duplicate buildings or repeat tests just to spend surplus resources.
+When research is needed, test an uncovered useful function supported by current object evidence.
 Read work_options before proposing an action. Its useful_actions fit current storage, reserves and
 the agreed project; allowed_actions only describes your capabilities, not whether that work helps now.
 If a resource is full, stop collecting it and explain the switch. Do not repeat a zero-gain receipt
@@ -71,7 +85,10 @@ supplied request_id and include your capable action. Reports require your actual
 An offer is intention, not completion. Choose only supplied IDs; newly proposed blueprint identifiers
 are assigned by the server. The simulator validates costs, capabilities and measurable outcomes.
 Include a concise public message in this council turn. A reply must actually address the prior
-message when one exists. Keep public reason and message text at most 240 characters each.
+message when one exists. Prefer one or two short sentences; public reason and message text must
+each be at most 600 characters. For experiments, include only that family's context fields, using
+the positive production benchmark values supplied in learning.tools. Do not fill unrelated fields
+with zero. Project proposal/support/objection messages require a real unfinished project_id.
 Return structured AgentDecision; null for unused optional fields. No private reasoning transcript,
 external tools, code, credentials, prices, unrelated islands, invented powers or completion claims.'''
 
@@ -315,6 +332,9 @@ class ColonyPlanner:
             payload['council_session'] = {'id': session['id'], 'trigger': session['trigger'], 'turn_index': run['turn_index'],
                 'max_turns': session['max_turns'], 'participants': session['participants'],
                 'conversation': deepcopy(session['messages']), 'phase': 'proposal' if run['turn_index'] == 0 else 'respond_and_revise'}
+        # Build concise options from the full current evidence before trimming old
+        # history. This does not choose a plan; each resident still decides publicly.
+        payload['work_opportunities'] = work_opportunities(payload)
         learning = payload.get('learning')
         if isinstance(learning, dict):
             own = payload.get('actor', {}).get('character_id')
@@ -600,7 +620,7 @@ class ColonyPlanner:
                     dispatched = True
                     return await asyncio.wait_for(self.client.aio.interactions.create(
                         model=run['model'], store=False, system_instruction=SYSTEM, input=encoded,
-                        response_format={'type':'text','mime_type':'application/json','schema':AgentDecision.model_json_schema()},
+                        response_format={'type':'text','mime_type':'application/json','schema':council_response_schema(payload['actor']['allowed_actions'])},
                         generation_config={'thinking_level':'medium' if run['model'] == self.settings.colony_proposal_model else 'low','max_output_tokens':2048}), 65)
                 response = await self.queue.run(run['model'], invoke, category='council', prepare=refresh_observation)
                 received = True
