@@ -370,6 +370,9 @@ class Repository:
             battle.update({'status': 'completed', 'completed_at': timestamp, 'updated_at': timestamp,
                            'completion': {'resident_ids': resident_ids, 'new_resident_ids': new_ids,
                                           'effects_applied': True, 'durable': self.persistence == 'mongodb'}})
+            # Route the exact accepted fighters atomically without changing legacy residents.
+            from .colonies import route_completed_battle
+            route_completed_battle(tx, battle, self.world_id)
             tx.put('battles', battle)
             return battle
         return public_battle(self.transaction(operation))
