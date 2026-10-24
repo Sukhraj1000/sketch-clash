@@ -1,3 +1,4 @@
+import { characterDisplayScale } from './objectPresentation'
 import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
@@ -9,14 +10,14 @@ import './CharacterPreview.css'
 
 export type RenderReport = {
   status: 'checking' | 'passed' | 'failed' | 'unavailable'
-  schema_version: 'renderer-v2-object-rig'
+  schema_version: 'renderer-v3-rigid-object-rig'
   checks: { finite: boolean; bounds: boolean; visible: boolean; animations: string[] }
   errors: string[]
   bounds?: { width: number; height: number; depth: number }
   captured_at: string
 }
 type Props = { fighter: CharacterVisual; label?: string; scope?: string; compact?: boolean; presentation?: 'standard' | 'hero'; onReport?: (report: RenderReport) => void }
-const initialReport = (): RenderReport => ({ status: 'checking', schema_version: 'renderer-v2-object-rig', checks: { finite: false, bounds: false, visible: false, animations: [] }, errors: [], captured_at: new Date().toISOString() })
+const initialReport = (): RenderReport => ({ status: 'checking', schema_version: 'renderer-v3-rigid-object-rig', checks: { finite: false, bounds: false, visible: false, animations: [] }, errors: [], captured_at: new Date().toISOString() })
 
 class PreviewBoundary extends Component<{ children: ReactNode; onError: () => void }, { failed: boolean }> {
   state = { failed: false }
@@ -106,9 +107,8 @@ function PreviewRig({ fighter, motion, turning, onReport, onCanvas }: { fighter:
     sampledBounds.current.depth = Math.max(sampledBounds.current.depth, size.z)
     if (frames.current < 12) return
     verified.current = true
-    onReport({ status: sampledErrors.current.length ? 'failed' : 'passed', schema_version: 'renderer-v2-object-rig', checks: { ...sampledChecks.current, animations: [...animations.current] }, bounds: sampledBounds.current, errors: sampledErrors.current.slice(0, 10), captured_at: new Date().toISOString() })
+    onReport({ status: sampledErrors.current.length ? 'failed' : 'passed', schema_version: 'renderer-v3-rigid-object-rig', checks: { ...sampledChecks.current, animations: [...animations.current] }, bounds: sampledBounds.current, errors: sampledErrors.current.slice(0, 10), captured_at: new Date().toISOString() })
   })
-  const spec = fighter.visual_spec
   return <>
     <color attach="background" args={['#EEE9DC']} />
     <ambientLight intensity={.7} />
@@ -116,7 +116,7 @@ function PreviewRig({ fighter, motion, turning, onReport, onCanvas }: { fighter:
     <directionalLight position={[-3, 5, 4]} intensity={2.1} castShadow shadow-mapSize={[512, 512]} shadow-camera-left={-3} shadow-camera-right={3} shadow-camera-top={4} shadow-camera-bottom={-2} shadow-normalBias={.025} />
     <mesh position={[0, -.04, 0]} receiveShadow><cylinderGeometry args={[1.55, 1.65, .08, 48]} /><meshStandardMaterial color="#DFD6BF" roughness={.9} /></mesh>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .005, 0]}><ringGeometry args={[1.2, 1.21, 64]} /><meshBasicMaterial color="#B9AD93" /></mesh>
-    <group ref={root} scale={[spec.scale * spec.proportions.width, spec.scale * spec.proportions.height, spec.scale * spec.proportions.width]}><group ref={body}><CharacterShape character={fighter} onAssetState={assetState} /></group></group>
+    <group ref={root} scale={characterDisplayScale(fighter)}><group ref={body}><CharacterShape character={fighter} onAssetState={assetState} /></group></group>
   </>
 }
 

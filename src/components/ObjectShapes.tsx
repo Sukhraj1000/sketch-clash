@@ -31,7 +31,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'ruler') {
     face = { y: 1.13, z: .075, width: .12, size: .85 }
-    rig = { armWidth: .34, armY: .9, footWidth: .18, size: .9 }
+    rig = { armWidth: .28, armY: .9, footWidth: .18, size: .9 }
     body = <>
       <mesh position={[0, .87, 0]} castShadow><boxGeometry args={[.5, 1.43, .12]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.43, .068]}><torusGeometry args={[.065, .015, 5, 10]} /><Paint color={accent} /></mesh>
@@ -40,7 +40,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'phone') {
     face = { y: 1.03, z: .105, width: .14, size: 1 }
-    rig.armWidth = .43
+    rig.armWidth = .39
     body = <>
       <mesh position={[0, .87, 0]} castShadow><boxGeometry args={[.72, 1.35, .16]} /><Paint color={color} /></mesh>
       <mesh position={[0, .91, .089]}><boxGeometry args={[.6, 1.06, .02]} /><Paint color="#273B4B" /></mesh>
@@ -51,7 +51,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'television') {
     face = { y: 1.03, z: .147, width: .17, size: 1.05 }
-    rig = { armWidth: .75, armY: .96, footWidth: .28, size: .95 }
+    rig = { armWidth: .69, armY: .96, footWidth: .28, size: .95 }
     body = <>
       <mesh position={[0, 1.0, 0]} castShadow><boxGeometry args={[1.32, .91, .2]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.035, .111]}><boxGeometry args={[1.16, .71, .025]} /><Paint color={INK} /></mesh>
@@ -64,7 +64,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'microwave') {
     face = { y: .86, z: .399, width: .13, size: .9 }
-    rig = { armWidth: .73, armY: .81, footWidth: .34, size: .95 }
+    rig = { armWidth: .69, armY: .81, footWidth: .34, size: .95 }
     body = <>
       <mesh position={[0, .76, 0]} castShadow><boxGeometry args={[1.31, .92, .74]} /><Paint color={color} /></mesh>
       <mesh position={[-.13, .77, .379]}><boxGeometry args={[.96, .74, .025]} /><Paint color={INK} /></mesh>
@@ -91,7 +91,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'battery') {
     face = { y: 1.0, z: .29, width: .12, size: .95 }
-    rig.armWidth = .36
+    rig.armWidth = .32
     body = <>
       <mesh position={[0, .84, 0]} castShadow><cylinderGeometry args={[.29, .29, 1.25, 12]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.36, 0]}><cylinderGeometry args={[.297, .297, .23, 12]} /><Paint color={accent} /></mesh>
@@ -102,7 +102,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'shoe') {
     face = { y: .59, z: .73, width: .14, size: .9 }
-    rig = { armWidth: .5, armY: .69, footWidth: .25, size: .85 }
+    rig = { armWidth: .43, armY: .69, footWidth: .25, size: .85 }
     body = <>
       <mesh position={[0, .29, .02]} scale={[.9, .2, 1.35]} castShadow><sphereGeometry args={[.52, 10, 7]} /><Paint color={accent} /></mesh>
       <mesh position={[0, .53, .12]} scale={[.82, .56, 1.18]} castShadow><sphereGeometry args={[.51, 10, 7]} /><Paint color={color} /></mesh>
@@ -112,7 +112,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'scissors') {
     face = { y: .87, z: .11, width: .105, size: .8 }
-    rig = { armWidth: .36, armY: .85, footWidth: .2, size: .85 }
+    rig = { armWidth: .12, armY: .85, footWidth: .2, size: .85 }
     body = <>
       {[-1, 1].map(side => <group key={side} name={side < 0 ? 'sc-detail-left' : 'sc-detail-right'} position={[0, .83, 0]} rotation={[0, 0, side * .2]} userData={{ restZ: side * .2, side }}>
         <mesh position={[side * .08, .4, 0]} castShadow><boxGeometry args={[.12, .8, .08]} /><Paint color={METAL} /></mesh>
@@ -122,7 +122,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'spoon') {
     face = { y: 1.34, z: .105, width: .11, size: .85 }
-    rig = { armWidth: .16, armY: .8, footWidth: .12, size: .85 }
+    rig = { armWidth: .12, armY: .8, footWidth: .12, size: .85 }
     body = <>
       <mesh position={[0, .67, 0]} castShadow><capsuleGeometry args={[.075, .94, 3, 8]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.36, 0]} scale={[.74, 1, .25]} castShadow><sphereGeometry args={[.35, 10, 7]} /><Paint color={color} /></mesh>
@@ -130,7 +130,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'keys') {
     face = { y: 1.26, z: .1, width: .1, size: .8 }
-    rig = { armWidth: .2, armY: .86, footWidth: .14, size: .85 }
+    rig = { armWidth: .13, armY: .86, footWidth: .14, size: .85 }
     body = <>
       <mesh position={[0, 1.26, 0]} castShadow><torusGeometry args={[.25, .09, 6, 14]} /><Paint color={color} /></mesh>
       <mesh position={[0, .66, 0]} castShadow><boxGeometry args={[.15, .82, .11]} /><Paint color={color} /></mesh>
@@ -140,7 +140,7 @@ export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: 
     </>
   } else if (kind === 'pitcher') {
     face = { y: .91, z: .37, width: .14, size: 1 }
-    rig = { armWidth: .59, armY: .8, footWidth: .22, size: 1 }
+    rig = { armWidth: .41, armY: .8, footWidth: .22, size: 1 }
     body = <>
       <mesh position={[0, .78, 0]} castShadow><cylinderGeometry args={[.42, .32, 1.08, 10]} /><Paint color={color} /></mesh>
       <mesh position={[0, 1.325, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.33, 10]} /><Paint color="#385B6A" /></mesh>

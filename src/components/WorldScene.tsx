@@ -4,13 +4,14 @@ import { Line, OrbitControls } from '@react-three/drei'
 import { CanvasTexture, Group, Mesh, OrthographicCamera, Shape, SRGBColorSpace, Texture, TextureLoader, Vector3 } from 'three'
 import type { MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { computeTaskPose, safeIslandPoint } from '../lib/island'
+import { safeIslandPoint } from '../lib/island'
 import type { IslandAgent, IslandSimulation, IslandTaskKind } from '../lib/island'
 import IslandStructure from './IslandStructures'
 import ObjectShapes from './ObjectShapes'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
 import { objectSilhouette } from './objectIdentity'
 import { objectPose } from './objectMotion'
+import { characterDisplayScale, displayIslandPoint, residentDisplayPose, residentDisplaySlots } from './objectPresentation'
 import type { ObjectActivity, ObjectWork } from './objectMotion'
 import type { Object3D } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
@@ -73,14 +74,14 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
       <mesh position={[0, 1.154, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.37, 12]} /><Material color="#6D5142" /></mesh>
       <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.427, .055, 5, 12]} /><Material color={accent} /></mesh>
       <mesh position={[.52, .7, 0]} rotation={[0, Math.PI / 2, 0]} castShadow><torusGeometry args={[.285, .085, 6, 12]} /><Material color={color} /></mesh>
-      {eyes && <Face y={.82} z={.44} />}{arms && <Arms color={accent} width={.62} />}
+      {eyes && <Face y={.82} z={.44} />}{arms && <Arms color={accent} width={.49} />}
     </group> : template === 'bottle' ? <group>
       <mesh position={[0, .76, 0]} castShadow><cylinderGeometry args={[.32, .36, 1.13, 10]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.38, 0]} castShadow><cylinderGeometry args={[.16, .32, .22, 10]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.58, 0]} castShadow><cylinderGeometry args={[.16, .16, .24, 10]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.74, 0]} castShadow><cylinderGeometry args={[.195, .195, .12, 10]} /><Material color={accent} /></mesh>
       <mesh position={[0, .65, 0]}><cylinderGeometry args={[.327, .348, .35, 10]} /><Material color={accent} /></mesh>
-      {eyes && <Face y={1.03} z={.31} width={.12} />}{arms && <Arms color={accent} width={.43} />}
+      {eyes && <Face y={1.03} z={.31} width={.12} />}{arms && <Arms color={accent} width={.36} />}
     </group> : template === 'plant' ? <group>
       <mesh position={[0, .54, 0]} castShadow><cylinderGeometry args={[.45, .3, .7, 8]} /><Material color={color} /></mesh>
       <mesh position={[0, .91, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.4, 8]} /><Material color="#5D4636" /></mesh>
@@ -92,7 +93,7 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
       <mesh position={[.045, .84, .015]}><boxGeometry args={[.78, 1.13, .435]} /><Material color={PAPER} /></mesh>
       <mesh position={[0, .84, .25]} castShadow><boxGeometry args={[.94, 1.27, .07]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.18, .291]}><boxGeometry args={[.53, .06, .015]} /><Material color={accent} /></mesh>
-      {eyes && <Face y={.93} z={.31} />}{arms && <Arms color={accent} width={.55} />}
+      {eyes && <Face y={.93} z={.31} />}{arms && <Arms color={accent} width={.49} />}
     </group> : template === 'ball' ? <group>
       <mesh position={[0, .76, 0]} castShadow><icosahedronGeometry args={[.62, 1]} /><Material color={color} /></mesh>
       <mesh position={[0, .76, 0]} rotation={[.3, 0, .3]}><torusGeometry args={[.605, .035, 4, 14]} /><Material color={accent} /></mesh>
@@ -100,7 +101,7 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
     </group> : <group>
       <mesh position={[0, .83, 0]} castShadow><boxGeometry args={[.93, 1.3, .6]} /><Material color={color} /></mesh>
       <PhotoBadge image={character.image_ref} onAssetState={onAssetState} />
-      {eyes && <Face y={1.29} z={.31} />}{arms && <Arms color={accent} width={.58} />}
+      {eyes && <Face y={1.29} z={.31} />}{arms && <Arms color={accent} width={.50} />}
     </group>}
   </group>
 }
@@ -161,7 +162,7 @@ function WorkProp({ kind, active, reducedMotion }: { kind?: IslandTaskKind; acti
   return <group ref={effect} position={[0, .5, .48]}><mesh castShadow><boxGeometry args={[.53, .4, .35]} /><Material color="#D3A16A" /></mesh>{[-.17, .17].map(x => <mesh key={x} position={[x, 0, .184]}><boxGeometry args={[.05, .41, .03]} /><Material color="#745236" /></mesh>)}<mesh position={[0, 0, .184]}><boxGeometry args={[.54, .045, .03]} /><Material color="#745236" /></mesh></group>
 }
 
-function Resident({ character, agent, clock, positions, selected, onSelect, active, reducedMotion, arriving, onArrived }: { character: WorldCharacter; agent?: IslandAgent; clock: WorldClock; positions: Map<string, Vector3>; selected: boolean; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arriving: boolean; onArrived: (id: string) => void }) {
+function Resident({ character, agent, clock, positions, slot, selected, onSelect, active, reducedMotion, arriving, onArrived }: { character: WorldCharacter; agent?: IslandAgent; clock: WorldClock; positions: Map<string, Vector3>; slot: { x: number; z: number }; selected: boolean; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arriving: boolean; onArrived: (id: string) => void }) {
   const root = useRef<Group>(null)
   const body = useRef<Group>(null)
   const work = useRef<Group>(null)
@@ -170,11 +171,10 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
   const spec = character.visual_spec
   const seed = Number.isFinite(spec.appearance_seed) ? spec.appearance_seed : 0
   const phase = seedValue(seed) * Math.PI * 2
+  const displaySlot = useRef({ ...slot })
   const home = safeIslandPoint({ x: character.home_position.x, z: character.home_position.z })
-  const initial = agent ? computeTaskPose(agent.task, agent.position, worldTime(clock)) : { ...home, heading: .2 }
-  const scale = clamp(spec.scale, .7, 1.4) * .7
-  const width = clamp(spec.proportions.width, .7, 1.4)
-  const height = clamp(spec.proportions.height, .7, 1.4)
+  const initial = agent ? residentDisplayPose(agent.task, agent.position, worldTime(clock), slot) : { ...displayIslandPoint(home, slot), heading: .6 }
+  const displayScale = characterDisplayScale(character, .7)
   useEffect(() => { positions.set(character.id, new Vector3(initial.x, .5, initial.z)); return () => { positions.delete(character.id) } }, [character.id, positions])
   useFrame((_, delta) => {
     if (!root.current || !body.current || !active) return
@@ -184,17 +184,21 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
     let working = false
     let taskVisible = false
     let taskTravelling = false
-    let heading = .2
+    let heading = .6
+    const settle = reducedMotion ? 1 : Math.min(1, delta * 2)
+    displaySlot.current.x += (slot.x - displaySlot.current.x) * settle
+    displaySlot.current.z += (slot.z - displaySlot.current.z) * settle
     if (agent) {
-      const pose = computeTaskPose(agent.task, agent.position, worldTime(clock))
+      const pose = residentDisplayPose(agent.task, agent.position, worldTime(clock), displaySlot.current)
       root.current.position.set(pose.x, .03, pose.z)
       moving = pose.travelling && !clock.paused
       working = pose.working
       taskTravelling = pose.travelling
       taskVisible = pose.progress > 0 && pose.progress < 1
-      heading = pose.heading
+      heading = agent.task?.kind === 'rest' && !pose.travelling ? .6 : pose.heading
     } else {
-      root.current.position.set(home.x + (moving && !reducedMotion ? Math.sin(time * .22 + phase) * .3 : 0), .03, home.z + (moving && !reducedMotion ? Math.cos(time * .19 + phase) * .3 : 0))
+      const place = displayIslandPoint(home, displaySlot.current)
+      root.current.position.set(place.x + (moving && !reducedMotion ? Math.sin(time * .22 + phase) * .3 : 0), .03, place.z + (moving && !reducedMotion ? Math.cos(time * .19 + phase) * .3 : 0))
       heading = moving ? Math.atan2(Math.cos(time * .22 + phase) * .22, -Math.sin(time * .19 + phase) * .19) : .2
     }
     const angleDelta = Math.atan2(Math.sin(heading - root.current.rotation.y), Math.cos(heading - root.current.rotation.y))
@@ -202,7 +206,7 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
     const taskKind = agent?.task?.kind
     const gesture = working || (taskTravelling && (taskKind === 'carry' || taskKind === 'forage')) ? taskKind : undefined
     animateCharacterBody(body.current, spec.animation_style, moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
-    if (work.current) work.current.visible = !!agent?.task && taskVisible && agent.task.kind !== 'rest'
+    if (work.current) work.current.visible = !!agent?.task && taskVisible && (working || (taskTravelling && ['carry', 'forage'].includes(agent.task.kind)))
     const arrival = arriving ? reducedMotion ? 1 : Math.min(1, time / 1.15) : 1
     if (arriving && arrival === 1 && !arrivalReported.current) { arrivalReported.current = true; onArrived(character.id) }
     body.current.position.y += (1 - arrival) * .75
@@ -212,8 +216,8 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
   const choose = (event: ThreeEvent<MouseEvent>) => { if (event.delta > 4) return; event.stopPropagation(); onSelect(character.id) }
   return <group ref={root} position={[initial.x, .03, initial.z]} rotation={[0, initial.heading, 0]} onClick={choose}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .012, 0]}><circleGeometry args={[selected ? .64 : .43, 20]} /><meshBasicMaterial color={selected ? '#FFD166' : '#182B3C'} transparent opacity={selected ? .8 : .13} depthWrite={false} /></mesh>
-    {selected && <mesh position={[0, 2 * scale * height, 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
-    <group scale={[scale * width, scale * height, scale * width]}><group ref={body}><CharacterShape character={character} /><group ref={work}><WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} /></group></group></group>
+    {selected && <mesh position={[0, 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
+    <group scale={displayScale}><group ref={body}><CharacterShape character={character} /><group ref={work}><WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} /></group></group></group>
   </group>
 }
 
@@ -375,6 +379,7 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, pos
 
 export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, followSelected = false }: SceneProps) {
   const positions = useRef(new Map<string, Vector3>())
+  const slots = useMemo(() => residentDisplaySlots(characters.slice(0, 40).map(character => character.id)), [characters])
   const agents = useMemo(() => new Map((simulation?.agents ?? []).map(agent => [agent.character_id, agent])), [simulation?.agents])
   const clock = useMemo<WorldClock>(() => {
     const paused = simulation?.paused ?? false
@@ -382,6 +387,9 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
     return { serverMs: Number.isFinite(timestamp) ? timestamp : Date.now(), receivedAt: performance.now(), paused }
   }, [simulation?.server_time, simulation?.paused, simulation?.paused_at])
   const selectedAgent = selectedId ? agents.get(selectedId) : undefined
+  const selectedSlot = selectedId ? slots.get(selectedId) ?? { x: 0, z: 0 } : { x: 0, z: 0 }
+  const routeFrom = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.from, selectedSlot) : null
+  const routeTo = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.to, selectedSlot) : null
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
   return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved island residents and projects. Use the collection and project controls for accessible details.</span>} aria-label="Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building">
     <color attach="background" args={['#82CDE8']} />
@@ -392,7 +400,7 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
     <directionalLight position={[-5, 10, 7]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-8} shadow-camera-right={8} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-normalBias={.04} />
     <Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} />
     {simulation?.projects.map(project => <IslandStructure key={project.id} project={project} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
-    {selectedAgent?.task && <Line points={[[selectedAgent.task.from.x, .055, selectedAgent.task.from.z], [selectedAgent.task.to.x, .055, selectedAgent.task.to.z]]} color="#FFF2AF" lineWidth={2} dashed dashSize={.14} gapSize={.09} />}
-    {characters.slice(0, 40).map(character => <Resident key={character.id} character={character} agent={agents.get(character.id)} clock={clock} positions={positions.current} selected={selectedId === character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}
+    {routeFrom && routeTo && <Line points={[[routeFrom.x, .055, routeFrom.z], [routeTo.x, .055, routeTo.z]]} color="#FFF2AF" lineWidth={2} dashed dashSize={.14} gapSize={.09} />}
+    {characters.slice(0, 40).map(character => <Resident key={character.id} character={character} agent={agents.get(character.id)} clock={clock} positions={positions.current} slot={slots.get(character.id) ?? { x: 0, z: 0 }} selected={selectedId ===character.id} onSelect={onSelect} active={active} reducedMotion={reducedMotion} arriving={arrivalIds.includes(character.id)} onArrived={onArrived} />)}
   </Canvas>
 }

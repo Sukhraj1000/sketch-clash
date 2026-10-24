@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { computeTaskPose, safeIslandPoint } from '../src/lib/island.ts';
 import { objectSilhouette } from '../src/components/objectIdentity.ts';
 import { objectPose } from '../src/components/objectMotion.ts';
+import { characterDisplayScale, displayIslandPoint, residentDisplayPose, residentDisplaySlots } from '../src/components/objectPresentation.ts';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { transformSync } from 'rolldown/utils';
+import * as THREE from 'three';
 
 const start = Date.parse('2026-10-24T10:00:00Z');
 const task = { id: 'fixture-task', kind: 'build', title: 'Build the garden', started_at: new Date(start).toISOString(), ends_at: new Date(start + 16000).toISOString(), duration_seconds: 16, from: { x: -3.25, z: 1.2 }, to: { x: -2.1, z: -.7 }, gain: {}, progress_gain: 1 };
@@ -59,6 +65,7 @@ for (const style of ['calm','bouncy','wobbly']) for (const activity of ['idle','
     assert.ok(Object.values(pose).every(Number.isFinite),'Every body and limb transform remains finite');
     assert.ok(Math.abs(pose.y)<.15 && Math.abs(pose.roll)<.15 && Math.abs(pose.pitch)<.3,'Body movement stays bounded');
     assert.ok(pose.scaleY>.9 && pose.scaleY<=1.02 && pose.blink>=.08 && pose.blink<=1,'Characters and eyes never invert or disappear');
+    assert.equal(pose.scaleY,1,'Rigid objects never squash or stretch during any task');
     assert.ok(Math.abs(pose.leftArmZ)<=2.2 && Math.abs(pose.rightArmZ)<=2.2,'Arm gestures stay inside the supported rig');
     poses++;
   }
@@ -67,3 +74,81 @@ for (const style of ['calm','bouncy','wobbly']) for (const activity of ['idle','
 assert.deepEqual(objectPose('calm','idle',NaN,Infinity),objectPose('calm','idle',0,0),'Invalid clocks cannot poison scene transforms');
 assert.notDeepEqual(objectPose('calm','idle',1,0,false,'plan'),objectPose('calm','idle',1,0,false,'measure'),'Different jobs produce distinct gestures');
 console.log(`Object presentation checks passed: supported and conservative identity mapping; ${poses} finite bounded limb/blink/work poses; motion-disabled stability.`);
+
+for (const [identity,width,height] of [['tv',1.3,.9],['ruler',1.3,.8],['pencil',.75,1.3],['pitcher',.95,1.2],['microwave',1.3,.9],['mug',1,1.1],['bottle',1,1.25]]) {
+  const character = {object_type:identity,canonical_type_id:identity,visual_spec:{template_id:identity==='mug'||identity==='bottle'?identity:'generic',scale:1.1,proportions:{width,height}}};
+  const saved = structuredClone(character);
+  const scale = characterDisplayScale(character,.7);
+  assert.equal(scale[0],scale[1],`${identity} preserves the modeled width/height ratio instead of double-stretching legacy proportions`);
+  assert.equal(scale[1],scale[2],`${identity} preserves round eyes and circular handles`);
+  assert.deepEqual(character,saved,'Presentation correction never rewrites the saved visual spec');
+}
+assert.deepEqual(characterDisplayScale({visual_spec:{template_id:'generic',scale:1,proportions:{width:.8,height:1.2}}}),[.8,1.2,.8],'Unknown photo badges retain their accepted aspect');
+const crew = ['tv','pitcher','ruler','mug'];
+const slots = residentDisplaySlots(crew);
+assert.deepEqual(slots,residentDisplaySlots([...crew].reverse()),'Presentation slots do not depend on API row order');
+const rest = {x:-.7,z:1.1};
+const spots = crew.map(id=>displayIslandPoint(rest,slots.get(id)));
+for(let i=0;i<spots.length;i++) for(let j=i+1;j<spots.length;j++) assert.ok(Math.hypot(spots[i].x-spots[j].x,spots[i].z-spots[j].z)>1.1,'Four residents sharing the actual rest point remain separately readable');
+for(const slot of slots.values()) {
+  assert.ok(Math.hypot(slot.x,slot.z)<1.7,'Four-resident visual separation stays near the authoritative station');
+  const arriving = {...task,to:rest};
+  const departing = {...task,from:rest,to:{x:3.65,z:.55},started_at:task.ends_at,ends_at:new Date(start+32000).toISOString()};
+  const end = residentDisplayPose(arriving,task.from,start+16000,slot);
+  const begin = residentDisplayPose(departing,rest,start+16000,slot);
+  assert.ok(Math.hypot(end.x-begin.x,end.z-begin.z)<1e-10,'Display offsets are continuous across actual task boundaries');
+  let last = residentDisplayPose(arriving,task.from,start,slot);
+  for(let elapsed=25;elapsed<=16000;elapsed+=25){const next=residentDisplayPose(arriving,task.from,start+elapsed,slot);assert.ok(Math.hypot(next.x-last.x,next.z-last.z)<.05,'Presentation follows a continuous journey');last=next;}
+}
+assert.deepEqual(task,before,'Presentation routes do not mutate server tasks');
+console.log('Rigid-body and separation regression checks passed: actual live identity proportions, distinct shared-rest slots, task-boundary continuity and saved-state preservation.');
+
+// Inspect the actual JSX geometry, not a second hand-written list of expected
+// dimensions. Pure shape/rig components need no browser, GPU or paid API.
+const require = createRequire(import.meta.url);
+const jsxRuntime = pathToFileURL(require.resolve('react/jsx-runtime')).href;
+const componentModule = (filename, replacements={}) => {
+  const compiled = transformSync(filename,readFileSync(new URL(filename,import.meta.url),'utf8'),{lang:'tsx',sourceType:'module',jsx:{runtime:'automatic'}});
+  assert.equal(compiled.errors.length,0,'Actual shape components compile for geometry inspection');
+  let source = compiled.code;
+  source = source.replaceAll('"react/jsx-runtime"',JSON.stringify(jsxRuntime));
+  for(const [from,to] of Object.entries(replacements)) source = source.replaceAll(JSON.stringify(from),JSON.stringify(to)).replaceAll(`'${from}'`,JSON.stringify(to));
+  return 'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
+};
+const rigUrl = componentModule('../src/components/ObjectRig.tsx');
+const {default: Shapes} = await import(componentModule('../src/components/ObjectShapes.tsx',{'./ObjectRig':rigUrl}));
+function geometryBounds(node,parent=new THREE.Matrix4(),named=new Map()) {
+  if(node==null || typeof node==='boolean') return new THREE.Box3();
+  if(Array.isArray(node)) return node.reduce((box,child)=>box.union(geometryBounds(child,parent,named)),new THREE.Box3());
+  if(typeof node.type==='function') return geometryBounds(node.type(node.props),parent,named);
+  const props=node.props??{};
+  if(typeof node.type==='string' && node.type.endsWith('Geometry')) {
+    const Constructor=THREE[node.type[0].toUpperCase()+node.type.slice(1)];
+    const geometry=new Constructor(...(props.args??[]));geometry.computeBoundingBox();
+    const box=geometry.boundingBox.clone().applyMatrix4(parent);geometry.dispose();return box;
+  }
+  const transform=new THREE.Object3D();
+  if(props.position) transform.position.fromArray(props.position);
+  if(props.rotation) transform.rotation.fromArray(props.rotation);
+  if(typeof props.scale==='number') transform.scale.setScalar(props.scale);
+  else if(props.scale) transform.scale.fromArray(props.scale);
+  transform.updateMatrix();
+  const matrix=parent.clone().multiply(transform.matrix);
+  const box=geometryBounds(props.children,matrix,named);
+  if(props.name) named.set(props.name,box.clone());
+  return box;
+}
+const dimensions={};
+for(const kind of ['pencil','ruler','television','microwave','pitcher','phone','battery']) {
+  const named=new Map();
+  const box=geometryBounds(Shapes({kind,color:'#6699BB',accent:'#FFD166',feet:true,eyes:true,arms:true}),undefined,named);
+  const size=box.getSize(new THREE.Vector3());dimensions[kind]=size;
+  assert.ok(box.min.y>=-.01 && box.min.y<.03,`${kind} actual feet are grounded, not suspended below the body`);
+  assert.ok(size.y>1 && size.y<2 && size.x<1.8,`${kind} actual rig stays within recognizable body proportions`);
+  for(const foot of ['sc-foot-left','sc-foot-right']) assert.ok(named.get(foot).max.y>.25,`${kind} has actual ankle geometry connecting its feet to the body`);
+}
+assert.ok(dimensions.pencil.y/dimensions.pencil.x>2.3,'The actual pencil silhouette stays tall and narrow');
+assert.ok(dimensions.ruler.y/dimensions.ruler.x>1.8,'The actual ruler silhouette stays a long straight edge');
+assert.ok(dimensions.television.x/dimensions.television.y>1,'The actual TV remains a landscape display');
+assert.ok(dimensions.microwave.x/dimensions.microwave.y>1.15,'The actual microwave remains a wide appliance');
+console.log('Actual JSX geometry checks passed: grounded feet/ankles and recognizable pencil, ruler, TV, microwave, pitcher, phone and battery dimensions.');
