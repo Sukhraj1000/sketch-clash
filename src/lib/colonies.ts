@@ -58,11 +58,25 @@ export type ColonyRun = {
   created_at: string; completed_at?: string; decision?: Record<string, unknown> | null
   usage?: Record<string, unknown> | null; receipt?: Record<string, unknown> | null; error?: string
 }
+export type GeminiQueueStatus = {
+  paused?: boolean; active?: number; waiting?: number; completed?: number; throttled?: number
+  local_limits?: {
+    requests_per_minute?: number; requests_per_day?: number; max_pending?: number
+    min_dispatch_interval_seconds?: number; concurrency?: number
+  }
+  local_usage?: {
+    requests_last_minute?: number; requests_last_24_hours?: number
+    requests_remaining_minute?: number; requests_remaining_day?: number
+  }
+  wait_reason?: string | null; dispatch_wait_seconds?: number
+  counter_scope?: string; last_local_error?: { message?: string; category?: string } | null
+}
 export type ColonyPlanner = {
   enabled: boolean; configured: boolean; model?: string; requests_today: number; max_requests_per_day: number | null
   paused?: boolean; pause_reason?: string | null
   remaining_requests?: number; last_status?: string; next_turn_at?: string; active_run?: ColonyRun | null
   runs?: ColonyRun[]; error?: string; active_session_id?: string | null
+  provider_queue?: GeminiQueueStatus
 }
 export type ColoniesSnapshot = {
   enabled: boolean; server_time: string; persistence: 'mongodb' | 'development_memory'; colonies: Colony[]

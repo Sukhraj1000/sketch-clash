@@ -11,6 +11,15 @@ const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-
 const short = (value?: string | null) => value ? `${value.slice(0, 8)}…` : '—'
 const iconFor = (event: AgentEvent) => ({model: Sparkles, learning: FlaskConical, discussion: MessageSquare, work: CheckCheck}[eventCategory(event)])
 const displayValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+const count = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
+const guardWaitLabels: Record<string, string> = {
+  ai_paused: 'Gemini activity paused',
+  local_dispatch_spacing: 'Spacing requests',
+  local_minute_cap: 'Local minute limit reached',
+  local_daily_cap: 'Local 24-hour limit reached',
+  local_concurrency: 'Waiting for the active request',
+  provider_cooldown: 'Honouring a provider cooldown',
+}
 
 export default function Observatory({ onBack, aiPaused=false }: { onBack?: () => void; aiPaused?: boolean }) {
   const [events, setEvents] = useState<AgentEvent[]>([])
@@ -175,6 +184,12 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   const current = active && (island === 'all' || active.island_id === island) && (session === 'all' || active.session_id === session) && (category === 'all' || eventCategory(active) === category) ? active : null
   const reasoningPaused = aiPaused || Boolean(snapshot?.planner?.paused)
   const reasoningIssue = snapshot?.planner?.error
+  const providerQueue = snapshot?.planner?.provider_queue
+  const localLimits = providerQueue?.local_limits
+  const localUsage = providerQueue?.local_usage
+  const guardPaused = reasoningPaused || providerQueue?.paused
+  const guardWait = providerQueue?.wait_reason
+  const guardStatus = guardPaused ? 'Gemini activity paused' : guardWait ? (guardWaitLabels[guardWait] || 'Waiting before dispatch') : 'Ready within local limits'
   const totalTokens = metrics?.totals.total_tokens || (metrics?.totals.input_tokens || 0) + (metrics?.totals.output_tokens || 0)
   const modelRequests = Object.entries(metrics?.event_counts || {}).filter(([key]) => /model.requested/.test(key)).reduce((sum, [, count]) => sum + count, 0)
   const experiments = Object.entries(metrics?.event_counts || {}).filter(([key]) => /experiment.completed/.test(key)).reduce((sum, [, count]) => sum + count, 0)
@@ -203,7 +218,19 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
     </section>
     {error && <div className="obs-notice" role="status"><WifiOff size={15}/><span>{error}</span><button onClick={() => setRetry(value => value + 1)}><RefreshCw size={13}/> Reconnect</button></div>}
 
-    {reasoningIssue && !reasoningPaused && <div className="obs-notice obs-model-notice" role="status"><Sparkles size={15}/><span><strong>Gemini needs attention.</strong> {reasoningIssue}</span><button onClick={() => setCategory('model')}>Inspect model events <ArrowRight size={13}/></button></div>}
+    {reasoningIssue && !reasoningPaused && <div className="obs-notice obs-model-notice" role="status"><Sparkles size={15}/><span><strong>Last recorded provider issue.</strong> {reasoningIssue}</span><button onClick={() => setCategory('model')}>Inspect model events <ArrowRight size={13}/></button></div>}
+
+    {localLimits && <section className="obs-guardrails" aria-label="Current local Gemini safeguards">
+      <header><span><ShieldCheck size={14}/> GEMINI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
+      <dl>
+        <div><dt>REQUEST PACE</dt><dd>{count(localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} dispatched in the last minute · at least {count(localLimits.min_dispatch_interval_seconds)}s apart</small></div>
+        <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
+        <div><dt>SHARED QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.active)} active · {count(providerQueue?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
+      </dl>
+      <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
+      <p className="obs-guard-note">These are application safety limits, not Google quotas. Usage counters reset when the backend restarts.</p>
+      {providerQueue?.last_local_error?.message && <p className="obs-guard-note"><b>Last local limit event:</b> {providerQueue.last_local_error.message}</p>}
+    </section>}
 
     <section className="obs-reading-guide" aria-label="What the activity means">
       <div><span>01</span><p><b>THE PLAN</b><small>{reasoningPaused?'Gemini paused. Existing discussions remain readable.':'Resident messages are proposals, not completed work.'}</small></p></div>
@@ -215,7 +242,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
       <div className="obs-machine-top"><span><Activity size={12}/> {mode === 'replay' ? 'RECORDED PLAYBACK' : 'THE LIVING SYSTEM'}</span><span>{current ? time(current.created_at) : 'Waiting for the next committed event'}</span></div>
       <div className="obs-system-grid" aria-hidden="true"/>
       <svg className="obs-wires" viewBox="0 0 1100 440" preserveAspectRatio="none" aria-hidden="true"><path d="M210 210 C340 210 350 260 475 260 M890 210 C760 210 750 260 625 260"/><path d="M550 85 L550 200 M550 310 L550 380"/></svg>
-      <div className={`obs-model-node ${(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-active' : ''}`}><Sparkles size={18}/><div><b>GEMINI</b><span>{mode === 'live' && reasoningPaused ? 'Paused · local work continues' : mode === 'live' && pendingActors.length ? `${pendingActors.length} model ${pendingActors.length === 1 ? 'turn' : 'turns'} queued / processing` : current && eventCategory(current) === 'model' ? eventLabel(current.kind) : reasoningIssue ? 'Reasoning paused · see diagnostic' : 'Proposes · discusses · reflects'}</span></div><i className={(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-on' : ''}/></div>
+      <div className={`obs-model-node ${(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-active' : ''}`}><Sparkles size={18}/><div><b>GEMINI</b><span>{mode === 'live' && reasoningPaused ? 'Paused · local work continues' : mode === 'live' && pendingActors.length ? `${pendingActors.length} model ${pendingActors.length === 1 ? 'turn' : 'turns'} queued / processing` : current && eventCategory(current) === 'model' ? eventLabel(current.kind) : reasoningIssue ? 'Last provider issue recorded' : 'Proposes · discusses · reflects'}</span></div><i className={(!reasoningPaused || mode === 'replay') && ((current && eventCategory(current) === 'model') || (mode === 'live' && pendingActors.length)) ? 'is-on' : ''}/></div>
       <div className="obs-islands">
         {(['winners', 'losers'] as const).map(side => {
           const colony = snapshot?.colonies.find(item => item.id === side)
