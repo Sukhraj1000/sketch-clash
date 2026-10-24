@@ -1,0 +1,35 @@
+# Full stack in Docker: http://127.0.0.1:8080
+#   docker compose up --build -d      (npm run docker:up)
+# Ports bind to 127.0.0.1 only. Secrets are read from .env.local at run time.
+name: sketch-clash
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    env_file:
+      - path: .env.local
+        required: false
+    environment:
+      FRONTEND_ORIGIN: http://127.0.0.1:8080
+      # Trust X-Forwarded-For from the nginx container so operator rate limits see the real client.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      # Operator token and runtime caches survive rebuilds.
+      - api-data:/app/backend/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+volumes:
+  api-data:

@@ -34,7 +34,12 @@
     "check:combat-balance": ".venv/bin/python backend/scripts/check_combat_balance.py",
     "test:polish": "node scripts/verify-board-presentation.mjs && node scripts/verify-capture-recovery.mjs && node scripts/verify-review-loading.mjs && node scripts/verify-independent-polling.mjs && node scripts/verify-colony-activity.mjs && node scripts/verify-colony-conversation.mjs && node scripts/verify-observatory-feed.mjs && node scripts/verify-capture-progress.mjs && node scripts/verify-observatory-pacing.mjs",
     "setup:ebay": "node scripts/setup-ebay.mjs",
-    "test:round-themes": "node scripts/verify-round-themes.mjs"
+    "test:round-themes": "node scripts/verify-round-themes.mjs",
+    "docker:up": "docker compose up --build -d",
+    "docker:demo": "docker compose -f compose.yaml -f compose.demo.yaml up --build -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:operator-token": "docker compose exec api cat backend/data/operator-token"
   },
   "dependencies": {
     "@fontsource/bangers": "latest",

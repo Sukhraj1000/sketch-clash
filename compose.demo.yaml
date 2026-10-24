@@ -1,0 +1,6 @@
+# Same as npm run dev:demo: temporary in-memory records, no MongoDB writes.
+#   docker compose -f compose.yaml -f compose.demo.yaml up --build -d   (npm run docker:demo)
+services:
+  api:
+    environment:
+      SKETCH_REPOSITORY: memory
