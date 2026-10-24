@@ -1,6 +1,7 @@
 export type HitKind = 'swipe' | 'heavy' | 'finisher';
-export type BattleEvent = { id: string; at: number; attacker: 0 | 1; damage: number; kind: HitKind; word: string };
-export type BattlePlayback = { events: readonly BattleEvent[]; duration_ms: number; winner_slot: 0 | 1 };
+export type BattleEvent = { id: string; at: number; attacker: 0 | 1; damage: number; kind: HitKind; word: string; explanation?: string };
+export type BattleOutcome = 'knockout' | 'points' | 'tiebreak';
+export type BattlePlayback = { events: readonly BattleEvent[]; duration_ms: number; winner_slot: 0 | 1; outcome?: BattleOutcome; source_label?: string };
 export const BATTLE_DURATION = 12800;
 export const BATTLE_EVENTS: readonly BattleEvent[] = [
   { id: 'first-strike', at: 2300, attacker: 0, damage: 18, kind: 'swipe', word: 'SWISH!' },
@@ -32,7 +33,7 @@ export function getHitFlash(elapsed: number, side: 0 | 1, reducedMotion = false,
 export type FighterPose = { x: number; y: number; rotate: number; scaleX: number; scaleY: number; opacity: number };
 
 /** Positions are normalised to arena width; hit-stop is authored into the timeline. */
-export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = false, events: readonly BattleEvent[] = BATTLE_EVENTS, winnerSlot: 0 | 1 = 0): FighterPose {
+export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = false, events: readonly BattleEvent[] = BATTLE_EVENTS, winnerSlot: 0 | 1 = 0, outcome: BattleOutcome = 'knockout'): FighterPose {
   const dir = side === 0 ? 1 : -1;
   const pose: FighterPose = {
     x: 0, y: reducedMotion ? 0 : Math.sin(elapsed / 190 + side) * 4,
@@ -42,14 +43,14 @@ export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = fal
   const finalTime = events[events.length - 1]?.at ?? BATTLE_DURATION;
   if (elapsed > finalTime + 160) {
     const progress = clamp((elapsed - finalTime - 160) / 850);
-    if (side !== winnerSlot) {
+    if (side !== winnerSlot && outcome === 'knockout') {
       pose.x = reducedMotion ? 0 : -dir * 0.1 * easeOut(progress);
       pose.y = reducedMotion ? 0 : 60 * easeOut(progress);
       pose.rotate = reducedMotion ? 0 : -dir * 105 * easeOut(progress);
       pose.scaleX = 1 - progress * .66;
       pose.scaleY = 1 - progress * .78;
       pose.opacity = 1 - progress * .3;
-    } else if (!reducedMotion) {
+    } else if (side === winnerSlot && !reducedMotion) {
       const jump = Math.max(0, Math.sin((elapsed - finalTime - 350) / 210));
       pose.y = -jump * 55;
       pose.rotate = Math.sin((elapsed - finalTime) / 260) * 5;

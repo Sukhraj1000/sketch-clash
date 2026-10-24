@@ -1,25 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useTransform, type MotionValue } from 'motion/react';
 import type { Fighter } from '../types';
-import { BATTLE_DURATION, BATTLE_EVENTS, getCameraOffset, getFighterPose, getHealth, getHitFlash, getImpact, type BattleEvent, type BattlePlayback } from '../game/battle';
+import { BATTLE_DURATION, BATTLE_EVENTS, getCameraOffset, getFighterPose, getHealth, getHitFlash, getImpact, type BattleEvent, type BattlePlayback, type BattleOutcome } from '../game/battle';
 import { useTimeline } from '../game/director';
 import './BattleArena.css';
 
 type Props = { fighters: [Fighter, Fighter]; onComplete: () => void; playback?: BattlePlayback };
 
-function FighterSprite({ fighter, elapsed, width, reduced, events, winnerSlot }: { fighter: Fighter; elapsed: MotionValue<number>; width: number; reduced: boolean; events: readonly BattleEvent[]; winnerSlot: 0 | 1 }) {
-  const x = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).x * width);
-  const y = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).y);
-  const rotate = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).rotate);
-  const scaleX = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).scaleX);
-  const scaleY = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).scaleY);
-  const opacity = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot).opacity);
+function FighterSprite({ fighter, elapsed, width, reduced, events, winnerSlot, outcome, fixture }: { fighter: Fighter; elapsed: MotionValue<number>; width: number; reduced: boolean; events: readonly BattleEvent[]; winnerSlot: 0 | 1; outcome: BattleOutcome; fixture: boolean }) {
+  const x = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).x * width);
+  const y = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).y);
+  const rotate = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).rotate);
+  const scaleX = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).scaleX);
+  const scaleY = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).scaleY);
+  const opacity = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).opacity);
   const shadowScale = useTransform(y, value => 1 + value / 230);
   const hitFilter = useTransform(elapsed, t => getHitFlash(t, fighter.side, reduced, events) ? 'brightness(0) invert(1)' : 'none');
   return <div className={`battle-fighter-anchor battle-fighter-anchor-${fighter.side}`}>
     <motion.div className="battle-floor-shadow" style={{ x, scale: shadowScale }} />
     <motion.div className={`battle-fighter ${fighter.kind === 'photo' ? 'battle-fighter-photo' : ''}`} style={{ x, y, rotate, scaleX, scaleY, opacity }}>
-      <motion.img src={fighter.image} alt={`${fighter.name}, original player ${fighter.kind === 'photo' ? 'photograph' : 'drawing'}`} draggable={false} style={{ filter: hitFilter }} />
+      <motion.img src={fighter.image} alt={fixture ? `${fighter.name}, illustrated practice object` : `${fighter.name}, original player ${fighter.kind === 'photo' ? 'photograph' : 'drawing'}`} draggable={false} style={{ filter: hitFilter }} />
     </motion.div>
     <div className="battle-floor-marker" style={{ color: fighter.color }}>{fighter.side === 0 ? 'P1' : 'P2'}</div>
   </div>;
@@ -56,6 +56,9 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   const reduced = !!useReducedMotion();
   const duration = playback?.duration_ms ?? BATTLE_DURATION;
   const winnerSlot = playback?.winner_slot ?? 0;
+  const outcome = playback?.outcome ?? 'knockout';
+  const fixture = Boolean(playback?.source_label);
+  const outcomeLabel = outcome === 'knockout' ? 'K.O.' : outcome === 'points' ? 'POINTS' : 'TIEBREAK';
   const events = useMemo(() => playback ? playback.events.map(event => ({ ...event, at: event.at * BATTLE_DURATION / duration })) : BATTLE_EVENTS, [playback, duration]);
   const physicalElapsed = useTimeline(duration, onComplete);
   // One RAF drives both normal and quick playback; choreography retains its authored 12.8s coordinate system.
@@ -92,10 +95,10 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   });
 
   return <section className="battle-screen" aria-label="Sketch Clash battle arena">
-    <div className="battle-topline"><span><i /> LIVE FROM THE SKETCHBOOK</span><span>{photographs ? 'EVERYDAY OBJECTS' : 'ANIMALS'} · ROUND 01</span></div>
+    <div className="battle-topline"><span><i /> {playback?.source_label ?? 'LIVE FROM THE SKETCHBOOK'}</span><span>{photographs || fixture ? 'EVERYDAY OBJECTS' : 'ANIMALS'} · ROUND 01</span></div>
     <div className="battle-hud">
       <HealthBar fighter={fighters[0]} health={frame.health[0]} />
-      <div className="battle-round-clock"><span>ROUND 01</span><strong>{frame.ko ? 'KO' : String(frame.second).padStart(2, '0')}</strong><small>{photographs ? 'OBJECTS IN MOTION' : 'NO ERASERS NOW'}</small></div>
+      <div className="battle-round-clock"><span>ROUND 01</span><strong>{frame.ko ? outcome === 'knockout' ? 'KO' : 'FT' : String(frame.second).padStart(2, '0')}</strong><small>{photographs || fixture ? 'OBJECTS IN MOTION' : 'NO ERASERS NOW'}</small></div>
       <HealthBar fighter={fighters[1]} health={frame.health[1]} />
     </div>
     <div className="battle-arena-wrap" ref={root}>
@@ -107,16 +110,17 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
         <div className="battle-horizon" /><div className="battle-floor-grid" />
         <div className="battle-arena-stamp"><span>SKETCH CLASH</span><small>EST. JUST NOW</small></div>
         <div className="battle-arena-corner">A LITTLE ROUGH<br/><strong>BY DESIGN.</strong></div>
-        {fighters.map(fighter => <FighterSprite key={fighter.id} fighter={fighter} elapsed={elapsed} width={width} reduced={reduced} events={events} winnerSlot={winnerSlot} />)}
+        {fighters.map(fighter => <FighterSprite key={fighter.id} fighter={fighter} elapsed={elapsed} width={width} reduced={reduced} events={events} winnerSlot={winnerSlot} outcome={outcome} fixture={fixture} />)}
         <AnimatePresence>{frame.impact && <ImpactEffects key={frame.impact.id} event={frame.impact} reduced={reduced} />}</AnimatePresence>
         <AnimatePresence>{frame.intro && <motion.div key={frame.intro} className={`battle-intro ${frame.intro === 'CLASH!' ? 'battle-intro-clash' : ''}`} initial={{ scale: reduced ? 1 : .45, opacity: 0, rotate: -8 }} animate={{ scale: 1, opacity: 1, rotate: -5 }} exit={{ scale: reduced ? 1 : 1.35, opacity: 0 }} transition={{ type: 'spring', stiffness: 350, damping: 19 }}>{frame.intro}</motion.div>}</AnimatePresence>
-        <AnimatePresence>{frame.ko && <motion.div className="battle-ko" initial={{ opacity: 0, scale: reduced ? 1 : 2.5, rotate: -12 }} animate={{ opacity: 1, scale: 1, rotate: -8 }} transition={{ type: 'spring', stiffness: 280, damping: 15 }}><span>THAT’S A WRAP.</span><strong>K.O.</strong><small>INK CREDIBLE.</small></motion.div>}</AnimatePresence>
+        <AnimatePresence>{frame.ko && <motion.div className={`battle-ko ${outcome !== 'knockout' ? 'battle-decision' : ''}`} initial={{ opacity: 0, scale: reduced ? 1 : 2.5, rotate: -12 }} animate={{ opacity: 1, scale: 1, rotate: -8 }} transition={{ type: 'spring', stiffness: 280, damping: 15 }}><span>THAT’S A WRAP.</span><strong>{outcomeLabel}</strong><small>{outcome === 'knockout' ? 'INK CREDIBLE.' : 'EVERY HIT COUNTED.'}</small></motion.div>}</AnimatePresence>
         {frame.ko && <motion.svg className={`battle-winner-crown battle-winner-crown-${winnerSlot}`} viewBox="0 0 100 75" initial={{ opacity: 0, y: -25, rotate: -15 }} animate={{ opacity: 1, y: 0, rotate: -8 }} transition={{ delay: .35, type: 'spring' }} aria-label="Winner crown"><path d="M15 56 8 15 34 33 50 6 66 33 92 15 84 56Z" fill="var(--yellow)" stroke="var(--ink)" strokeWidth="5" strokeLinejoin="round"/><path d="M18 66Q50 59 81 66" fill="none" stroke="var(--ink)" strokeWidth="5" strokeLinecap="round"/></motion.svg>}
         <motion.div className="battle-contact-flash" style={{ opacity: flash }} />
       </motion.div>
       <div className="battle-arena-tape battle-arena-tape-left" /><div className="battle-arena-tape battle-arena-tape-right" />
     </div>
-    <div className="battle-footer"><span><i className="battle-tiny-star">✦</i> {photographs ? 'REAL OBJECTS. REAL GRUDGE.' : 'ORIGINAL DOODLES. REAL GRUDGE.'}</span><div className="battle-event-dots" aria-label={`${frame.hits} of ${events.length} attacks complete`}>{events.map((event, index) => <i key={event.id} className={index < frame.hits ? 'is-complete' : ''} />)}</div><span>{frame.ko ? 'ONE FOR THE SKETCHBOOK.' : 'LET THE INK FLY.'}</span></div>
-    <p className="battle-sr-only" aria-live="polite">{frame.ko ? `${fighters[winnerSlot].name} wins by knockout.` : frame.impact ? `${fighters[frame.impact.attacker].name} lands ${frame.impact.word} ${frame.impact.damage} damage.` : 'The battle is in progress.'}</p>
+    <div className="battle-footer"><span><i className="battle-tiny-star">✦</i> {fixture ? 'SAMPLE OBJECTS. SAVED RESULT.' : photographs ? 'REAL OBJECTS. REAL GRUDGE.' : 'ORIGINAL DOODLES. REAL GRUDGE.'}</span><div className="battle-event-dots" aria-label={`${frame.hits} of ${events.length} attacks complete`}>{events.map((event, index) => <i key={event.id} className={index < frame.hits ? 'is-complete' : ''} />)}</div><span>{frame.ko ? 'ONE FOR THE SKETCHBOOK.' : 'LET THE INK FLY.'}</span></div>
+    {fixture && <div className="battle-live-receipt" aria-live="polite"><span>{frame.ko ? 'FINAL DECISION' : frame.impact ? `HIT ${frame.hits}` : 'LOCKED & READY'}</span><p>{frame.ko ? `${fighters[winnerSlot].name} wins ${outcome === 'knockout' ? 'by knockout' : outcome === 'points' ? 'on remaining health' : 'by the recorded tiebreak'}. The full receipt follows.` : frame.impact?.explanation ?? 'Every hit is calculated by the server and saved for this replay.'}</p></div>}
+    <p className="battle-sr-only" aria-live="polite">{frame.ko ? `${fighters[winnerSlot].name} wins ${outcome === 'knockout' ? 'by knockout' : outcome === 'points' ? 'on remaining health' : 'by the recorded tiebreak'}.` : frame.impact ? `${fighters[frame.impact.attacker].name} lands ${frame.impact.word} ${frame.impact.damage} damage.` : 'The battle is in progress.'}</p>
   </section>;
 }

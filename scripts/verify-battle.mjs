@@ -87,6 +87,38 @@ for (const count of [7, 11, 15]) {
 }
 console.log('Authoritative replay checks passed: 7/11/15 hits, either winner, exact contact health, quick playback and reduced motion.');
 
+// A decision is not a fabricated knockout. The v2 result may select either
+// winner on points or a tiebreak; its replay must retain the recorded health.
+const decisionEvents = [
+  { id: 'decision-a', at: 1800, attacker: 0, damage: 12, kind: 'swipe', word: 'BOP!' },
+  { id: 'decision-b', at: 2400, attacker: 1, damage: 10, kind: 'swipe', word: 'BOP!' },
+];
+for (const outcome of ['points', 'tiebreak']) {
+  for (const winner of [0, 1]) {
+    const loser = getFighterPose(BATTLE_DURATION, 1 - winner, false, decisionEvents, winner, outcome);
+    assert.equal(loser.opacity, 1, `${outcome} does not fade the runner-up as a knockout`);
+    assert.equal(loser.scaleX, 1, `${outcome} does not shrink the runner-up`);
+    assert.equal(loser.scaleY, 1, `${outcome} does not squash the runner-up`);
+    assert.deepEqual(getHealth(BATTLE_DURATION, decisionEvents), [90, 88], 'Only recorded damage changes health');
+    assert.deepEqual(getHealth(0, decisionEvents), [100, 100], 'Decision replay restarts at full health');
+    for (const side of [0, 1]) {
+      const pose = getFighterPose(BATTLE_DURATION, side, true, decisionEvents, winner, outcome);
+      assert.equal(pose.x, 0); assert.equal(pose.y, 0); assert.equal(pose.rotate, 0);
+      assert.ok(Object.values(pose).every(Number.isFinite), 'Decision transforms remain finite');
+    }
+  }
+}
+assert.ok(getFighterPose(BATTLE_DURATION, 1, false, decisionEvents, 0, 'knockout').opacity < 1,
+  'Explicit knockout retains legacy loser choreography');
+const simultaneousKO = [
+  { id: 'paired-a', at: 9900, attacker: 0, damage: 100, kind: 'finisher', word: 'K.O.!' },
+  { id: 'paired-b', at: 10400, attacker: 1, damage: 100, kind: 'finisher', word: 'K.O.!' },
+];
+assert.deepEqual(getHealth(BATTLE_DURATION, simultaneousKO), [0, 0], 'Committed paired actions both resolve');
+assert.equal(getFighterPose(BATTLE_DURATION, 1, false, simultaneousKO, 0, 'tiebreak').opacity, 1,
+  'Tiebreak result is not inferred from which fighter hit last');
+console.log('Decision replay checks passed: either winner, points/tiebreak, no invented damage, paired double KO and reduced motion.');
+
 const { startTimeline } = await import('../src/game/director.ts');
 const queuedFrames = new Map();
 let frameId = 0, hidden = false, visibilityListener, completions = 0;
