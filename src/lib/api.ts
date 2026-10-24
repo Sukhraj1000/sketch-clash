@@ -1,5 +1,7 @@
 import type { BattleEvent } from '../game/battle';
 import type { Fighter } from '../types';
+import { cameraFighter } from './camera-combat.ts';
+import type { CameraCombat, CombatProfile } from './camera-combat';
 export type PendingFighter = {
   battle_id:string; player_slot:0|1; capture_id:string; image_hash:string;
   canonical_type_id:string; object_type:string; display_name:string; image_ref:string;
@@ -7,6 +9,7 @@ export type PendingFighter = {
   visual_spec:Record<string,unknown>; validation:Record<string,unknown>[]; config_versions:Record<string,string>;
   output_id?:string; pipeline_version_id?:string; parent_output_id?:string;
   observed_object?:{canonical_type_id:string;label:string;visible_features?:string[]};
+  combat_profile?:CombatProfile;
 };
 export type FeedbackInput = {
   idempotency_key:string; output_id:string; pipeline_version_id:string;
@@ -25,6 +28,8 @@ export type BattleRecord = {
   completion:{resident_ids:string[];new_resident_ids:string[];durable:boolean}|null;
   persistence:'mongodb'|'development_memory';
   pipeline_version_id?:string;
+  combat?:CameraCombat|null;
+  final_health?:[number,number];
 };
 export type Health = {status:string;persistence:string;persistent:boolean;ai_paused?:boolean;ai_status?:'paused'|'configured'|'unconfigured';ai_pause_reason?:string|null;gemini:{configured:boolean;model:string};message?:string;world_id:string};
 export class ApiError extends Error {
@@ -107,5 +112,5 @@ export async function prepareCapture<T>(battleId:string,form:FormData,signal:Abo
   }finally{stopProgress();}
 }
 export const post=<T,>(path:string,body:unknown={})=>api<T>(path,{method:'POST',body:JSON.stringify(body)});
-export const asFighter=(fighter:PendingFighter):Fighter=>({id: `${fighter.battle_id}-${fighter.player_slot}`,name:fighter.display_name,image:fighter.image_ref,subtitle:`${fighter.object_type.toUpperCase()} · ${fighter.archetype.toUpperCase()}`,side:fighter.player_slot,color:fighter.player_slot===0?'var(--coral)':'var(--mint)',kind:'photo',archetype:fighter.archetype});
+export const asFighter=(fighter:PendingFighter):Fighter=>cameraFighter(fighter);
 export const asPair=(fighters:PendingFighter[]):[Fighter,Fighter]=>[asFighter(fighters[0]),asFighter(fighters[1])];

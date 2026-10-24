@@ -15,6 +15,8 @@ const ObjectBattles = lazy(()=>import('./components/ObjectBattles'));
 const ColoniesView = lazy(()=>import('./components/ColoniesView'));
 const QualityConsole = lazy(()=>import('./components/QualityConsole'));
 import BattleArena from './components/BattleArena';
+import CameraBattleReport from './components/CameraBattleReport';
+import { cameraPair, cameraPlayback, COMBAT_STATS } from './lib/camera-combat';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 21 };
 const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE TALE OF TWO ISLANDS', QUALITY:'RECOGNITION & WORLD QUALITY', OBSERVATORY:'THE LIVING OBSERVATORY', PLAYGROUND:'THE ISLAND PLAYGROUND', OBJECT_BATTLES:'THE OBJECT ARENA' };
@@ -92,7 +94,7 @@ function RevealFighter({fighter,clock}:{fighter:Fighter;clock:MotionValue<number
     <motion.div className="reveal-inkburst" style={{scale:reduced?0:burstScale}}><Burst/></motion.div>
     <motion.img className={`reveal-drawing ${fighter.kind==='photo'?'photo-fighter':''}`} src={fighter.image} alt={`${fighter.name}, the original ${fighter.kind==='photo'?'photograph':'drawing'} lifting off the page`} style={reduced?{}:{y,rotate,scale}} draggable={false}/>
     <div className="reveal-floor-shadow"/>
-    <motion.div className="reveal-name" style={{opacity:labelOpacity}}><span>PLAYER {fighter.side+1}</span><h2>{fighter.name}</h2><p>{fighter.subtitle}</p><div className="fighter-attribute"><b>{fighter.archetype??(fighter.side===0?'QUICK & SCRAPPY':'HEAVY HITTER')}</b><span>{fighter.side===0?'100':'100'} HP</span></div></motion.div>
+    <motion.div className="reveal-name" style={{opacity:labelOpacity}}><span>PLAYER {fighter.side+1}</span><h2>{fighter.name}</h2><p>{fighter.subtitle}</p><div className="fighter-attribute"><b>{fighter.kind==='photo'?(fighter.combatStats?'OBJECT ATTRIBUTES':'ATTRIBUTES SET AT START'):fighter.archetype??(fighter.side===0?'QUICK & SCRAPPY':'HEAVY HITTER')}</b><span>100 HP</span></div>{fighter.combatStats&&<div className="reveal-combat-stats">{COMBAT_STATS.map(stat=><span key={stat}>{stat}<b>{fighter.combatStats![stat]}</b></span>)}</div>}</motion.div>
   </div>;
 }
 function FighterReveal({fighters,onComplete,isDemo}:{fighters:[Fighter,Fighter];onComplete:()=>void;isDemo:boolean}) {
@@ -217,7 +219,7 @@ export default function App() {
     try{
       const started=await post<BattleRecord>(`/battles/${record.id}/start`,{playback_mode:quick?'quick':reduced?'reduced':'normal'});
       if(generation!==epoch.current)return;
-      remember(started);setFighters(asPair(started.fighters));setPhase('BATTLE');
+      remember(started);setFighters(cameraPair(started));setPhase('BATTLE');
     }catch(e){if(generation===epoch.current)setError((e as Error).message)}finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
   },[isDemo,quick,reduced,remember]);
   const finalize=useCallback(async()=>{
@@ -235,7 +237,7 @@ export default function App() {
     try{const record=await api<BattleRecord>(`/battles/${recovery}`);if(generation!==epoch.current)return;
       if(['cancelled','failed'].includes(record.status)){saveActive(null);setRecovery(null);throw new Error('That round has ended. Start a fresh match.');}
       remember(record);setIsDemo(false);setRecovery(null);setRoundKey(k=>k+1);
-      if(record.fighters.length===2){setFighters(asPair(record.fighters));setPhase(record.status==='completed'||(record.eligible_at&&Date.now()>=Date.parse(record.eligible_at))?'RESULTS':'BATTLE');setSaveState(record.status==='completed'?'saved':'idle')}
+      if(record.fighters.length===2){setFighters(cameraPair(record));setPhase(record.status==='completed'||(record.eligible_at&&Date.now()>=Date.parse(record.eligible_at))?'RESULTS':'BATTLE');setSaveState(record.status==='completed'?'saved':'idle')}
       else if(record.pending_fighters.every((fighter,index)=>fighter&&record.confirmed_capture_ids?.[index]===fighter.capture_id)){setFighters(asPair(record.pending_fighters as PendingFighter[]));setPhase('REVEAL')}
       else {const first=record.pending_fighters[0];const firstConfirmed=first&&record.confirmed_capture_ids?.[0]===first.capture_id;if(firstConfirmed)setFighters([asFighter(first),PRESET_FIGHTERS[1]]);const slot=firstConfirmed?1:0;const pending=record.pending_fighters[slot];let restored:CaptureResponse|null=null;if(pending){try{restored=captureResponse(await api(`/battles/${record.id}/captures/${pending.capture_id}`))}catch{restored={capture_id:pending.capture_id,status:'recognized',image_url:pending.image_ref,width:800,height:600,fighter:pending,output_id:pending.output_id,pipeline_version_id:'legacy-unknown'}}}if(generation!==epoch.current)return;setReviewPending(restored);setPhase(slot===0?'DRAW_P1':'DRAW_P2')}
     }catch(e){if(generation===epoch.current)setError((e as Error).message)}finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
@@ -257,8 +259,8 @@ export default function App() {
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
-      {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?.duration_ms&&battle.winner_slot!==null?{events:battle.events,duration_ms:battle.duration_ms,winner_slot:battle.winner_slot}:undefined}/>}
-      {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{location.hash='/islands'}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
+      {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?cameraPlayback(battle):undefined}/>}
+      {phase==='RESULTS'&&(isDemo?<><VictoryScreen fighters={fighters} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/><div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div></>:battle&&<CameraBattleReport battle={battle} fighters={fighters} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}><div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{location.hash='/islands'}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div></CameraBattleReport>)}
       {phase==='OBJECT_BATTLES'&&<Suspense fallback={<div className="flow-message">Opening the object arena…</div>}><ObjectBattles onBack={()=>void home()}/></Suspense>}
       {phase==='PLAYGROUND'&&<Suspense fallback={<div className="flow-message">Opening the island playground…</div>}><IslandPlayground onBack={()=>void home()}/></Suspense>}
       {phase==='OBSERVATORY'&&<Suspense fallback={<div className="flow-message">Opening the living Observatory…</div>}><Observatory aiPaused={Boolean(health?.ai_paused)} onBack={()=>{location.hash='/islands'}}/></Suspense>}

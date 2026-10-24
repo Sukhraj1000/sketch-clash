@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:combat": "node scripts/verify-battle.mjs",
+    "test:camera-combat": "node scripts/verify-camera-combat.mjs",
     "test:island-scene": "node scripts/verify-island-scene.mjs",
     "test:factory-scene": "node scripts/verify-factory-scene.mjs",
     "test:robot-tasks": "node scripts/verify-robot-tasks.mjs",

@@ -57,7 +57,8 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   const duration = playback?.duration_ms ?? BATTLE_DURATION;
   const winnerSlot = playback?.winner_slot ?? 0;
   const outcome = playback?.outcome ?? 'knockout';
-  const fixture = Boolean(playback?.source_label);
+  const fixture = Boolean(playback?.source_label?.startsWith('OBJECT LAB'));
+  const explained = Boolean(playback?.source_label);
   const outcomeLabel = outcome === 'knockout' ? 'K.O.' : outcome === 'points' ? 'POINTS' : 'TIEBREAK';
   const events = useMemo(() => playback ? playback.events.map(event => ({ ...event, at: event.at * BATTLE_DURATION / duration })) : BATTLE_EVENTS, [playback, duration]);
   const physicalElapsed = useTimeline(duration, onComplete);
@@ -67,13 +68,13 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   const photographs = fighters.some(fighter => fighter.kind === 'photo');
   const root = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1000);
-  const [frame, setFrame] = useState({ health: [100, 100] as [number, number], impact: undefined as BattleEvent | undefined, intro: 'READY?', ko: false, second: 10, hits: 0 });
+  const [frame, setFrame] = useState({ health: [100, 100] as [number, number], impact: undefined as BattleEvent | undefined, intro: 'READY?', ko: false, second: Math.max(0, Math.ceil(finalTime * duration / BATTLE_DURATION / 1000)), hits: 0 });
   const lastKey = useRef('');
   useMotionValueEvent(elapsed, 'change', t => {
     const impact = getImpact(t, events);
     const intro = t < 800 ? 'READY?' : t < 1400 ? 'CLASH!' : '';
     const ko = t >= finalTime;
-    const second = Math.max(0, Math.ceil((finalTime - t) / 1000));
+    const second = Math.max(0, Math.ceil((finalTime - t) * duration / BATTLE_DURATION / 1000));
     const hits = events.filter(event => t >= event.at).length;
     const key = `${impact?.id ?? ''}:${intro}:${ko}:${second}:${hits}`;
     if (key !== lastKey.current) {
@@ -120,7 +121,7 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
       <div className="battle-arena-tape battle-arena-tape-left" /><div className="battle-arena-tape battle-arena-tape-right" />
     </div>
     <div className="battle-footer"><span><i className="battle-tiny-star">✦</i> {fixture ? 'SAMPLE OBJECTS. SAVED RESULT.' : photographs ? 'REAL OBJECTS. REAL GRUDGE.' : 'ORIGINAL DOODLES. REAL GRUDGE.'}</span><div className="battle-event-dots" aria-label={`${frame.hits} of ${events.length} attacks complete`}>{events.map((event, index) => <i key={event.id} className={index < frame.hits ? 'is-complete' : ''} />)}</div><span>{frame.ko ? 'ONE FOR THE SKETCHBOOK.' : 'LET THE INK FLY.'}</span></div>
-    {fixture && <div className="battle-live-receipt" aria-live="polite"><span>{frame.ko ? 'FINAL DECISION' : frame.impact ? `HIT ${frame.hits}` : 'LOCKED & READY'}</span><p>{frame.ko ? `${fighters[winnerSlot].name} wins ${outcome === 'knockout' ? 'by knockout' : outcome === 'points' ? 'on remaining health' : 'by the recorded tiebreak'}. The full receipt follows.` : frame.impact?.explanation ?? 'Every hit is calculated by the server and saved for this replay.'}</p></div>}
+    {explained && <div className="battle-live-receipt" aria-live="polite"><span>{frame.ko ? 'FINAL DECISION' : frame.impact ? `HIT ${frame.hits}` : 'LOCKED & READY'}</span><p>{frame.ko ? `${fighters[winnerSlot].name} wins ${outcome === 'knockout' ? 'by knockout' : outcome === 'points' ? 'on remaining health' : 'by the recorded tiebreak'}. The full receipt follows.` : frame.impact?.explanation ?? 'Every hit is calculated by the server and saved for this replay.'}</p></div>}
     <p className="battle-sr-only" aria-live="polite">{frame.ko ? `${fighters[winnerSlot].name} wins ${outcome === 'knockout' ? 'by knockout' : outcome === 'points' ? 'on remaining health' : 'by the recorded tiebreak'}.` : frame.impact ? `${fighters[frame.impact.attacker].name} lands ${frame.impact.word} ${frame.impact.damage} damage.` : 'The battle is in progress.'}</p>
   </section>;
 }
