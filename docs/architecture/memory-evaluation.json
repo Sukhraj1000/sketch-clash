@@ -1,0 +1,102 @@
+{
+  "evaluation": "matched_evidence_reuse_and_transfer_boundary",
+  "rule_version": "island-laboratory-v1",
+  "authority": "isolated_deterministic_fixture",
+  "model_calls": 0,
+  "live_database_writes": 0,
+  "limitation": "Measures memory plumbing with a fixed policy; does not measure Gemini reasoning quality or prove general learning.",
+  "training_experiments": 2,
+  "scenarios": [
+    {
+      "scenario": "remembered-failed-span",
+      "conditions": {
+        "span": 0.6,
+        "load": 0.2,
+        "support_count": 2
+      },
+      "memory_off": {
+        "action": "run_new_experiment",
+        "success": false,
+        "finding_id": null
+      },
+      "memory_on": {
+        "action": "avoid_known_failed_arrangement",
+        "success": false,
+        "finding_id": "unsupported-span"
+      },
+      "outcomes_agree": true
+    },
+    {
+      "scenario": "remembered-useful-support",
+      "conditions": {
+        "span": 0.6,
+        "load": 0.2,
+        "support_count": 3
+      },
+      "memory_off": {
+        "action": "run_new_experiment",
+        "success": true,
+        "finding_id": null
+      },
+      "memory_on": {
+        "action": "reuse_tested_result",
+        "success": true,
+        "finding_id": "supported-span"
+      },
+      "outcomes_agree": true
+    },
+    {
+      "scenario": "held-out-heavier-load",
+      "conditions": {
+        "span": 0.6,
+        "load": 8.0,
+        "support_count": 3
+      },
+      "memory_off": {
+        "action": "run_new_experiment",
+        "success": false,
+        "finding_id": null
+      },
+      "memory_on": {
+        "action": "run_new_experiment",
+        "success": false,
+        "finding_id": null
+      },
+      "outcomes_agree": true
+    },
+    {
+      "scenario": "new-object-arrival",
+      "conditions": {
+        "span": 0.6,
+        "load": 0.2,
+        "support_count": 3
+      },
+      "memory_off": {
+        "action": "run_new_experiment",
+        "success": true,
+        "finding_id": null
+      },
+      "memory_on": {
+        "action": "run_new_experiment",
+        "success": true,
+        "finding_id": null
+      },
+      "outcomes_agree": true
+    }
+  ],
+  "totals": {
+    "memory_off": {
+      "experiments_run": 4,
+      "findings_reused": 0,
+      "known_failures_avoided": 0,
+      "successful_outcomes": 2
+    },
+    "memory_on": {
+      "experiments_run": 2,
+      "findings_reused": 2,
+      "known_failures_avoided": 1,
+      "successful_outcomes": 2
+    }
+  },
+  "all_outcomes_agree": true
+}
