@@ -38,7 +38,12 @@ export function residentDisplaySlots(ids: readonly string[]): Map<string, Point>
 }
 
 export function displayIslandPoint(point: Point, slot: Point): Point {
-  const x = point.x + slot.x, z = point.z + slot.z
+  // The shared standby hub has room to park the crew. Workspots use a tighter
+  // service spread, keeping tools beside the actual fixture instead of metres
+  // away. A point always has the same offset, including across task boundaries.
+  const hubDistance = Math.hypot(point.x + .7, point.z - 1.1)
+  const spread = .4 + .6 * Math.max(0, 1 - hubDistance / .65)
+  const x = point.x + slot.x * spread, z = point.z + slot.z * spread
   const radius = Math.hypot(x, z)
   return radius > 5.25 ? { x: x * 5.25 / radius, z: z * 5.25 / radius } : { x, z }
 }

@@ -10,6 +10,7 @@
     "test:combat": "node scripts/verify-battle.mjs",
     "test:island-scene": "node scripts/verify-island-scene.mjs",
     "test:factory-scene": "node scripts/verify-factory-scene.mjs",
+    "test:robot-tasks": "node scripts/verify-robot-tasks.mjs",
     "test:playground": "node scripts/verify-playground.mjs",
     "test:receipts": "node scripts/verify-receipt-presentation.mjs",
     "setup:gemini": "node scripts/setup-gemini.mjs",

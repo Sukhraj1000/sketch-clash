@@ -11,8 +11,8 @@ import * as THREE from 'three';
 const require = createRequire(import.meta.url);
 const sourceUrl = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const jsxRuntime = pathToFileURL(require.resolve('react/jsx-runtime')).href;
-function componentModule(filename, replacements = {}) {
-  const result = transformSync(filename, readFileSync(new URL(filename, import.meta.url), 'utf8'), {
+function componentModule(filename, replacements = {}, source = readFileSync(new URL(filename, import.meta.url), 'utf8')) {
+  const result = transformSync(filename, source, {
     lang: 'tsx', sourceType: 'module', jsx: { runtime: 'automatic' },
   });
   assert.equal(result.errors.length, 0, `${filename} compiles for inspection`);
@@ -28,7 +28,9 @@ const { robotEquipment } = await import(equipmentUrl);
 const { default: RobotShape } = await import(componentModule('../src/components/RobotShape.tsx', { './FactoryPrimitives': primitives, './robotEquipment': equipmentUrl }));
 const structuresUrl = componentModule('../src/components/FactoryStructures.tsx', { './FactoryPrimitives': primitives });
 const { FactoryStructureVisual } = await import(structuresUrl);
-const { default: FactoryEnvironment } = await import(componentModule('../src/components/FactoryEnvironment.tsx', { './FactoryPrimitives': primitives }));
+const worldMapUrl = new URL('../src/components/worldMap.ts', import.meta.url).href;
+const { WORLD_STATIONS, WORLD_PATHS } = await import(worldMapUrl);
+const { default: FactoryEnvironment } = await import(componentModule('../src/components/FactoryEnvironment.tsx', { './FactoryPrimitives': primitives, './worldMap': worldMapUrl }));
 const { default: IslandStructure } = await import(componentModule('../src/components/IslandStructures.tsx', {
   './FactoryStructures': structuresUrl,
   '../lib/island': new URL('../src/lib/island.ts', import.meta.url).href,
@@ -153,7 +155,24 @@ assert.equal(assemblyViews[0].length, 4, 'The approved assembly and all three at
 assert.deepEqual(assemblyViews[1], assemblyViews[0], 'Factory view preserves exact approved part geometry, proportions, positions and construction state');
 assert.equal(JSON.stringify(assembly), assemblySnapshot, 'Both appearances leave the persisted blueprint untouched');
 
-const environment = scene(FactoryEnvironment({}));
+const world = readFileSync(new URL('../src/components/WorldScene.tsx', import.meta.url), 'utf8');
+// Render the actual island component tree. Only its browser label and Drei line
+// infrastructure are inert; all island geometry and transforms remain real.
+const islandSource = world.slice(world.indexOf('function Tree('), world.indexOf('function Atmosphere('));
+assert.ok(islandSource.includes('function Island('), 'The actual island component is available for geometry inspection');
+const { Island } = await import(componentModule('../src/components/WorldScene.tsx', {}, `
+  import { WORLD_MAP_SURFACE_SCALE, WORLD_PATHS, WORLD_STATIONS, WORLD_STATION_BACKSETS, WORLD_TREES, WORLD_WAYFINDER, worldGroundDetails, worldGroundShape, worldRimDecor } from ${JSON.stringify(worldMapUrl)};
+  const useMemo = fn => fn();
+  const useState = value => [value, () => {}];
+  const useEffect = () => {};
+  const useThree = () => ({ invalidate() {} });
+  const INK = '#1E1C29', PAPER = '#FFF9EB';
+  function Material({color}) { return <meshStandardMaterial color={color} />; }
+  function Line({points}) { return <group userData={{points}} />; }
+  ${islandSource}
+  export { Island };
+`));
+const environment = scene(FactoryEnvironment({ seed: 4127 }));
 assert.ok(environment.geometry.length > 0, 'The factory environment contains real scene geometry');
 for (const [resource, x, z] of [['materials', -3.25, 1.2], ['water', -.25, -2.9], ['ideas', .15, .7], ['energy', 3.65, .55]]) {
   const station = environment.named.get(`factory-station-${resource}`);
@@ -162,9 +181,52 @@ for (const [resource, x, z] of [['materials', -3.25, 1.2], ['water', -.25, -2.9]
   assert.deepEqual([position.x, position.z], [x, z], 'Factory stations retain existing authoritative resource positions');
 }
 
+const backendIsland = readFileSync(new URL('../backend/app/island.py', import.meta.url), 'utf8');
+const backendLocations = backendIsland.match(/RESOURCE_LOCATIONS = \{([\s\S]*?)\n\}/)?.[1] ?? '';
+const resourcePattern = /'([a-z]+)':\s*\{'x':\s*([-\d.]+),\s*'z':\s*([-\d.]+)\}/g;
+const serverStations = Object.fromEntries([...backendLocations.matchAll(resourcePattern)].map(([, key, x, z]) => [key, { x: Number(x), z: Number(z) }]));
+assert.equal(Object.keys(serverStations).length, 4, 'Read all authoritative resource anchors without running a backend or model call');
+assert.deepEqual(WORLD_STATIONS, serverStations, 'The shared scene map agrees with actual server resource destinations');
+const serverProjects = backendIsland.match(/PROJECT_DEFINITIONS = \(([\s\S]*?)\n\)/)?.[1] ?? '';
+const projectPoints = [...serverProjects.matchAll(/'position':\s*\{'x':\s*([-\d.]+),\s*'z':\s*([-\d.]+)\}/g)].map(([, x, z]) => ({ x: Number(x), z: Number(z) }));
+assert.equal(projectPoints.length, 4, 'Read all four authoritative project destinations');
+const routeEnds = WORLD_PATHS.map(points => ({ x: points.at(-1)[0], z: points.at(-1)[2] }));
+for (const destination of [...Object.values(serverStations), ...projectPoints]) {
+  assert.ok(routeEnds.some(point => point.x === destination.x && point.z === destination.z), 'Both map styles have a route reaching each actual station and project');
+}
+
+const mapPosition = (detail) => {
+  const point = new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().fromArray(detail.matrix));
+  return [point.x, point.z];
+};
+for (const seed of [4127, 9071]) {
+  const island = scene(Island({ seed }));
+  const factory = scene(FactoryEnvironment({ seed }));
+  for (const layer of ['foundation', 'shoulder', 'surface', 'hub']) {
+    const natural = island.named.get(`island-map-${layer}`);
+    const industrial = factory.named.get(`factory-map-${layer}`);
+    assert.ok(natural && industrial, 'Both appearances expose their real map geometry');
+    assert.deepEqual(industrial.bounds, natural.bounds, `${layer}: factory and island have identical actual geometry bounds`);
+    assert.deepEqual(industrial.matrix, natural.matrix, `${layer}: no map translation, rotation or rescaling during the toggle`);
+  }
+  for (const resource of Object.keys(serverStations)) {
+    assert.deepEqual(mapPosition(factory.named.get(`factory-station-${resource}`)), mapPosition(island.named.get(`island-station-${resource}`)), `${resource}: a robot and an object use the same service anchor`);
+  }
+  for (const [name, detail] of island.named) {
+    if (/^island-map-(utility|edge|detail|wayfinder)/.test(name)) {
+      const counterpart = factory.named.get(name.replace(/^island-/, 'factory-'));
+      assert.ok(counterpart, 'Every natural decoration has its industrial counterpart');
+      assert.deepEqual(mapPosition(counterpart), mapPosition(detail), 'Tree, rim, ground detail and sign replacements keep their exact seeded positions');
+    }
+    if (name.startsWith('island-map-route-')) {
+      const counterpart = factory.named.get(name.replace(/^island-/, 'factory-'));
+      assert.deepEqual(counterpart.props.userData.mapPoints, detail.props.userData.mapPoints, 'Industrial markings follow the exact island path, including bends');
+    }
+  }
+}
+
 // Narrow integration checks protect React identity and the shared authoritative
 // motion path. Camera/selection continuity is also exercised in browser review.
-const world = readFileSync(new URL('../src/components/WorldScene.tsx', import.meta.url), 'utf8');
 assert.match(world, /presentation\s*=\s*'island'/, 'Other scene callers keep their island appearance by default');
 assert.match(world, /<Resident\s+key=\{character\.id\}/, 'Appearance changes cannot remount resident animation clocks or arrival state');
 assert.match(world, /<IslandStructure\s+key=\{project\.id\}/, 'Appearance changes cannot remount saved project effects');

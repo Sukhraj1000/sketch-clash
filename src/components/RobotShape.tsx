@@ -54,11 +54,12 @@ export default function RobotShape({ character, allowedActions = [] }: { charact
   const equipment = robotEquipment(allowedActions)
   return <group name="sc-character" userData={{ rigKey: `factory-robot:${equipment.id}` }}>
     {[-1, 1].map(side => <group key={side} name={side < 0 ? 'sc-foot-left' : 'sc-foot-right'} position={[side * .235, .12, 0]} userData={{ restY: .12 }}>
-      {[-1, 1].map(axle => <group key={axle} position={[0, 0, axle * .135]} rotation={[0, 0, Math.PI / 2]}>
+      {[-1, 1].map(axle => <group key={axle} position={[0, 0, axle * .135]} rotation={[0, 0, Math.PI / 2]}><group name={`robot-wheel-${side}-${axle}`}>
         <mesh castShadow receiveShadow><cylinderGeometry args={[.12, .12, .075, 24]} /><Paint color={ROBOT.rubber} material="rubber" /></mesh>
         <mesh position={[0, -side * .041, 0]} castShadow><cylinderGeometry args={[.068, .068, .012, 20]} /><Paint color={ROBOT.steel} material="steel" /></mesh>
         <mesh position={[0, -side * .049, 0]}><cylinderGeometry args={[.025, .025, .014, 12]} /><Paint color={ROBOT.housing} material="steel" /></mesh>
-      </group>)}
+        {[0, 1, 2].map(spoke => <Box key={spoke} position={[0, -side * .05, 0]} rotation={[0, spoke * Math.PI / 3, 0]} size={[.105, .009, .012]} color={ROBOT.housing} material="steel" />)}
+      </group></group>)}
     </group>)}
     <Box position={[0, .205, 0]} size={[.43, .145, .41]} color={ROBOT.housing} material="steel" />
     <Box position={[0, .285, 0]} size={[.43, .025, .41]} color={ROBOT.steel} material="steel" />
