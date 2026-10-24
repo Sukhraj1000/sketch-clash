@@ -94,6 +94,7 @@ try {
     '../lib/api': new URL('../src/lib/api.ts', import.meta.url).href,
     '../lib/imageInput': new URL('../src/lib/imageInput.ts', import.meta.url).href,
     '../lib/captureTimer': new URL('../src/lib/captureTimer.ts', import.meta.url).href,
+    '../lib/wait': new URL('../src/lib/wait.ts', import.meta.url).href,
     './FighterReview': 'data:text/javascript,export default function UnusedReview(){return null}',
     react: import.meta.resolve('react'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'),
   }
@@ -108,7 +109,12 @@ try {
   assert.match(queued, /WAITING FOR GEMINI/)
   assert.match(queued, /not a completion estimate/)
   assert.doesNotMatch(queued, /GEMINI IS READING YOUR OBJECT/)
-  assert.match(render(progress('local_ocr')), /READING VISIBLE TEXT LOCALLY/)
+  assert.match(queued, /Next check in under a minute/)
+  assert.match(render(progress('local_ocr')), /READING ANY TEXT/)
+  // Players see plain stages, never the model name; a retry says so.
+  const retry = render(progress('gemini_recognition', { model: 'gemini-4-argon', attempt: 2 }))
+  assert.doesNotMatch(retry, /gemini-4-argon|Model:/)
+  assert.match(retry, /Trying again · attempt 2/)
   assert.match(render(progress('gemini_recognition')), /GEMINI IS READING YOUR OBJECT/)
   const unavailable = render(progress('queued'), { unavailable: true })
   assert.match(unavailable, /PROGRESS UNAVAILABLE/)

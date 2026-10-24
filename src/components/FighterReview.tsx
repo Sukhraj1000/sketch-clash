@@ -44,7 +44,14 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
   const version = response.pipeline_version_id ?? fighter.pipeline_version_id
   const available = !!outputId && !!version && version !== 'legacy-unknown'
   const eligibility = response.theme_validation
-  const canConfirm = (!available || recognition === 'correct') && (!eligibility || eligibility.verdict === 'eligible')
+  // A detector doubt is settled by the player's own Correct; the server rechecks it on lock-in.
+  const vouched = eligibility?.resolution === 'confirm_identity' && recognition === 'correct'
+  const canConfirm = (!available || recognition === 'correct') && (!eligibility || eligibility.verdict === 'eligible' || vouched)
+  const shownLabel = response.observed_object?.label ?? fighter.observed_object?.label ?? fighter.object_type
+  // The local detector's class names (scissors, banana…) confuse players; its raw detail stays in the evidence panel.
+  const support = response.evidence?.identity_support
+  const identityNote = eligibility?.resolution === 'confirm_identity' ? '' : support?.status === 'different_labels' ? `Our quick object check wasn’t sure this is a ${shownLabel}. If your photo shows it, choose Correct.` : support?.status === 'multiple_candidates' ? 'More than one object is in this part of the photo. Make sure this fighter is the one you meant, or crop more tightly.' : ''
+  const footerHint = eligibility?.verdict === 'outside_theme' ? 'This photo can’t enter this round. Choose another photograph.' : recognition !== 'correct' && available ? 'Check the photograph and choose Correct to continue.' : 'Resolve the theme check to continue.'
   const scope = response.saved_resident_preview ? 'Your battle appearance' : 'Your island appearance'
   const previewFighter = {image_ref:String(fighter.image_ref ?? response.image_url), display_name:String(fighter.display_name), object_type:String(fighter.object_type), canonical_type_id: fighter.canonical_type_id, observed_object: fighter.observed_object ?? response.observed_object, visual_spec: fighter.visual_spec as WorldCharacter['visual_spec']}
   const keyFor = (scope:string,payload:object) => {
@@ -77,9 +84,9 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
 
   return <section className="fighter-review" aria-label="Review your fighter">
     <div className="review-topline"><span className="review-label">YOUR OBJECT, YOUR CALL</span><span className="review-class">{fighter.combat_profile?'ATTRIBUTE PROFILE':'CAMERA OBJECT'} <i/> 100 HP</span></div>
-    <div className="review-intro"><div><h2>{fighter.display_name}</h2><p>Identified as <strong>{response.observed_object?.label??fighter.observed_object?.label??fighter.object_type}</strong></p></div></div>
-    {eligibility&&<div className={`review-theme review-theme-${eligibility.verdict}`} role="status"><strong>{eligibility.verdict==='eligible'?<><Check size={14}/> FITS THE ROUND</>:eligibility.verdict==='outside_theme'?'OUTSIDE THE THEME · CAPTURE DISQUALIFIED':'THEME CHECK NEEDS A CLEARER IDENTITY'}</strong><span>{eligibility.theme_name}</span>{eligibility.verdict!=='eligible'&&<><p>{eligibility.reason}</p><button type="button" className="review-secondary" disabled={!!working} onClick={onRetake}>Choose another photograph <ArrowRight size={15}/></button></>}</div>}
-    {response.evidence?.identity_support?.detail&&<p className="review-notice"><strong>YOLO + Gemini cross-check</strong><span>{response.evidence.identity_support.detail}</span></p>}
+    <div className="review-intro"><div><h2>{fighter.display_name}</h2><p>Identified as <strong>{shownLabel}</strong></p></div></div>
+    {eligibility&&<div className={`review-theme review-theme-${vouched?'eligible':eligibility.verdict}`} role="status"><strong>{eligibility.verdict==='eligible'||vouched?<><Check size={14}/> {vouched?'FITS THE ROUND · CONFIRMED BY YOU':'FITS THE ROUND'}</>:eligibility.verdict==='outside_theme'?'OUTSIDE THE THEME · CAPTURE DISQUALIFIED':eligibility.resolution==='confirm_identity'?'QUICK DOUBLE-CHECK':'THEME CHECK NEEDS A CLEARER IDENTITY'}</strong><span>{eligibility.theme_name}</span>{eligibility.verdict!=='eligible'&&!vouched&&<><p>{eligibility.reason}</p><button type="button" className="review-secondary" disabled={!!working} onClick={onRetake}>Choose another photograph <ArrowRight size={15}/></button></>}</div>}
+    {identityNote&&<p className="review-notice"><strong>Quick double-check</strong><span>{identityNote}</span></p>}
     <div className="review-main">
       <div className="review-visual-column">
         <div className="review-visuals">
@@ -104,7 +111,7 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
         </div> : <p className="review-notice">Historical proposal: its feedback version is unavailable. You can use this fighter, or retake the photo for a new reviewed proposal.</p>}
         {available&&<label className="review-consent"><input type="checkbox" disabled={!!working} checked={sharedConsent} onChange={e=>{dirty();setSharedConsent(e.target.checked)}}/><span>Allow this object photo and feedback for reviewed evaluation and reference use.<small>Optional. The creator must review it first. Leaving this off does not affect your game.</small></span></label>}
         {failure&&<div className="review-error" role="alert"><b>{feedbackFailure?'Feedback has not been saved.':'Could not finish that action.'}</b><p>{failure}</p>{feedbackFailure&&canConfirm&&<button type="button" disabled={!!working} onClick={()=>void confirm(true)}>Continue without saving feedback</button>}</div>}
-        <div className="review-footer"><div aria-live="polite">{working?<span className="review-saving">{working==='correct'?'Preparing the revised fighter…':working==='confirm'?'Saving and locking your fighter…':'Saving your review…'}</span>:saved?<span className="review-saved"><Check size={14}/> Feedback saved for this proposal.</span>:<span>{!canConfirm?(recognition!=='correct'&&available?'Check the photograph and choose Correct to continue.':'Resolve the theme check to continue.'):'Ready to lock in your fighter.'}<small>{sharedConsent?'Shared evaluation is on.':'Shared evaluation is off.'}</small></span>}</div><button type="button" className="review-confirm" disabled={!!working||!canConfirm} onClick={()=>void confirm()}>Lock in my fighter <ArrowRight size={18}/></button></div>
+        <div className="review-footer"><div aria-live="polite">{working?<span className="review-saving">{working==='correct'?'Preparing the revised fighter…':working==='confirm'?'Saving and locking your fighter…':'Saving your review…'}</span>:saved?<span className="review-saved"><Check size={14}/> Feedback saved for this proposal.</span>:<span>{!canConfirm?footerHint:'Ready to lock in your fighter.'}<small>{sharedConsent?'Shared evaluation is on.':'Shared evaluation is off.'}</small></span>}</div><button type="button" className="review-confirm" disabled={!!working||!canConfirm} onClick={()=>void confirm()}>Lock in my fighter <ArrowRight size={18}/></button></div>
       </div>
       <div className="review-supporting">
         <details className="review-evidence">

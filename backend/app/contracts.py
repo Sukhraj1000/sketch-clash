@@ -71,6 +71,7 @@ class ThemeValidation(Contract):
     reason: str
     evidence_labels: list[str] = Field(default_factory=list)
     basis: Literal['recognition_identity_rules'] = 'recognition_identity_rules'
+    resolution: Literal['confirm_identity'] | None = None
 
 class FeedbackSubmission(Contract):
     idempotency_key: Identifier

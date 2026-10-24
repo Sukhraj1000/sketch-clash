@@ -45,6 +45,10 @@ const uncertainStatus=captureStatusMessage('recognized',unclearResponse,staleSuc
 assert.match(uncertainStatus,/Theme eligibility is not confirmed/)
 assert.match(uncertainStatus,/Correct the identity or use a clearer photograph/)
 assert.doesNotMatch(uncertainStatus,/disqualified|Ready to battle/)
+// A detector-only doubt asks the player to confirm instead of naming the detector's guess.
+const doubtStatus=captureStatusMessage('recognized',{...unclearResponse,theme_validation:{...unclearResponse.theme_validation,resolution:'confirm_identity'}},staleSuccess)
+assert.match(doubtStatus,/choose Correct to lock it in/)
+assert.doesNotMatch(doubtStatus,/detector|YOLO|not confirmed/)
 assert.equal(captureStatusMessage('processing',response,'Checking revised photograph…'),'Checking revised photograph…')
 assert.equal(captureStatusMessage('error',response,'Upload failed. Retry.'),'Upload failed. Retry.')
 assert.match(captureReviewMessage({theme_validation:{...response.theme_validation,verdict:'eligible'}}),/Review the identity and fighter before locking it in/)

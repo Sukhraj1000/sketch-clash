@@ -80,7 +80,7 @@ def _categories(label: str) -> set[str]:
     return found
 
 
-def validate_theme(theme: dict | None, observation: dict) -> dict:
+def validate_theme(theme: dict | None, observation: dict, *, player_confirmed: bool = False) -> dict:
     theme = theme or legacy_theme()
     fighter = observation.get('pending_fighter') or {}
     observed = observation.get('observed_object') or fighter.get('observed_object') or {}
@@ -106,11 +106,14 @@ def validate_theme(theme: dict | None, observation: dict) -> dict:
     known = [categories for categories in groups if categories]
     if theme['id'] in {'animals', 'nature'} and REPRESENTATION.search(_normalise(primary or '')) and not groups[0]:
         return verdict('uncertain', 'The label may describe a depiction rather than the subject itself. Use a clearer photograph or correct the identity; no disqualification is applied.')
-    if support.get('status') in {'different_labels', 'multiple_candidates'}:
+    # The coarse local detector may only ask for a second look. A player's explicit
+    # confirmation of the recognised identity settles it; the category rules below still apply.
+    if support.get('status') in {'different_labels', 'multiple_candidates'} and not player_confirmed:
         detector_groups = [_categories(label) for label in support.get('detector_labels', [])]
         if any(categories and ((theme['id'] in categories) != any(theme['id'] in group for group in known))
                for categories in detector_groups):
-            return verdict('uncertain', 'The local detector and recognised subject disagree about this theme. Correct the identity or crop one clear subject; no disqualification is applied.')
+            return {**verdict('uncertain', f'Our quick object check was unsure whether this fits {theme["name"]}. If the photo really shows a {primary}, choose Correct to confirm it; otherwise crop or retake. This is not a disqualification.'),
+                    'resolution': 'confirm_identity'}
     if not known:
         return verdict('uncertain', f'We cannot confidently place {primary} in {theme["name"]}. Correct the label or choose a clearer example; it is not disqualified.')
     if len(known) > 1 and not set.intersection(*known):

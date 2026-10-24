@@ -4,6 +4,7 @@ import { Camera, Check, Crop, ImageUp, Pause, RotateCcw, ScanLine, X } from 'luc
 import { captureTimerActive } from '../lib/captureTimer'
 import { cameraFailureMessage, captureVideoFrame, clampImageCrop, normalizeImage } from '../lib/imageInput'
 import type { ImageCrop, NormalizedImage } from '../lib/imageInput'
+import { formatWait } from '../lib/wait'
 import { LEGACY_THEME, type RoundTheme, type ThemeValidation, type FeedbackInput, type CorrectionInput, type CaptureProgress, type CaptureProgressListener } from '../lib/api'
 import type { WorldCharacter } from './WorldView'
 import FighterReview from './FighterReview'
@@ -49,6 +50,7 @@ type Point = { x: number; y: number }
 export function captureReviewMessage(response: Pick<CaptureResponse, 'theme_validation' | 'degraded'>) {
   const eligibility = response.theme_validation
   if (eligibility?.verdict === 'outside_theme') return `Capture disqualified for this round. ${eligibility.reason}`
+  if (eligibility?.verdict === 'uncertain' && eligibility.resolution === 'confirm_identity') return 'Quick double-check: if the photo shows your object, choose Correct to lock it in.'
   if (eligibility?.verdict === 'uncertain') return `Theme eligibility is not confirmed. ${eligibility.reason}`
   return response.degraded
     ? 'Object recognised. Review the identity and fighter before locking it in. Some supporting evidence was unavailable; open the details to see which.'
@@ -67,7 +69,7 @@ function ToolbarButton({ children, label, disabled, selected, onClick }: { child
 }
 
 const captureStageTitles: Record<string, string> = {
-  registered: 'PHOTO RECEIVED', local_detection: 'FINDING OBJECTS LOCALLY', local_ocr: 'READING VISIBLE TEXT LOCALLY',
+  registered: 'PHOTO RECEIVED', local_detection: 'FINDING YOUR OBJECT', local_ocr: 'READING ANY TEXT',
   queued: 'WAITING FOR GEMINI', gemini_recognition: 'GEMINI IS READING YOUR OBJECT', validation: 'CHECKING THE FIGHTER',
   repair: 'REFINING THE PROPOSAL', saving: 'SAVING YOUR FIGHTER', complete: 'PREPARATION SAVED', failed: 'PREPARATION STOPPED',
 }
@@ -80,9 +82,9 @@ export function CaptureProgressPanel({ normalizing, progress, unavailable, secon
     <span className="capture-loading-mark" aria-hidden="true">✳</span>
     <strong>{normalizing ? 'DEVELOPING YOUR PHOTO…' : unavailable ? 'PROGRESS UNAVAILABLE' : progress ? captureStageTitles[progress.stage] || 'PREPARING YOUR FIGHTER' : 'SENDING YOUR PHOTOGRAPH…'}</strong>
     <span>{normalizing ? 'Making a clean, correctly oriented image.' : unavailable ? 'The original request is still pending. Your photograph is kept for recovery.' : progress?.message || 'Waiting for the backend to register this capture. No preparation stage has been reported yet.'}</span>
-    {queued && typeof wait === 'number' && wait > 0 && <small>Next admission check in about {Math.ceil(wait)} seconds. This is not a completion estimate.</small>}
+    {queued && typeof wait === 'number' && wait > 0 && <small>Next check in {formatWait(wait)}. This is not a completion estimate.</small>}
     {queued && <small>{waitReason === 'provider_cooldown' ? 'Gemini is cooling down after a provider error.' : waitReason === 'local_concurrency' ? 'Other normal Gemini requests are running. Your photograph is waiting for a free slot.' : 'Camera checks run independently of the island pace.'}</small>}
-    {!normalizing && progress?.model && !unavailable && <small>Model: {progress.model}{progress.attempt && progress.attempt > 1 ? ` · attempt ${progress.attempt}` : ''}</small>}
+    {!normalizing && !unavailable && progress?.attempt && progress.attempt > 1 && <small>Trying again · attempt {progress.attempt}</small>}
     <small>Your capture timer is paused.</small>
     {!normalizing && <small>Elapsed {Math.floor(seconds / 60)}m {String(seconds % 60).padStart(2, '0')}s · this photograph is kept for recovery.</small>}
   </div>
@@ -386,7 +388,8 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
 
   const confirm = async () => {
     if (stage !== 'recognized' || !response?.fighter || submitted.current || cropMode) return
-    if (response.theme_validation && response.theme_validation.verdict !== 'eligible') {
+    // A detector doubt arrives here only after the player chose Correct; the server rechecks it on confirm.
+    if (response.theme_validation && response.theme_validation.verdict !== 'eligible' && response.theme_validation.resolution !== 'confirm_identity') {
       setMessage(captureReviewMessage(response))
       return
     }
@@ -440,7 +443,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
             <img src={selectedImage} alt={stage === 'recognized' ? 'Your accepted fighter photograph' : 'Your photograph before selecting one object'} draggable="false" />
             {detections.map((item, index) => {
               const box = original && clampImageCrop(item.box, original.width, original.height)
-              return box ? <button key={item.id} className="capture-detection" style={displayBox(box)} type="button" aria-label={`Select ${item.label}, object ${index + 1}`} onClick={() => selectCrop(box)}><span>{index + 1}. {item.label}</span></button> : null
+              return box ? <button key={item.id} className="capture-detection" style={displayBox(box)} type="button" aria-label={`Select object ${index + 1}`} onClick={() => selectCrop(box)}><span>Object {index + 1}</span></button> : null
             })}
             {cropMode && crop && <div className="capture-crop-outline" style={displayBox(crop)} aria-hidden="true"><span>YOUR FIGHTER</span></div>}
           </div>}
@@ -476,7 +479,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
       <button type="button" className="capture-crop-apply" onClick={() => selectCrop(crop)}><Check size={16} /> USE THIS CROP</button>
       <button type="button" className="capture-text-button" onClick={() => { setCropMode(false); setCrop(null); void prepare({ ...original, captureId: crypto.randomUUID() }) }}><X size={15} /> Whole photo</button>
     </div>}
-    {stage === 'selection' && !cropMode && detections.length > 0 && <div className="capture-selection-list" aria-label="Choose one detected object">{detections.map((item, index) => <button key={item.id} type="button" onClick={() => selectCrop(item.box)}>{index + 1}. {item.label} <span aria-hidden="true">↗</span></button>)}</div>}
+    {stage === 'selection' && !cropMode && detections.length > 0 && <div className="capture-selection-list" aria-label="Choose one detected object">{detections.map((item, index) => <button key={item.id} type="button" onClick={() => selectCrop(item.box)}>Object {index + 1} <span aria-hidden="true">↗</span></button>)}</div>}
     {stage === 'error' && captureRef.current && <button type="button" className="capture-retry" onClick={() => captureRef.current && void prepare(captureRef.current)}><RotateCcw size={16} /> Retry this photograph</button>}
     <div className="sketch-footnote"><button type="button" disabled={confirming} onClick={() => { discard(); onCancel() }}>← Back to lobby</button><span role="status" aria-live="polite">{captureStatusMessage(stage,response,message) || (remaining === 0 ? 'Time is up. Nothing submits automatically; finish choosing your photograph when ready.' : 'One object becomes one fighter. Confirm it before passing the laptop.')}</span><span className="sketch-counter">{player} / 2 FIGHTERS</span></div>
     {response && <EvidenceDetails response={response} />}

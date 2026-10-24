@@ -327,6 +327,10 @@ class Repository:
                      'interaction_scope': 'corrected_retry' if observation.get('parent_output_id') else 'first_preview',
                      'shared_use': 'consented_pending_review' if data['shared_consent'] else 'private'}
             tx.put('qualityFeedback', value)
+            if data['recognition_verdict'] == 'correct':
+                # The player vouched for this exact proposal's identity; theme checks may rely on it.
+                capture['player_identity_confirmed'] = True
+                tx.put('captures', capture)
             return public(value)
         return self.transaction(operation)
 
@@ -353,7 +357,8 @@ class Repository:
             if battle['status'] not in ('draft', 'ready'):
                 raise StoreError('Only a battle being prepared can accept fighter confirmations.')
             capture = tx.get('captures', key_for(battle_id, capture_id))
-            eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {})
+            eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {},
+                                         player_confirmed=bool((capture or {}).get('player_identity_confirmed')))
             if eligibility['verdict'] != 'eligible':
                 raise StoreError(eligibility['reason'], 409,
                                  'outside_theme' if eligibility['verdict'] == 'outside_theme' else 'theme_uncertain')
@@ -383,7 +388,8 @@ class Repository:
                 if not tx.get('media', media_id):
                     raise StoreError('A fighter image has not been saved.', 409, 'media_missing')
                 capture = tx.get('captures', key_for(battle_id, fighter['capture_id']))
-                eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {})
+                eligibility = validate_theme(battle.get('theme'), (capture or {}).get('observation') or {},
+                                             player_confirmed=bool((capture or {}).get('player_identity_confirmed')))
                 if eligibility['verdict'] != 'eligible':
                     raise StoreError(eligibility['reason'], 409,
                                      'outside_theme' if eligibility['verdict'] == 'outside_theme' else 'theme_uncertain')

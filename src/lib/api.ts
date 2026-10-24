@@ -3,7 +3,7 @@ import type { Fighter } from '../types';
 import { cameraFighter } from './camera-combat.ts';
 import type { CameraCombat, CombatProfile } from './camera-combat';
 export type RoundTheme = {id:string;name:string;instructions:string;examples:string[];rotation_index:number|null;policy_version:string;enforced:boolean};
-export type ThemeValidation = {theme_id:string;theme_name:string;policy_version:string;verdict:'eligible'|'outside_theme'|'uncertain';reason:string;evidence_labels:string[];basis:'recognition_identity_rules'};
+export type ThemeValidation = {theme_id:string;theme_name:string;policy_version:string;verdict:'eligible'|'outside_theme'|'uncertain';reason:string;evidence_labels:string[];basis:'recognition_identity_rules';resolution?:'confirm_identity'};
 export const LEGACY_THEME:RoundTheme={id:'everyday',name:'Everyday Objects',instructions:'Choose one real object around you. Both players share this brief.',examples:['mug','book','phone','shoe'],rotation_index:null,policy_version:'legacy-unrestricted',enforced:false};
 export type PendingFighter = {
   battle_id:string; player_slot:0|1; capture_id:string; image_hash:string;
@@ -52,7 +52,7 @@ export async function api<T>(path:string,init:RequestInit={},options:{timeoutMs?
   try {
     const response=await fetch(`/api${path}`,{...init,signal:controller.signal,headers:{...(init.body instanceof FormData?{}:{'Content-Type':'application/json'}),...init.headers}});
     let data:any;
-    try{data=await response.json();}catch{throw new ApiError('The local API is not responding. Start both servers with npm run dev.','api_unavailable',response.status);}
+    try{data=await response.json();}catch{throw new ApiError(response.status>=500?'The local server hit an error. Try again; if it keeps happening, restart Sketch Clash (npm run docker:up or npm run dev).':'The local server is not responding. Start Sketch Clash with npm run docker:up or npm run dev.','api_unavailable',response.status);}
     if(!response.ok)throw new ApiError(data.error?.message??'The request could not be completed.',data.error?.code??'request_failed',response.status);
     return data as T;
   } catch(error){
