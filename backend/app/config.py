@@ -29,6 +29,7 @@ class Settings:
     embedding_dimensions: int = 768
     vector_index: str = 'character_types_vector'
     frontend_origin: str = 'http://127.0.0.1:5173'
+    colony_requests_per_day: int = 24
 
     @classmethod
     def load(cls) -> 'Settings':
@@ -55,4 +56,5 @@ class Settings:
             embedding_dimensions=int(os.getenv('EMBEDDING_DIMENSIONS', '768')),
             vector_index=os.getenv('MONGODB_VECTOR_INDEX', 'character_types_vector'),
             frontend_origin=os.getenv('FRONTEND_ORIGIN', 'http://127.0.0.1:5173'),
+            colony_requests_per_day=max(1, min(240, int(os.getenv('COLONY_REQUESTS_PER_DAY', '24')))),
         )

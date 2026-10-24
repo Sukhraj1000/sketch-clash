@@ -1,0 +1,181 @@
+"""Provider fixtures verify actor isolation, durable decisions and shared spending ceilings."""
+import asyncio
+from copy import deepcopy
+import json
+from types import SimpleNamespace
+import pytest
+from app.config import Settings
+from app.repository import MemoryRepository, StoreError
+from app.colony_planner import ColonyPlanner, MODEL
+from app.island_planner import utc_day
+
+class Clock:
+    def __init__(self): self.value = 1792790000.0
+    def __call__(self): return self.value
+    def add(self, seconds=61): self.value += seconds
+
+class Colonies:
+    def __init__(self): self.applied={}; self.paused=False; self.failure=False
+    def snapshot(self):
+        return {'enabled':True,'colonies':[{'id':c,'name':c,'island':{'enabled':True,'paused':self.paused,
+            'agents':[{'id':c+'-agent','character_id':c+'-character','display_name':c+' mug'}]}} for c in ('winners','losers')]}
+    def observation(self, colony, actor):
+        assert actor == colony+'-agent'
+        return {'colony_id':colony,'actor':{'id':actor,'name':colony+' mug','allowed_actions':['carry','build','rest'],
+            'capabilities':['carry'],'persona':{'motto':'Help our own island.'},'memory':[]},
+            'resources':{'materials':2},'projects':[],'board':[], 'last_receipts':[]}
+    def apply_decision(self, colony, actor, decision, run_id):
+        if self.failure: self.failure=False; raise StoreError('Transient database failure.',503)
+        if decision.get('action') not in ['carry','build','rest']:
+            raise StoreError('This object cannot do that.',422,'capability_denied')
+        self.applied.setdefault(run_id, {'colony':colony,'actor':actor,'decision':decision})
+        return {'decision':{'id':run_id,'accepted':True},'snapshot':{'private':'must not duplicate'}}
+
+class Provider:
+    def __init__(self):
+        self.calls=[]; self.error=None; self.action='carry'
+        self.aio=SimpleNamespace(interactions=SimpleNamespace(create=self.create))
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error: raise self.error
+        text=json.dumps({'action':self.action,'reason':'Supply our builders.','message':None,'claim_request_id':None})
+        return SimpleNamespace(output_text=text, model_dump=lambda **kw:{'usage':{'total_tokens':197},'model_version':'fixture'})
+
+@pytest.fixture
+def fixture():
+    clock=Clock(); settings=Settings(repository='memory',gemini_api_key='fixture-only',colony_requests_per_day=24)
+    repo=MemoryRepository(settings); colonies=Colonies(); provider=Provider()
+    return repo,colonies,provider,clock,ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+
+@pytest.mark.asyncio
+async def test_actor_context_is_separate_and_turn_replay_has_no_new_provider_call(fixture):
+    repo,colonies,provider,clock,worker=fixture
+    before=deepcopy(repo._data); assert worker.status()['requests_today']==0; assert before==repo._data
+    run=worker.request('first','winners'); await worker.run(run['id'])
+    assert worker.status()['last_status']=='completed'
+    assert worker.status()['requests_today']==1 and worker.status()['reported_tokens']==197
+    assert len(provider.calls)==1 and colonies.applied[run['id']]['actor']=='winners-agent'
+    assert 'losers' not in provider.calls[0]['input']
+    assert provider.calls[0]['model']==MODEL and provider.calls[0]['store'] is False
+    assert provider.calls[0]['generation_config']=={'thinking_level':'low','max_output_tokens':768}
+    assert 'fixture-only' not in json.dumps(provider.calls)
+    assert worker.request('first','winners')['status']=='completed'
+    await worker.run(run['id']); assert len(provider.calls)==1
+    with pytest.raises(StoreError): worker.request('first','losers')
+    clock.add(); other=worker.request('second'); await worker.run(other['id'])
+    assert other['colony_id']=='losers'
+    assert 'winners' not in provider.calls[1]['input']
+    assert 'snapshot' not in worker.status()['runs'][0]['receipt']
+
+@pytest.mark.asyncio
+async def test_capabilities_rechecked_after_model_output(fixture):
+    _,colonies,provider,_,worker=fixture; provider.action='water'
+    run=worker.request('bad','winners'); await worker.run(run['id'])
+    assert not colonies.applied
+    assert worker.status()['last_status']=='rejected'
+    assert worker.status()['auto_blocked'] and worker.status()['requests_today']==1
+
+@pytest.mark.asyncio
+async def test_prior_legacy_usage_and_both_islands_share_one_daily_ceiling(fixture):
+    repo,_,provider,clock,worker=fixture
+    def seed(tx):
+        state=worker.legacy._state(tx,True)
+        state.update(day=utc_day(clock()),requests_today=23,reserved_tokens=23*7000)
+        tx.put('islandPlanner',state)
+    repo.transaction(seed)
+    run=worker.request('last','winners'); await worker.run(run['id']); clock.add()
+    with pytest.raises(StoreError) as exc: worker.request('overflow','losers')
+    assert exc.value.code=='planner_daily_limit'
+    assert len(provider.calls)==1 and worker.status()['remaining_requests']==0
+    clock.add(86400)
+    run=worker.request('tomorrow','losers'); await worker.run(run['id'])
+    assert worker.status()['requests_today']==1
+
+@pytest.mark.asyncio
+async def test_unknown_provider_outcome_is_not_retried(fixture):
+    _,colonies,provider,_,worker=fixture; provider.error=TimeoutError()
+    run=worker.request('timeout','winners'); await worker.run(run['id']); await worker.run(run['id'])
+    assert len(provider.calls)==1 and not colonies.applied
+    assert worker.status()['last_status']=='uncertain'
+    assert worker.status()['reserved_tokens']==7000 and worker.status()['auto_blocked']
+
+@pytest.mark.asyncio
+async def test_saved_decision_recovers_after_write_failure_without_provider_replay(fixture):
+    _,colonies,provider,_,worker=fixture; colonies.failure=True
+    run=worker.request('recover','winners'); await worker.run(run['id'])
+    assert worker.status()['last_status']=='applying'
+    await worker.run(run['id'])
+    assert worker.status()['last_status']=='completed'
+    assert len(provider.calls)==1 and len(colonies.applied)==1
+
+@pytest.mark.asyncio
+async def test_pause_or_switch_prevents_queued_provider_request(fixture):
+    _,colonies,provider,_,worker=fixture
+    run=worker.request('pause','winners'); colonies.paused=True
+    await worker.run(run['id'])
+    assert not provider.calls and worker.status()['requests_today']==0
+    colonies.paused=False; worker.toggle(False)
+    with pytest.raises(StoreError) as exc: worker.request('disabled','losers')
+    assert exc.value.code=='planner_disabled'
+
+@pytest.mark.asyncio
+async def test_restart_marks_running_request_uncertain(fixture):
+    repo,_,provider,_,worker=fixture
+    run=worker.request('crash','winners')
+    def mark(tx):
+        state=tx.get('colonyReasoning',run['id']); state['status']='running'; tx.put('colonyReasoning',state)
+    repo.transaction(mark)
+    await worker.start(); await worker.close()
+    assert worker.status()['last_status']=='uncertain' and not provider.calls
+
+@pytest.mark.asyncio
+async def test_stale_board_conflict_skips_turn_without_disabling_future_agents(fixture):
+    _,colonies,provider,clock,worker=fixture
+    original=colonies.apply_decision
+    def stale(*args):
+        raise StoreError('This request has already been claimed.',409,'request_unavailable')
+    colonies.apply_decision=stale
+    run=worker.request('stale','winners'); await worker.run(run['id'])
+    assert worker.status()['last_status']=='rejected'
+    assert not worker.status()['auto_blocked'] and len(provider.calls)==1
+    assert worker.status()['active_run'] is None
+    colonies.apply_decision=original; clock.add(901)
+    next_run=worker.request('next-automatic',automatic=True)
+    await worker.run(next_run['id'])
+    assert next_run['colony_id']=='losers' and worker.status()['last_status']=='completed'
+
+def test_concurrent_key_replay_checks_colony_inside_transaction(fixture):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    repo,_,_,_,worker=fixture
+    original=repo.read; gate=Barrier(2)
+    def synchronized_read(operation):
+        result=original(operation)
+        if result is None: gate.wait(timeout=5)
+        return result
+    repo.read=synchronized_read
+    def request(side):
+        try: return worker.request('same-concurrent-key',side)
+        except StoreError as exc: return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results=list(pool.map(request,('winners','losers')))
+    assert sum(isinstance(result,StoreError) for result in results)==1
+    assert next(result for result in results if isinstance(result,StoreError)).code=='request_conflict'
+    for side,result in zip(('winners','losers'),results):
+        if not isinstance(result,StoreError): assert result['colony_id']==side
+
+@pytest.mark.asyncio
+async def test_invalid_provider_proposal_keeps_bounded_diagnostic_without_fake_receipt(fixture):
+    repo,colonies,provider,_,worker=fixture
+    async def invalid(**kwargs):
+        provider.calls.append(kwargs)
+        return SimpleNamespace(output_text=json.dumps({'action':'carry','reason':'x'*241}),
+            model_dump=lambda **kw:{'usage':{'total_tokens':100},'status':'completed'})
+    provider.aio.interactions.create=invalid
+    run=worker.request('invalid-schema','winners'); await worker.run(run['id'])
+    saved=repo._data['colonyReasoning'][run['id']]
+    assert saved['status']=='rejected' and not colonies.applied
+    assert saved['validation_errors'][0]['field']=='reason'
+    assert saved['proposal_text'] and saved['provider_status']=='completed'
+    assert 'receipt' not in saved and worker.status()['requests_today']==1
+    assert 'reason' in worker.status()['error']

@@ -41,6 +41,9 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.island = None
         app.state.island_runtime = None
         app.state.island_planner = None
+        app.state.colonies = None
+        app.state.colony_runtime = None
+        app.state.colony_planner = None
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:
@@ -102,7 +105,36 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 if not app.state.island_runtime or not app.state.island_runtime.task:
                     app.state.island_runtime = None
                     app.state.island = None
+        if app.state.repository:
+            try:
+                from .colonies import ColoniesStore
+                from .island_api import IslandRuntime
+                from .colony_planner import ColonyPlanner
+                app.state.colonies = ColoniesStore(app.state.repository)
+                await asyncio.to_thread(app.state.colonies.ensure_indexes)
+                app.state.colony_runtime = IslandRuntime(app.state.colonies)
+                await app.state.colony_runtime.start()
+            except Exception as exc:
+                logger.warning('colonies_startup_unavailable category=%s', type(exc).__name__)
+                if app.state.colony_runtime:
+                    await app.state.colony_runtime.close()
+                    app.state.colony_runtime = None
+                app.state.colonies = None
+        if app.state.colonies:
+            try:
+                app.state.colony_planner = ColonyPlanner(app.state.repository, app.state.colonies, settings,
+                                                        legacy_planner=app.state.island_planner)
+                await asyncio.to_thread(app.state.colony_planner.ensure_indexes)
+                await app.state.colony_planner.start()
+            except Exception as exc:
+                logger.warning('colony_planner_startup_unavailable category=%s', type(exc).__name__)
+                if app.state.colony_planner:
+                    await app.state.colony_planner.close()
+                app.state.colony_planner = None
+                # Optional reasoning must not disable persistent local work.
         yield
+        if app.state.colony_planner: await app.state.colony_planner.close()
+        if app.state.colony_runtime: await app.state.colony_runtime.close()
         if app.state.island_planner: await app.state.island_planner.close()
         if app.state.island_runtime: await app.state.island_runtime.close()
         if app.state.quality_worker:
@@ -176,6 +208,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index},
                 'quality': {'available': app.state.quality is not None, 'operator_required': True},
                 'island': {'available': app.state.island is not None, 'runtime': 'local_backend', 'state_store': app.state.repository.persistence if available else 'unavailable'},
+                'colonies': {'available': app.state.colonies is not None, 'runtime': 'local_backend'},
                 'message': str(app.state.store_error) if app.state.store_error else ('Development memory mode: records disappear on restart.' if settings.repository == 'memory' else None)}
 
     @app.post('/api/battles', response_model=Battle)
@@ -278,6 +311,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     register_quality_routes(app)
     from .island_api import register_island_routes
     register_island_routes(app)
+    from .colony_api import register_colony_routes
+    register_colony_routes(app)
     return app
 
 app = create_app()
