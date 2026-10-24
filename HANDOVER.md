@@ -1,6 +1,16 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment — cached retail pricing
+## Current increment — furniture resemblance and player review
+
+Player review now prioritises the source photograph and character comparison, with identity/appearance decisions beside them on desktop and directly below them on mobile. Optional battle attributes, price receipts and full eligibility reasoning are grouped in a padded disclosure. Detector disagreements remain visible, confirmation is still explicit and optional photo consent stays off.
+
+Accepted table/chair identities now select shared furniture geometry in both previews and islands, including historical generic-template records without a data migration. Tables have an open four-leg frame and thin top; chairs have a seat and slatted back. Saved observed features add tapered legs, a cream cushion or rigid stretchers conservatively. Accessories cannot remove structural legs, and walking limbs pivot without detaching. Identity, gameplay capabilities, saved appearance records and prices are unchanged.
+
+Preview cameras fit the actual character bounds across viewports. The badge now says **Render OK** to distinguish technical visibility/animation checks from human resemblance judgement. A related capture-timer bug was fixed: fresh and recovered human reviews pause the countdown rather than consuming framing time.
+
+Verification used the actual saved table and chair recognition outputs and photographs in an isolated memory-only replay. Both rendered successfully in Chrome; desktop, 768px tablet and 390px mobile layouts passed without horizontal overflow. Correction/appearance controls, explicit confirmation gating and the optional evidence disclosure were checked. Geometry, preview framing (3,840 projected corners), capture recovery, theme, robot/factory and polish checks passed, as did TypeScript and the production build. No new Gemini call, evaluation batch or live game-data write was made for this work. Island Gemini pacing remains Slow; evaluation controls were untouched. Private replay fixtures stay outside Git. Screenshots: `../sketch-clash-table-review.jpg`, `../sketch-clash-chair-review.jpg` and `../sketch-clash-table-review-mobile.jpg`.
+
+## Previous increment — cached retail pricing
 
 Camera pricing uses an Atlas-backed reference cache, 11 checked retailer examples across five narrow categories, and bounded Gemini URL Context refreshes of those same independently curated URLs. The initially requested Google Search cache was replaced after checking Google's grounding terms, which prohibit collecting grounded results into a shared database. No Google Search calls or cached grounded output are included. No eBay calls run in the active capture service.
 
