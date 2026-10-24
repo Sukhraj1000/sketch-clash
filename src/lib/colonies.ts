@@ -7,13 +7,31 @@ export type ColonyCharacter = WorldCharacter & {
   valuation_provenance?: { kind: 'user_estimate'; currency: 'GBP'; recorded_at: string } | null
 }
 export type ColonyBoardEntry = {
-  id: string; created_at: string; kind: 'request' | 'offer' | 'report'; text: string
+  id: string; created_at: string; kind: 'request' | 'offer' | 'report' | 'proposal' | 'support' | 'objection' | 'decision'; text: string
   actor_id: string; character_id: string; actor_name: string
   resource?: string; quantity?: number; remaining?: number
   status: 'open' | 'claimed' | 'fulfilled' | 'recorded' | 'expired'; origin: 'deterministic' | 'model' | 'player'
   request_id?: string; claimed_by?: string; receipt_ids: string[]
+  project_id?: string; council_id?: string; proposal_id?: string
+  interpretation?: string | null
 }
-export type ColonyAgent = IslandAgent & { intent?: string; contribution?: Record<string, number> }
+export type ColonyAgent = IslandAgent & {
+  intent?: string; contribution?: Record<string, number>
+  contributions?: { resources: Record<string, number>; work: number; cooperative_units: number }
+}
+export type ColonyCandidate = {
+  project_id: string; name: string; target_level: number; feasible: boolean; remaining_work: number; remaining_actions: number
+  required_resources: Record<string, number>; available_resources: Record<string, number>; gatherable_resources: string[]
+  missing_capabilities: string[]; reason: string
+}
+export type ColonyOpinion = {
+  agent_id: string; character_id: string; actor_name: string; project_id: string | null
+  kind: 'support' | 'objection'; reason: string; contributes: string[]; origin: 'deterministic' | 'model'; message_id?: string
+}
+export type ColonyCouncil = {
+  id: string; at: string; chosen_project_id: string | null; previous_project_id: string | null; reason: string
+  origin: 'deterministic'; participants: ColonyOpinion[]; candidates: ColonyCandidate[]; model_message_ids: string[]
+}
 export type ColonyMetrics = {
   resident_count?: number; active_agents?: number; completed_actions?: number; building_levels?: number
   project_levels?: number; fulfilled_requests?: number; open_requests?: number; cooperative_deliveries?: number; capability_gaps?: string[]
@@ -24,8 +42,14 @@ export type ColonyMetrics = {
 }
 export type Colony = {
   id: ColonyId; name: string; characters: ColonyCharacter[]
-  island: IslandSimulation & { agents: ColonyAgent[] }; board: ColonyBoardEntry[]; metrics: ColonyMetrics
+  island: Omit<IslandSimulation, 'agents'> & { agents: ColonyAgent[] }; board: ColonyBoardEntry[]; metrics: ColonyMetrics
   world?: { id: string; name: string; layout_seed: number }
+  planning?: {
+    mode: 'crew' | 'manual'; status: 'building' | 'gathering' | 'blocked' | 'complete' | 'waiting'
+    selected_project_id: string | null; target_level?: number; reason: string; last_council_at: string | null; next_council_at: string | null
+    cooldown_seconds: number; candidates: ColonyCandidate[]
+  }
+  council?: ColonyCouncil[]
 }
 export type ColonyRun = {
   id: string; colony_id: ColonyId; agent_id?: string; agent_name?: string; status: string
