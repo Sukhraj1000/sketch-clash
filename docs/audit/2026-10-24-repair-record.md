@@ -52,6 +52,7 @@ The review now shows compatible labels, differing labels, multiple candidates, n
 - Browser checks: Quality Lab reload, close, Back and Forward; island reload; discussion and Observatory rendering. This is not a physical webcam test.
 - Backend activated on localhost after a graceful stop with no active/waiting provider requests. The prior process's **22 known requests** were conservatively seeded in Atlas before the new process started; the remaining daily allowance was **178 of 200** at the first read.
 - Post-restart check: Atlas ready; Gemini gameplay enabled; **Slow, one request/minute**; **evaluation batches paused, zero evaluation jobs**; planner enabled and `auto_blocked=false`. Winner Island remained paused and Loser Island active, with four residents on each island. The old context-limit record remains in history; recovery applies the bounded cooldown before the next council.
+- Automatic recovery was observed at **15:24:34 UTC**: a new Loser Island council started without a manual command. Frosty Gulp Jug reached `queue_wait` under Slow, with `auto_blocked=false` and no current planner/provider error. This confirms scheduling resumed; it is not a claim that a new contribution had already completed.
 - YOLO and OCR remain enabled with local weights present. Their models load lazily for the next capture after restart.
 - No explicit paid probe or evaluation batch was run for verification. Normal authorized gameplay may send subsequent requests on Slow.
 
