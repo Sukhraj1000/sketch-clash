@@ -16,6 +16,7 @@ from .catalog import CHARACTER_TYPES, normalize_key
 from .engine import validate_fighter_config, validate_visual_spec
 from .pipeline import BASELINE_VERSION, BASE_PROMPT_HASH, active_key, version_key, validate_pipeline_config
 from .repository import StoreError, key_for, public
+from .provider_queue import require_ai_enabled
 
 POLICY = {
     'id': 'quality-policy-v1', 'min_development_cases': 3, 'min_final_cases': 3,
@@ -111,6 +112,7 @@ class QualityStore:
 
     def assert_evaluation_enabled(self, tx=None, *, admission=False):
         """Every paid batch admission shares a write fence with the pause switch."""
+        require_ai_enabled(getattr(self, 'catalog_settings', getattr(self.repo, 'settings', None)))
         if tx is None:
             return self.repo.read(lambda current: self.assert_evaluation_enabled(current))
         control = self.evaluation_control(tx)

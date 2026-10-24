@@ -10,6 +10,9 @@ from app.retrieval import AtlasRetriever, RetrievalConfig
 
 async def main():
     settings = Settings.load()
+    if settings.ai_paused:
+        print('AI requests are paused. No retrieval verification request was sent.')
+        return 1
     if not settings.mongodb_uri or not settings.gemini_api_key or not settings.embedding_model:
         print('Semantic retrieval unavailable: configure MONGODB_URI, GEMINI_API_KEY and EMBEDDING_MODEL locally, then run setup:retrieval.')
         return 1
@@ -19,7 +22,7 @@ async def main():
     client = genai.Client(api_key=settings.gemini_api_key, http_options={'timeout': 20000, 'retry_options': {'attempts': 1}})
     try:
         retrieval = AtlasRetriever(mongo[settings.mongodb_database].characterTypes, client, RetrievalConfig(
-            model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
+            model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index), settings=settings)
         query = ' '.join(sys.argv[1:]) or 'A small handled vessel with an open top for a hot drink'
         outcome = await retrieval.search(query)
         print(json.dumps(outcome, indent=2))

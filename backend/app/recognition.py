@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .catalog import CATALOG_VERSION, CharacterCatalog
 from .config import Settings
+from .provider_queue import require_ai_enabled
 from .contracts import Crop, Observation, PendingFighter
 from .engine import ENGINE_VERSION, PRESETS, simulate_match_preview, validate_fighter_config, validate_visual_spec
 from .evidence import EvidenceConfig, EvidenceRunner, prominent_detections, result
@@ -73,6 +74,8 @@ class RecognitionService:
 
     async def _request(self, history: list[dict], *, pipeline_config: dict | None = None,
                        request_budget: Any = None) -> Any:
+        require_ai_enabled(self.settings)
+        if self.provider_queue: self.provider_queue.require_enabled()
         config = validate_pipeline_config(pipeline_config or BASELINE_CONFIG)
         # Keep image bytes out of token estimation; reserve a deliberately conservative tile allowance.
         def content_size(value):
@@ -156,6 +159,7 @@ class RecognitionService:
                                 correction_context: dict | None = None, persist_catalog: bool = True,
                                 request_budget: Any = None, references: list[dict] | None = None,
                                 reference_provider: Any = None) -> Observation:
+        require_ai_enabled(self.settings)
         started = time.monotonic()
         config = validate_pipeline_config(pipeline_config or BASELINE_CONFIG)
         output_id = uuid4().hex

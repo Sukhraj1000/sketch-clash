@@ -14,6 +14,7 @@ import time
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from .repository import StoreError, key_for, public
+from .provider_queue import AI_PAUSE_REASON, require_ai_enabled
 
 log = logging.getLogger('sketch_clash.island_planner')
 MODEL = 'gemini-3.5-flash-lite'
@@ -54,6 +55,7 @@ class IslandPlanner:
     def __init__(self, repository, island, settings, client=None, clock=time.time):
         self.repo, self.island, self.settings = repository, island, settings
         self.clock, self.client, self.owns_client = clock, client, client is None
+        self.provider_queue = None
         self.state_id = key_for(repository.world_id, 'island-planner')
         self.task = None
         self.wake = asyncio.Event()
@@ -86,6 +88,7 @@ class IslandPlanner:
         if state['day'] != utc_day(self.clock()):
             state.update(requests_today=0, reserved_tokens=0, reported_tokens=0)
         return {'enabled': state['enabled'], 'configured': bool(self.settings.gemini_api_key or self.client),
+                'paused': self.settings.ai_paused, 'pause_reason': AI_PAUSE_REASON if self.settings.ai_paused else None,
                 'model': MODEL, 'requests_today': state['requests_today'],
                 'max_requests_per_day': LIMITS['requests_per_day'], 'reserved_tokens': state['reserved_tokens'],
                 'max_reserved_tokens_per_day': LIMITS['reserved_tokens_per_day'], 'reported_tokens': state['reported_tokens'],
@@ -95,6 +98,7 @@ class IslandPlanner:
                 'limits': deepcopy(LIMITS), 'routine_decisions': 'local simulation; no per-step model calls'}
 
     def toggle(self, enabled):
+        if enabled: require_ai_enabled(self.settings, self.provider_queue)
         def operation(tx):
             state = self._state(tx, True)
             state['enabled'] = enabled
@@ -104,6 +108,7 @@ class IslandPlanner:
         return self.status()
 
     def request(self, request_key, automatic=False):
+        require_ai_enabled(self.settings, self.provider_queue)
         snapshot = self.island.snapshot()
         if not snapshot.get('enabled') or snapshot.get('paused'):
             raise StoreError('Start or resume the settlement before refreshing its plans.', 409, 'island_paused')
@@ -187,6 +192,11 @@ class IslandPlanner:
 
     async def loop(self):
         while not self.stopping:
+            if self.settings.ai_paused:
+                self.wake.clear()
+                try: await asyncio.wait_for(self.wake.wait(), 5)
+                except asyncio.TimeoutError: pass
+                continue
             try:
                 state = await asyncio.to_thread(self.repo.read, lambda tx: self._state(tx))
                 run = await asyncio.to_thread(self.repo.read, lambda tx: tx.get('islandReasoning', state['pending_run_id'])) if state.get('pending_run_id') else None
@@ -204,6 +214,9 @@ class IslandPlanner:
             except asyncio.TimeoutError: pass
 
     async def run(self, run_id):
+        # A startup pause holds queued/application checkpoints without spending
+        # their budget or changing uncertain provider outcomes into retries.
+        if self.settings.ai_paused or getattr(self.provider_queue, 'paused', False): return
         run = await asyncio.to_thread(self.repo.read, lambda tx: tx.get('islandReasoning', run_id))
         if not run or run['status'] not in ('queued', 'applying'): return
         if run['status'] == 'applying':
@@ -229,10 +242,12 @@ class IslandPlanner:
             if self.client is None:
                 from google import genai
                 self.client = genai.Client(api_key=self.settings.gemini_api_key, http_options={'timeout':45000,'retry_options':{'attempts':1}})
-            response = await asyncio.wait_for(self.client.aio.interactions.create(model=MODEL, store=False,
-                system_instruction=SYSTEM, input=encoded,
-                response_format={'type':'text','mime_type':'application/json','schema':Reflections.model_json_schema()},
-                generation_config={'thinking_level':'low','max_output_tokens':LIMITS['output_tokens']}), LIMITS['timeout_seconds']+2)
+            async def invoke():
+                return await asyncio.wait_for(self.client.aio.interactions.create(model=MODEL, store=False,
+                    system_instruction=SYSTEM, input=encoded,
+                    response_format={'type':'text','mime_type':'application/json','schema':Reflections.model_json_schema()},
+                    generation_config={'thinking_level':'low','max_output_tokens':LIMITS['output_tokens']}), LIMITS['timeout_seconds']+2)
+            response = await self.provider_queue.run(MODEL, invoke, category='reflection') if self.provider_queue else await invoke()
             response_received = True
             metadata = response.model_dump(mode='json', exclude_none=True) if hasattr(response,'model_dump') else {}
             def record_receipt(tx):

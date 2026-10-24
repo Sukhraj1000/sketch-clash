@@ -15,6 +15,15 @@ import json
 import re
 import time
 
+AI_PAUSE_REASON = 'AI requests are paused for local development during the Gemini credit outage. Saved island work and Atlas persistence continue.'
+
+
+def require_ai_enabled(settings, queue=None):
+    """Reject before intake, budget reservation or provider dispatch."""
+    if getattr(settings, 'ai_paused', False) or getattr(queue, 'paused', False):
+        from .repository import StoreError
+        raise StoreError(AI_PAUSE_REASON, 503, 'ai_paused')
+
 
 @dataclass(frozen=True)
 class ProviderDiagnostic:
@@ -201,19 +210,23 @@ def diagnose_provider_error(exc, now=None):
 
 class ProviderQueue:
     """One local admission queue shared by every Gemini-using service."""
-    def __init__(self, concurrency=2, clock=time.time, sleep=asyncio.sleep):
+    def __init__(self, concurrency=2, clock=time.time, sleep=asyncio.sleep, *, paused=False):
         self.clock, self.sleep = clock, sleep
+        self.paused = bool(paused)
         self.semaphore = asyncio.Semaphore(max(1, concurrency))
         self.cooldown_until = 0.
         self.waiting = self.active = self.completed = self.throttled = 0
         self.last_error = None
 
     async def run(self, model, operation, category='agent'):
+        self.require_enabled()
         self.waiting += 1
         try:
             async with self.semaphore:
+                self.require_enabled()
                 while self.cooldown_until > self.clock():
                     await self.sleep(self.cooldown_until - self.clock())
+                    self.require_enabled()
                 self.active += 1
                 try:
                     result = await operation()
@@ -232,9 +245,14 @@ class ProviderQueue:
 
     def status(self):
         return {'waiting': max(0, self.waiting - self.active), 'active': self.active,
+                'paused': self.paused, 'pause_reason': AI_PAUSE_REASON if self.paused else None,
                 'completed': self.completed, 'throttled': self.throttled,
                 'retry_after_seconds': max(0, round(self.cooldown_until - self.clock(), 2)),
                 'last_error': self.last_error}
+
+    def require_enabled(self):
+        if self.paused:
+            raise ProviderFailure(ProviderDiagnostic('ai_paused', AI_PAUSE_REASON, retryable=False))
 
     @staticmethod
     def retry_delay(diagnostic, attempt):

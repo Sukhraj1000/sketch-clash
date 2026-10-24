@@ -36,6 +36,7 @@ class Settings:
     colony_reply_model: str = 'gemini-3.8-flash'
     colony_session_interval_seconds: int = 120
     gemini_provider_concurrency: int = 2
+    ai_paused: bool = False
     gemini_key_source: str = 'explicit_settings'
     settings_loaded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -48,6 +49,7 @@ class Settings:
         return cls(
             gemini_api_key=os.getenv('GEMINI_API_KEY', ''),
             gemini_key_source=key_source,
+            ai_paused=boolean('SKETCH_AI_PAUSED', 'false'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-4-argon'),
             mongodb_uri=os.getenv('MONGODB_URI', ''),
             mongodb_database=os.getenv('MONGODB_DATABASE', 'sketch_clash'),

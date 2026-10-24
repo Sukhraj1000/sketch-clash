@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from .pipeline import BASE_PROMPT_HASH, validate_pipeline_config, version_key
 from .quality import POLICY, TERMINAL, inference_payload, score_outcome, technical_check
 from .repository import StoreError, key_for
+from .provider_queue import require_ai_enabled
 
 log = logging.getLogger('sketch_clash.quality')
 
@@ -85,6 +86,7 @@ class JobBudget:
 class QualityWorker:
     def __init__(self, store, settings, recognizer_factory=None, agent_client=None):
         self.store, self.settings = store, settings
+        self.store.catalog_settings = settings
         self.recognizer_factory, self.agent_client = recognizer_factory, agent_client
         self.task = None
         self.wake = asyncio.Event()
@@ -94,7 +96,7 @@ class QualityWorker:
         def recover(tx):
             control = self.store.evaluation_control(tx)
             for job in self.store.rows(tx, 'qualityJobs'):
-                if control['evaluation_paused'] and job['status'] in ('running', 'queued'):
+                if (control['evaluation_paused'] or self.settings.ai_paused) and job['status'] in ('running', 'queued'):
                     hold_for_evaluation_pause(job, control)
                     tx.put('qualityJobs', job)
                     continue
@@ -125,7 +127,7 @@ class QualityWorker:
                 except asyncio.TimeoutError: pass
                 self.wake.clear()
                 continue
-            pending = next((j for j in jobs if j['status'] == 'queued'), None) if not control['evaluation_paused'] else None
+            pending = next((j for j in jobs if j['status'] == 'queued'), None) if not control['evaluation_paused'] and not self.settings.ai_paused else None
             if pending:
                 await self.run(pending['id'])
                 continue
@@ -134,6 +136,7 @@ class QualityWorker:
             except asyncio.TimeoutError: pass
 
     async def run(self, identifier):
+        if self.settings.ai_paused: return
         def claim(job):
             if job['status'] != 'queued': raise StoreError('Job already claimed.', 409, 'job_claimed')
             if job.get('cancel_requested'): raise JobCancelled()
@@ -289,6 +292,7 @@ class QualityWorker:
                 if inspect.isawaitable(value): await value
 
     async def improve(self, job, budget):
+        require_ai_enabled(self.settings)
         from google import genai
         client = self.agent_client or genai.Client(api_key=self.settings.gemini_api_key,
                 http_options={'timeout': 60000, 'retry_options': {'attempts': 1}})

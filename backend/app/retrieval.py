@@ -8,6 +8,7 @@ from hashlib import sha256
 import math
 import inspect
 from typing import Any
+from .provider_queue import AI_PAUSE_REASON, require_ai_enabled
 
 EMBEDDING_SCHEMA_VERSION = "1"
 
@@ -40,14 +41,17 @@ def vector_index_definition(dimensions: int = 768) -> dict:
 
 
 class AtlasRetriever:
-    def __init__(self, collection: Any = None, client: Any = None, config: RetrievalConfig | None = None):
+    def __init__(self, collection: Any = None, client: Any = None, config: RetrievalConfig | None = None, *, settings=None):
         self.collection, self.client = collection, client
+        self.settings = settings
         self.config = config or RetrievalConfig()
         self.provider_queue = None
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._lock = asyncio.Semaphore(1)
 
     async def embed(self, text: str, *, document: bool = False, title: str = "none") -> list[float]:
+        require_ai_enabled(self.settings)
+        if self.provider_queue: self.provider_queue.require_enabled()
         if self.client is None:
             raise RuntimeError("Gemini embedding access is not configured.")
         prepared, options = embedding_input(text, document=document, title=title, model=self.config.model)
@@ -73,6 +77,8 @@ class AtlasRetriever:
         return vector[:]
 
     async def search(self, description: str) -> dict:
+        if getattr(self.settings, 'ai_paused', False) or (self.provider_queue and self.provider_queue.paused):
+            return {'status': 'ai_paused', 'detail': AI_PAUSE_REASON, 'candidates': []}
         if self.collection is None:
             return {"status": "unavailable", "detail": "MongoDB Atlas is not configured.", "candidates": []}
         if self.client is None or not self.config.model:

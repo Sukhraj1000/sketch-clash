@@ -19,7 +19,8 @@
     "test:backend": ".venv/bin/python -m pytest backend/tests -q",
     "setup:retrieval": ".venv/bin/python backend/scripts/setup_retrieval.py",
     "test:images": "node scripts/verify-image-input.mjs",
-    "verify:retrieval": ".venv/bin/python backend/scripts/verify_retrieval.py"
+    "verify:retrieval": ".venv/bin/python backend/scripts/verify_retrieval.py",
+    "dev:offline": "node scripts/dev.mjs --offline"
   },
   "dependencies": {
     "@fontsource/bangers": "latest",

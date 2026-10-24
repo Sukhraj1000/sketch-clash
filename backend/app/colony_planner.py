@@ -10,7 +10,7 @@ from datetime import datetime
 from pydantic import ValidationError
 from .agent_sdk import AgentDecision
 from .island_planner import IslandPlanner, iso, utc_day
-from .provider_queue import ProviderQueue, ProviderFailure
+from .provider_queue import ProviderQueue, ProviderFailure, AI_PAUSE_REASON, require_ai_enabled
 from .repository import StoreError, key_for, public
 
 log = logging.getLogger('sketch_clash.colony_planner')
@@ -97,7 +97,7 @@ class ColonyPlanner:
         self.memory_embedder = memory_embedder
         self.daily_limit = max(0, settings.colony_requests_per_day)
         self.interval = settings.colony_session_interval_seconds
-        self.queue = provider_queue or ProviderQueue(settings.gemini_provider_concurrency, clock=clock)
+        self.queue = provider_queue or ProviderQueue(settings.gemini_provider_concurrency, clock=clock, paused=settings.ai_paused)
         self.owns_client = client is None
         self.legacy = legacy_planner or IslandPlanner(repo, None, settings, clock=clock)
         self.state_id = key_for(repo.world_id, 'colony-planner')
@@ -143,6 +143,7 @@ class ColonyPlanner:
                 'provider_diagnostic', 'retry_at', 'attempts', 'reply_to_id', 'seen_message_ids', 'trace_id', 'span_id')
         safe_runs = [{k: deepcopy(run[k]) for k in keys if k in run} for run in runs]
         return {'enabled': state['enabled'], 'configured': bool(self.settings.gemini_api_key or self.client),
+                'paused': self.settings.ai_paused, 'pause_reason': AI_PAUSE_REASON if self.settings.ai_paused else None,
                 'model': self.settings.colony_proposal_model, 'reply_model': self.settings.colony_reply_model,
                 'requests_today': budget['requests_today'], 'max_requests_per_day': self.daily_limit,
                 'remaining_requests': max(0, self.daily_limit - budget['requests_today']) if self.daily_limit else None,
@@ -159,6 +160,7 @@ class ColonyPlanner:
                 'runtime': 'Durable local councils; each resident reads real preceding messages in a separate Gemini invocation.'}
 
     def toggle(self, enabled):
+        if enabled: require_ai_enabled(self.settings, self.queue)
         def op(tx):
             state = self._state(tx, True); state['enabled'] = enabled
             if enabled: state.update(next_due=self.clock(), auto_blocked=False, error=None)
@@ -193,6 +195,7 @@ class ColonyPlanner:
                 'attempts': 0, 'model': self.settings.colony_proposal_model if index in (0, 3) else self.settings.colony_reply_model}
 
     def request(self, request_key, colony_id=None, agent_id=None, automatic=False, trigger='manual'):
+        require_ai_enabled(self.settings, self.queue)
         run_id = key_for(self.repo.world_id, 'colony-turn', request_key)
         def replay(existing):
             if colony_id and existing['colony_id'] != colony_id: raise StoreError('Request key already belongs to another island.', 409, 'request_conflict')
@@ -379,6 +382,11 @@ class ColonyPlanner:
 
     async def loop(self):
         while not self.stopping:
+            if self.settings.ai_paused:
+                self.wake.clear()
+                try: await asyncio.wait_for(self.wake.wait(), 5)
+                except asyncio.TimeoutError: pass
+                continue
             try:
                 await asyncio.to_thread(self._check_population)
                 state = await asyncio.to_thread(self.repo.read, lambda tx: self._state(tx))
@@ -398,6 +406,7 @@ class ColonyPlanner:
             except asyncio.TimeoutError: pass
 
     async def run(self, run_id):
+        if self.settings.ai_paused or self.queue.paused: return
         run = await asyncio.to_thread(self.repo.read, lambda tx: tx.get('colonyReasoning', run_id))
         if not run or run['status'] not in ('queued', 'applying', 'retry_wait'): return
         if run['status'] == 'applying':

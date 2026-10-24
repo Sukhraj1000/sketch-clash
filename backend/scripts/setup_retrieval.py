@@ -10,6 +10,9 @@ from app.retrieval import AtlasRetriever, RetrievalConfig, vector_index_definiti
 
 async def main():
     settings = Settings.load()
+    if settings.ai_paused:
+        print('AI requests are paused. Retrieval setup did not send embeddings or change indexes.')
+        return 1
     if not settings.mongodb_uri or not settings.gemini_api_key or not settings.embedding_model:
         print('Set MONGODB_URI, GEMINI_API_KEY and EMBEDDING_MODEL in .env.local first. No changes were made.')
         return 1
@@ -23,7 +26,7 @@ async def main():
         collection = mongo[settings.mongodb_database].characterTypes
         await collection.create_index('canonical_key', unique=True)
         retriever = AtlasRetriever(collection=collection, client=client, config=RetrievalConfig(
-            model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
+            model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index), settings=settings)
         count = await retriever.seed(CharacterCatalog.seed_records())
         existing = await (await collection.list_search_indexes()).to_list(length=100)
         names = {entry.get('name') for entry in existing}

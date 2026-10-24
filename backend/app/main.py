@@ -46,7 +46,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.colony_planner = None
         app.state.observatory = None
         from .provider_queue import ProviderQueue
-        app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency)
+        app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency, paused=settings.ai_paused)
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:
@@ -70,7 +70,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             app.state.recognizer = RecognitionService(settings, catalog=catalog)
             from .retrieval import AtlasRetriever, RetrievalConfig
             catalog.retriever = AtlasRetriever(collection=catalog.collection, client=app.state.recognizer.client,
-                config=RetrievalConfig(model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
+                config=RetrievalConfig(model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index), settings=settings)
         app.state.service = BattleService(settings, app.state.repository, app.state.recognizer) if app.state.repository else None
         if hasattr(app.state.recognizer, 'provider_queue'):
             app.state.recognizer.provider_queue = app.state.provider_queue
@@ -93,6 +93,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 await app.state.quality_worker.start()
                 from .quality_references import ApprovedReferences
                 app.state.references = ApprovedReferences(app.state.repository, settings)
+                app.state.references.provider_queue = app.state.provider_queue
                 app.state.service.reference_provider = app.state.references.retrieve
             except Exception as exc:
                 logger.warning('quality_startup_unavailable category=%s', type(exc).__name__)
@@ -108,6 +109,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 app.state.island_runtime = IslandRuntime(app.state.island)
                 await app.state.island_runtime.start()
                 app.state.island_planner = IslandPlanner(app.state.repository, app.state.island, settings)
+                app.state.island_planner.provider_queue = app.state.provider_queue
                 await asyncio.to_thread(app.state.island_planner.ensure_indexes)
                 await app.state.island_planner.start()
             except Exception as exc:
@@ -137,7 +139,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             try:
                 from .retrieval import AtlasRetriever, RetrievalConfig
                 memory_embedder = AtlasRetriever(client=getattr(app.state.recognizer, 'client', None),
-                    config=RetrievalConfig(model=settings.embedding_model or 'gemini-embedding-2', dimensions=settings.embedding_dimensions))
+                    config=RetrievalConfig(model=settings.embedding_model or 'gemini-embedding-2', dimensions=settings.embedding_dimensions), settings=settings)
                 memory_embedder.provider_queue = app.state.provider_queue
                 app.state.colony_planner = ColonyPlanner(app.state.repository, app.state.colonies, settings,
                                                         legacy_planner=app.state.island_planner, provider_queue=app.state.provider_queue,
@@ -224,14 +226,20 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     @app.get('/api/health')
     async def health():
         available = app.state.repository is not None
+        from .provider_queue import AI_PAUSE_REASON
+        ai_status = 'paused' if settings.ai_paused else ('configured' if settings.gemini_api_key else 'unconfigured')
         return {'status': 'ready' if available else 'configuration_required',
+                'ai_paused': settings.ai_paused, 'ai_status': ai_status,
+                'ai_pause_reason': AI_PAUSE_REASON if settings.ai_paused else None,
                 'persistence': app.state.repository.persistence if available else 'unavailable',
                 'persistent': available and app.state.repository.persistence == 'mongodb',
-                'gemini': {'configured': bool(settings.gemini_api_key), 'model': settings.gemini_model},
+                'gemini': {'configured': bool(settings.gemini_api_key), 'model': settings.gemini_model,
+                           'status': ai_status, 'paused': settings.ai_paused,
+                           'pause_reason': AI_PAUSE_REASON if settings.ai_paused else None},
                 'world_id': settings.world_id,
                 'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
-                'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index},
-                'quality': {'available': app.state.quality is not None, 'operator_required': True},
+                'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index, 'paused': settings.ai_paused},
+                'quality': {'available': app.state.quality is not None, 'operator_required': True, 'ai_paused': settings.ai_paused},
                 'island': {'available': app.state.island is not None, 'runtime': 'local_backend', 'state_store': app.state.repository.persistence if available else 'unavailable'},
                 'colonies': {'available': app.state.colonies is not None, 'runtime': 'local_backend'},
                 'message': str(app.state.store_error) if app.state.store_error else ('Development memory mode: records disappear on restart.' if settings.repository == 'memory' else None)}

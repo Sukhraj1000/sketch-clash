@@ -18,6 +18,7 @@ from google.genai import types
 from PIL import Image
 
 from .repository import StoreError, key_for
+from .provider_queue import AI_PAUSE_REASON, require_ai_enabled
 
 MODEL = 'gemini-embedding-2'
 DIMENSIONS = 768
@@ -60,6 +61,7 @@ class ApprovedReferences:
             from google import genai
             client = genai.Client(api_key=settings.gemini_api_key)
         self.client = client
+        self.provider_queue = None
         self.status = {'status': 'not_checked', 'available': False,
                        'detail': 'No visual reference search has run.'}
         self._lock = asyncio.Semaphore(1)
@@ -131,15 +133,19 @@ class ApprovedReferences:
         return True
 
     async def _embed(self, media, budget=None):
+        require_ai_enabled(self.settings)
+        if self.provider_queue: self.provider_queue.require_enabled()
         if self.client is None:
             raise StoreError('Gemini embedding access is unavailable.', 503, 'embedding_unavailable')
         # The maximum embedding input context is reserved, rather than guessed from a label.
         reservation = await budget.reserve(input_tokens=8192, output_tokens=0, kind='visual_reference_embedding') if budget else None
         async with self._lock:
-            response = await asyncio.wait_for(self.client.aio.models.embed_content(
-                model=MODEL,
-                contents=[types.Part.from_bytes(data=media['data'], mime_type=media['mime_type'])],
-                config=types.EmbedContentConfig(output_dimensionality=DIMENSIONS)), TIMEOUT)
+            async def invoke():
+                return await asyncio.wait_for(self.client.aio.models.embed_content(
+                    model=MODEL,
+                    contents=[types.Part.from_bytes(data=media['data'], mime_type=media['mime_type'])],
+                    config=types.EmbedContentConfig(output_dimensionality=DIMENSIONS)), TIMEOUT)
+            response = await self.provider_queue.run(MODEL, invoke, category='embedding') if self.provider_queue else await invoke()
         if budget:
             # Unknown/failed provider outcomes deliberately keep the reservation pending.
             await budget.complete(reservation, response)
@@ -152,6 +158,9 @@ class ApprovedReferences:
         return [value / norm for value in values]
 
     async def retrieve(self, image_hash, limit=3, exclude_groups=(), *, budget=None, snapshot=None):
+        if getattr(self.settings, 'ai_paused', False):
+            self._state('ai_paused', AI_PAUSE_REASON)
+            return []
         limit = max(0, min(MAX_REFERENCES, int(limit)))
         if not limit:
             self._state('disabled', 'This pipeline does not use visual references.')

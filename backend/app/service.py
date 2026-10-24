@@ -14,6 +14,7 @@ from .contracts import Crop, Observation, PendingFighter, CorrectionRequest
 from .engine import validate_fighter_config, validate_visual_spec
 from .images import ProcessedImage, normalize_image, crop_image
 from .repository import Repository, StoreError
+from .provider_queue import require_ai_enabled
 
 class BattleService:
     def __init__(self, settings: Settings, repository: Repository, recognizer: Any):
@@ -37,6 +38,7 @@ class BattleService:
 
     async def submit_capture(self, battle_id: str, capture_id: str, slot: int, source: str,
                              data: bytes, mime_type: str, crop: Crop | None = None) -> dict:
+        require_ai_enabled(self.settings)
         # Serialize short intake work in arrival order, not model inference: an older large
         # photo cannot finish CPU normalization after a newer retake and claim the slot back.
         async with self._capture_lock(f'intake:{battle_id}:{slot}'):
@@ -46,6 +48,7 @@ class BattleService:
         return await self._recognize_registered(battle_id, capture_id, slot, source, canonical, selected, capture, crop)
 
     async def select_capture(self, battle_id: str, capture_id: str, crop: Crop) -> dict:
+        require_ai_enabled(self.settings)
         capture = await asyncio.to_thread(self.repository.get_capture, battle_id, capture_id)
         battle = await asyncio.to_thread(self.repository.get_battle, battle_id)
         revision = sha256(f'{capture_id}:{crop.model_dump_json()}'.encode()).hexdigest()[:32]
@@ -58,6 +61,7 @@ class BattleService:
                                    expected_capture_id=capture_id)
 
     async def correct_capture(self, battle_id: str, capture_id: str, body: dict) -> dict:
+        require_ai_enabled(self.settings)
         request = CorrectionRequest.model_validate(body).model_dump()
         if request['kind'] == 'factual' and (not request['canonical_label'] or not re.fullmatch(r"[\w \-']{1,80}", request['canonical_label'])):
             raise StoreError('Use a concise object label, such as mug or water bottle.', 422, 'invalid_correction')
