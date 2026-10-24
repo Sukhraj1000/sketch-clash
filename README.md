@@ -53,6 +53,8 @@ Routine tasks use local simulation with no model request per action. Optional `g
 
 See [ISLAND_PLAN.md](ISLAND_PLAN.md) for the implemented plan and [Design.md](Design.md) for persistence details.
 
+[Agent architecture and validation](AGENT_ARCHITECTURE.md) diagrams the current system and a proposed next step: residents that request help, negotiate commitments and make verified resource transfers. It includes a cooperative nursery scenario and a comparison against independent agents and a central planner. This is a design draft; peer communication and physical cargo have not been implemented.
+
 ## Recognition & World Quality
 
 Choose **QUALITY LAB** from the home screen. This entry is absent during a round. To unlock it, run this yourself in a private terminal on the home Mac after starting the backend:

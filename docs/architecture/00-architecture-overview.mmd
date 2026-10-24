@@ -1,0 +1,25 @@
+flowchart LR
+  subgraph current["CURRENT · central colony scheduler"]
+    direction TB
+    C1["Capture → recognize → battle"]
+    C2["Saved object residents"]
+    C3["Fixed capabilities + central job rules"]
+    C4["Timed task adds stock or building progress"]
+    C5[("Atlas saves state + action journal")]
+    C6["3D scene animates the saved tasks"]
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6
+  end
+  subgraph proposed["PROPOSED · agents cooperate toward a measurable goal"]
+    direction TB
+    P1["Shared objective + finite resources"]
+    P2["Each object observes, remembers and decides"]
+    P3["Request help → offer → accept a commitment"]
+    P4{"Backend validates capability,<br/>evidence, stock and route"}
+    P5["Execute travel, carrying and construction"]
+    P6[("Atlas commits exact transfers + receipts")]
+    P7["3D world shows who contributed and what changed"]
+    P8["Compare success, time and cost<br/>with no communication and a central planner"]
+    P1 --> P2 --> P3 --> P4 -->|valid| P5 --> P6 --> P7 --> P8
+    P4 -.->|blocked reason prompts replanning| P2
+  end
+  current ~~~ proposed

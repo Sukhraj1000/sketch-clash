@@ -1,0 +1,55 @@
+sequenceDiagram
+  autonumber
+  participant R as Ruler agent
+  participant P as Pencil agent
+  participant B as Bottle agent
+  participant M as Mug agent
+  participant V as Validator / executor
+  participant D as MongoDB ledger
+  Note over R,D: PROPOSED example trace, not a recorded run or guaranteed solution
+  R->>V: Inspect gap using permitted survey action
+  V->>D: Commit observation receipt: gap = 3 spans
+  V-->>R: Verified observation receipt
+  R->>P: REPORT gap = 3, cite observation receipt
+  P->>V: Propose 3-span blueprint and reserve 3 timber
+  V->>D: Validate measurement, stock, ownership and reserve atomically
+  V-->>P: Accepted build commitment with expiry
+  P->>B: REQUEST 4 water at near-bank tank after bridge work
+  B->>V: Inspect source, route and own cargo capacity
+  V-->>B: Available water and route observation
+  B->>P: OFFER bulk delivery within observed capacity
+  P->>V: Accept offer and request resource reservation
+  V->>D: Bind commitment and reserve available water
+  V-->>B: Accepted delivery commitment with reservation token
+  P->>V: Propose timber haul sequence and build from accepted blueprint
+  V-->>P: Accepted bounded plan, each step checked at execution
+  loop Three timber units, one carried per trip
+    Note over P,V: Pencil travels to depot, consuming simulated time
+    V->>D: Commit timber depot → Pencil cargo transfer
+    Note over P,V: Pencil travels to build site with visible cargo
+    V->>D: Commit timber Pencil cargo → site stock transfer
+  end
+  Note over P,V: Pencil constructs bridge over declared work duration
+  V->>D: Commit site timber → installed bridge material and completion receipt
+  V-->>P: Bridge completion receipt
+  P->>M: REPORT bridge ready, cite completion receipt
+  B->>V: Propose fill, travel and unload sequence
+  V->>D: Commit source 6 → 2 and Bottle cargo 0 → 4
+  Note over B,V: Bottle travels to staging tank with visible cargo
+  V->>D: Commit Bottle cargo 4 → 0 and staging stock 0 → 4
+  V-->>B: Delivery receipt
+  B->>M: OFFER staged water, cite 4-unit delivery receipt
+  M->>V: Propose four 1-unit trips across the narrow bridge
+  loop Each of four validated trips
+    Note over M,V: Mug travels to staging tank
+    V->>D: Claim one available unit, staging → Mug cargo transfer
+    Note over M,V: Mug crosses the bridge with one visible water unit
+    V->>D: Commit Mug cargo → nursery transfer
+    V-->>M: Verified delivery receipt
+  end
+  V->>D: Goal satisfied: nursery received 4 water before deadline
+  V-->>R: Episode result + relevant verified contributions
+  V-->>P: Episode result + relevant verified contributions
+  V-->>B: Episode result + relevant verified contributions
+  V-->>M: Episode result + relevant verified contributions
+  Note over R,M: Memory separates observed facts, received claims and personal interpretations

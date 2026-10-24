@@ -1,0 +1,131 @@
+erDiagram
+  %% Proposed logical model, not final collection names or a full physical schema.
+  %% Every operational record belongs to one episode. Cross-episode references
+  %% are rejected; resident identity persists, but cargo and work do not carry over.
+  %% Immutable verified history may be retrieved only under the declared memory
+  %% policy; held-out evaluation starts with the same permitted history snapshot.
+  WORLD ||--o{ RESIDENT : preserves
+  WORLD ||--o{ EPISODE : hosts
+  RESIDENT ||--o{ EPISODE_AGENT : participates_as
+  EPISODE ||--o{ EPISODE_AGENT : scopes
+  EPISODE ||--o{ RESOURCE_LOT : isolates_stock
+  EPISODE ||--o{ PROJECT : scopes
+  EPISODE ||--o{ REASONING_RUN : scopes
+  EPISODE ||--o| EVALUATION_RUN : is_scored_by
+  BUDGET_ACCOUNT ||--o{ REASONING_RUN : authorizes
+  EPISODE_AGENT ||--o{ MESSAGE : sends
+  MESSAGE ||--o{ DELIVERY : addresses
+  EPISODE_AGENT ||--o{ DELIVERY : receives
+  EPISODE_AGENT ||--o{ COMMITMENT : accepts
+  MESSAGE |o--o| COMMITMENT : may_establish
+  EPISODE_AGENT ||--o{ ACTION : executes
+  COMMITMENT |o--o{ ACTION : may_schedule
+  ACTION ||--o{ RECEIPT : produces
+  EPISODE_AGENT ||--o{ MEMORY : remembers
+  RECEIPT }o--o{ MEMORY : may_ground
+  MESSAGE }o--o{ MEMORY : may_inform
+  RECEIPT ||--o{ CONTRIBUTION_LINK : supports
+  PROJECT ||--o{ CONTRIBUTION_LINK : consumes
+  RESOURCE_LOT ||--o{ TRANSFER : tracks
+  RECEIPT ||--o{ TRANSFER : verifies
+  REASONING_RUN |o--o{ MESSAGE : may_propose
+  REASONING_RUN |o--o{ ACTION : may_propose
+
+  WORLD {
+    string id PK
+    string name
+  }
+  RESIDENT {
+    string id PK
+    string world_id FK
+    string canonical_type_id
+    string appearance_reference
+  }
+  EPISODE {
+    string id PK
+    string world_id FK
+    string scenario_version
+    string rules_version
+    string seed
+    string controller_variant
+    int tick
+    int deadline_tick
+  }
+  EPISODE_AGENT {
+    string id PK
+    string episode_id FK
+    string resident_id FK
+    string capability_version
+    string location
+    array cargo_lot_ids "References authoritative resource lots"
+    object current_goal
+    string initial_memory_snapshot
+  }
+  RESOURCE_LOT {
+    string id PK
+    string episode_id FK
+    string holder_id "Location or episode agent"
+    string resource_type
+    int quantity
+    int revision
+  }
+  MESSAGE {
+    string id PK
+    string episode_id FK
+    string sender_episode_agent_id FK
+    string reasoning_run_id FK "Optional for templates or controllers"
+    string origin "model, template or controller"
+    string kind
+    string reply_to
+    array evidence_ids
+  }
+  COMMITMENT {
+    string id PK
+    string episode_id FK
+    string episode_agent_id FK
+    string message_id FK "Optional for direct accepted work"
+    object reservations
+    string status
+    int expires_tick
+  }
+  ACTION {
+    string id PK
+    string episode_id FK
+    string episode_agent_id FK
+    string commitment_id FK "Optional for inspection or direct action"
+    string reasoning_run_id FK "Optional for deterministic execution"
+    string origin "model proposal, controller or executor"
+    string status
+  }
+  RECEIPT {
+    string id PK
+    string episode_id FK
+    string action_id FK
+    string rules_version
+    object entity_revisions
+    object verified_deltas
+    array source_receipt_ids
+  }
+  MEMORY {
+    string id PK
+    string episode_id FK
+    string episode_agent_id FK
+    string kind "fact, belief, intention or reflection"
+    array evidence_ids "Facts require verified sources"
+    array message_ids "Claims retain sender provenance"
+  }
+  REASONING_RUN {
+    string id PK
+    string episode_id FK
+    string budget_account_id FK
+    string actor_context_id
+    string status
+    object reserved_budget
+  }
+  BUDGET_ACCOUNT {
+    string id PK
+    string scope "Shared across colony and experiment worlds"
+    string day
+    object allowance
+    object reserved_usage
+  }

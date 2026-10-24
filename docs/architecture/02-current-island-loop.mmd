@@ -1,0 +1,13 @@
+flowchart LR
+  TYPE["Object-kind keyword mapping<br/>Fixed capability + allowed actions"] --> AGENT[("Persistent resident agent<br/>assignment · XP · persona · task")]
+  AI["Occasional single Gemini batch<br/>Narrative fields + one preference"] --> AGENT
+  USER["Player direction"] --> AGENT
+  AGENT --> RULES["Central useful-job heuristic<br/>Stock shortage + priority + build slots"]
+  RULES --> TASK["Fixed 14–18 second task<br/>Predetermined gain + destination"]
+  TASK --> ENGINE["Backend completes task<br/>Atomic resource / building effects"]
+  ENGINE --> STOCK[("Shared stock + project levels")]
+  ENGINE --> LOG[("Event journal + last 20 memories")]
+  STOCK --> RULES
+  LOG --> AI
+  TASK --> VIEW["3D interpolation + work prop<br/>Visual movement has no authority"]
+  MISSING["NOT PRESENT TODAY<br/>Peer inboxes / negotiation<br/>Personal cargo / physical handoffs<br/>Causal supply-chain accounting"]

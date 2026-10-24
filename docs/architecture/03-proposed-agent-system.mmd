@@ -1,0 +1,39 @@
+flowchart TB
+  PLAYER["Player / 3D world view<br/>Set objective · inspect speech, cargo, plans and receipts"]
+  subgraph runtime["LOCAL BACKEND · proposed agent runtime"]
+    SCENARIO["Versioned world + goal rules<br/>Finite stock · geometry · capacities · deadline"]
+    OBS["Per-agent observation builder<br/>Own state + visible facts + addressed inbox<br/>Evidence IDs and observed revision"]
+    SCHED["Event-driven scheduler<br/>Wake on need, message, completion or failure<br/>Budget + deadline + deduplication"]
+    subgraph actors["LOGICAL AGENTS · separate decision contexts, one worker pool"]
+      A["Ruler agent<br/>Observe · remember · decide"]
+      B["Pencil agent<br/>Observe · remember · decide"]
+      C["Bottle agent<br/>Observe · remember · decide"]
+      D["Mug agent<br/>Observe · remember · decide"]
+    end
+    MODEL["Bounded Gemini model gateway<br/>Independent turns for each actor<br/>Routine motion / receipts need no LLM"]
+    ROUTER["Message router + inboxes<br/>Request · offer · accept · report<br/>Persist delivery and reply references"]
+    VALID["Deterministic validator + arbiter<br/>Capability · evidence · geometry · freshness<br/>Ownership · inventory · reservations"]
+    EXEC["Authoritative action executor<br/>Travel → interact → transfer → build<br/>Atomic action receipt + state transition"]
+    OUTBOX["Committed event / outbox dispatcher<br/>At-least-once notification; deduplicate consumers"]
+    METRICS["Evidence + evaluation<br/>Transfers · dependencies unblocked<br/>Goal result · cost · matched baselines"]
+  end
+  DB[("MONGODB ATLAS<br/>World + cargo + projects + agents<br/>Mailboxes + commitments + action ledger<br/>Run budgets + checkpoints + evaluation records")]
+  PLAYER -->|objective / permitted commands| SCENARIO
+  SCENARIO --> OBS
+  OUTBOX --> SCHED
+  SCHED --> OBS
+  OBS --> A & B & C & D
+  A & B & C & D <-->|decision only| MODEL
+  A & B & C & D -->|typed proposals| ROUTER
+  ROUTER -->|addressed message wakes recipient| SCHED
+  ROUTER -->|action / commitment proposal| VALID
+  SCENARIO -->|rules and current state| VALID
+  VALID -->|accepted action + reservation| EXEC
+  VALID -->|rejected with reason; no effect| ROUTER
+  EXEC -->|state + receipt + outbox in one transaction| DB
+  ROUTER <-->|durable messages / delivery status| DB
+  DB -->|canonical state + relevant history| OBS
+  DB -->|outbox polling first; optional change-stream wakeups| OUTBOX
+  OUTBOX -->|committed facts / animation timeline| PLAYER
+  OUTBOX --> METRICS
+  METRICS -->|verified outcome and contribution trail| PLAYER

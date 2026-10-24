@@ -1,0 +1,56 @@
+flowchart TB
+  subgraph device["PLAYER DEVICE · current implementation"]
+    UI["Browser · localhost:5173<br/>React capture · review · battle<br/>Island · Quality Lab"]
+    SCENE["React Three Fiber / Three.js<br/>Poll snapshots · animate server task endpoints"]
+  end
+  subgraph local["HOME MAC · FastAPI localhost:8000 · executes the application"]
+    VITE["Vite server · localhost:5173<br/>Serves frontend · proxies /api"]
+    API["HTTP routes + origin checks<br/>Private operator gate for Quality Lab"]
+    VISION["Image normalization + YOLO / OCR<br/>Identity resolution + validated fighter proposal"]
+    BATTLE["Fixed-stat seeded combat<br/>Confirm → start → atomic completion"]
+    ENROL["Explicit island start / welcome<br/>Create agent records for saved residents"]
+    TICK["Local scheduler · every 5 seconds"]
+    SIM["Central deterministic IslandStore<br/>Choose jobs → reserve costs → finish tasks<br/>Shared stock · four predefined building types"]
+    PLAN["Optional persona planner<br/>Up to 6 residents · 12 requests/world/day<br/>Normally 15 minutes between batches"]
+    CHECK["Validate text schema, action allowlist<br/>and cited event IDs<br/>Apply persona + one action preference"]
+    QUALITY["Separate quality workflow<br/>Consent + review → evaluation → human adoption"]
+    SNAP["Read-only world / island snapshots<br/>Visible browser polls about every 3 seconds"]
+  end
+  subgraph providers["GEMINI · called by backend only"]
+    ARGON["Gemini 4 Argon<br/>Recognition + quality reasoning"]
+    FLASH["Gemini 3.5 Flash-Lite<br/>Persona / preference reflection"]
+  end
+  subgraph atlas["MONGODB ATLAS · stores state; does not run agents"]
+    GAME[("Battles · captures · media<br/>Worlds · residents · encounters")]
+    ISLAND[("islandState · islandAgents<br/>islandEvents")]
+    RUNS[("islandPlanner<br/>islandReasoning")]
+    RETR[("Type catalogue + Vector Search<br/>Separate approved visual references")]
+    QDATA[("Feedback · datasets · jobs<br/>Immutable versions + active pointer")]
+  end
+  UI -->|local access or SSH over Tailscale| VITE
+  VITE -->|/api commands and selected images| API
+  API --> VISION
+  VISION <-->|bounded recognition| ARGON
+  VISION <-->|exact / semantic lookup| RETR
+  VISION -->|accepted fighter| BATTLE
+  BATTLE -->|atomic saves| GAME
+  GAME -->|saved identities| ENROL
+  API -->|start / welcome| ENROL
+  ENROL --> ISLAND
+  API -->|assign / priority / pause| SIM
+  TICK --> SIM
+  SIM <-->|transactional state + effects| ISLAND
+  ISLAND -->|recent events + project state| PLAN
+  PLAN <-->|bounded generation| FLASH
+  PLAN -->|validated output persisted first| RUNS
+  PLAN --> CHECK
+  CHECK -->|persona + preferred action only| ISLAND
+  API -->|operator only| QUALITY
+  QUALITY <--> ARGON
+  QUALITY <--> QDATA
+  QDATA -.->|pinned config / approved references| VISION
+  GAME --> SNAP
+  ISLAND --> SNAP
+  RUNS --> SNAP
+  SNAP --> SCENE
+  SCENE --> UI

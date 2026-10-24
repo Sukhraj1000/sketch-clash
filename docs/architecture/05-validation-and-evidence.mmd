@@ -1,0 +1,16 @@
+flowchart LR
+  OUTPUT["Agent output<br/>Message / offer / proposed action"] --> SCHEMA{"Valid envelope?<br/>Sender, episode, schema,<br/>IDs, expiry, budget"}
+  SCHEMA -->|no| REJECT["Reject + reason<br/>No resources or progress awarded"]
+  SCHEMA -->|yes| KIND{"What is it?"}
+  KIND -->|request / opinion / intention| MESSAGE["Deliver as a labelled message<br/>Not a verified world fact"]
+  KIND -->|claim of completed work| EVIDENCE{"Matching executor receipt?<br/>Entity, quantity, event and source"}
+  EVIDENCE -->|no| UNVERIFIED["Unverified claim<br/>May trigger inspection; cannot complete a task"]
+  EVIDENCE -->|yes| FACT["Verified receipt summary<br/>Free prose remains an interpretation"]
+  KIND -->|action / commitment| PRE{"Current preconditions?<br/>Capability, location, cargo,<br/>stock, dependency, revision"}
+  PRE -->|no| REJECT
+  PRE -->|yes| RESERVE["Atomic reservation + task ownership<br/>Lease expiry + idempotent action ID"]
+  RESERVE --> EXEC["Execute through simulated time<br/>Recheck dynamic constraints"]
+  EXEC --> COMMIT["Atomic state delta + receipt + outbox<br/>Conserved resources / explicit sinks"]
+  COMMIT --> CREDIT["Attribute actual transfers and work<br/>Link consumed resource receipts to goal"]
+  CREDIT --> TEST["Offline causal test<br/>Same seeds, same budget<br/>Suppress messages / compare central planner"]
+  TEST --> CLAIM["Claim improved coordination only<br/>if predeclared measures support it"]
