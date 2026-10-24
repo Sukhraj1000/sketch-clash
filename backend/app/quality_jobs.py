@@ -207,6 +207,7 @@ class QualityWorker:
     async def prepare_references(self, job, budget):
         from .quality_references import ApprovedReferences
         adapter = ApprovedReferences(self.store.repo, self.settings)
+        adapter.provider_queue = getattr(self, 'provider_queue', None)
         try:
             for reference in job['snapshot']['references']:
                 current = await budget.check()
@@ -251,11 +252,19 @@ class QualityWorker:
                 await recognizer.close()
                 raise StoreError('This historical job has no frozen catalogue. Create a new bounded comparison.', 409, 'catalog_snapshot_missing')
             recognizer.catalog = make_evaluation_catalog(job['snapshot']['catalog'], self.store.repo, recognizer.client, budget)
+        # Every per-case adapter shares admission with gameplay and councils.
+        # A frozen catalogue still sends real embeddings through its retriever.
+        queue = getattr(self, 'provider_queue', None)
+        recognizer.provider_queue = queue
+        retriever = getattr(getattr(recognizer, 'catalog', None), 'retriever', None)
+        if retriever is not None:
+            retriever.provider_queue = queue
         started = time.monotonic()
         try:
             if config['reference_limit'] and job['snapshot']['references']:
                 from .quality_references import ApprovedReferences
                 adapter = ApprovedReferences(self.store.repo, self.settings, getattr(recognizer, 'client', None))
+                adapter.provider_queue = queue
                 try:
                     references = await adapter.retrieve(payload['image_hash'], config['reference_limit'],
                         exclude_groups=[case['group_id']], budget=budget, snapshot=job['snapshot']['references'])
@@ -293,9 +302,8 @@ class QualityWorker:
 
     async def improve(self, job, budget):
         require_ai_enabled(self.settings)
-        from google import genai
-        client = self.agent_client or genai.Client(api_key=self.settings.gemini_api_key,
-                http_options={'timeout': 60000, 'retry_options': {'attempts': 1}})
+        from .gemini_client import create_gemini_client
+        client = self.agent_client or create_gemini_client(self.settings.gemini_api_key, timeout_ms=60000)
         own_client = self.agent_client is None
         def tool(name, description, properties=None, required=None):
             return {'type': 'function', 'name': name, 'description': description,

@@ -47,7 +47,9 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.observatory = None
         app.state.arena = None
         from .provider_queue import ProviderQueue
-        app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency, paused=settings.ai_paused)
+        app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency, paused=settings.ai_paused,
+            requests_per_minute=settings.gemini_requests_per_minute,
+            requests_per_day=settings.gemini_requests_per_day, max_pending=settings.gemini_max_pending)
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:

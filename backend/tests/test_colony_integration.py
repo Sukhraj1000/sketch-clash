@@ -12,6 +12,7 @@ from app.colony_planner import ColonyPlanner
 from app.config import Settings
 from app.main import create_app
 from app.repository import MemoryRepository
+from test_provider_queue import queue_with_advancing_clock
 
 
 class Clock:
@@ -61,7 +62,8 @@ def colony():
     store = ColoniesStore(repo)
     store.initialize()
     provider = Provider()
-    worker = ColonyPlanner(repo, store, settings, client=provider, clock=clock.seconds)
+    worker = ColonyPlanner(repo, store, settings, client=provider, clock=clock.seconds,
+                           provider_queue=queue_with_advancing_clock(clock.seconds, clock.advance))
     return repo, store, provider, clock, worker
 
 

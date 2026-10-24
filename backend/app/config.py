@@ -35,7 +35,10 @@ class Settings:
     colony_proposal_model: str = 'gemini-4-argon'
     colony_reply_model: str = 'gemini-3.8-flash'
     colony_session_interval_seconds: int = 120
-    gemini_provider_concurrency: int = 2
+    gemini_provider_concurrency: int = 1
+    gemini_requests_per_minute: int = 4
+    gemini_requests_per_day: int = 200
+    gemini_max_pending: int = 8
     ai_paused: bool = False
     gemini_key_source: str = 'explicit_settings'
     settings_loaded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -72,5 +75,8 @@ class Settings:
             colony_proposal_model=os.getenv('COLONY_PROPOSAL_MODEL', 'gemini-4-argon'),
             colony_reply_model=os.getenv('COLONY_REPLY_MODEL', 'gemini-3.8-flash'),
             colony_session_interval_seconds=max(15, int(os.getenv('COLONY_SESSION_INTERVAL_SECONDS', '120'))),
-            gemini_provider_concurrency=max(1, min(8, int(os.getenv('GEMINI_PROVIDER_CONCURRENCY', '2')))),
+            gemini_provider_concurrency=max(1, min(8, int(os.getenv('GEMINI_PROVIDER_CONCURRENCY', '1')))),
+            gemini_requests_per_minute=max(1, int(os.getenv('GEMINI_REQUESTS_PER_MINUTE', '4'))),
+            gemini_requests_per_day=max(1, int(os.getenv('GEMINI_REQUESTS_PER_DAY', '200'))),
+            gemini_max_pending=max(1, int(os.getenv('GEMINI_MAX_PENDING', '8'))),
         )

@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings
+from app.gemini_client import create_gemini_client
 from app.retrieval import AtlasRetriever, RetrievalConfig
 
 async def main():
@@ -17,9 +18,8 @@ async def main():
         print('Semantic retrieval unavailable: configure MONGODB_URI, GEMINI_API_KEY and EMBEDDING_MODEL locally, then run setup:retrieval.')
         return 1
     from pymongo import AsyncMongoClient
-    from google import genai
     mongo = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-    client = genai.Client(api_key=settings.gemini_api_key, http_options={'timeout': 20000, 'retry_options': {'attempts': 1}})
+    client = create_gemini_client(settings.gemini_api_key, timeout_ms=20000)
     try:
         retrieval = AtlasRetriever(mongo[settings.mongodb_database].characterTypes, client, RetrievalConfig(
             model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index), settings=settings)

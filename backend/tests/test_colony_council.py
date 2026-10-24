@@ -10,6 +10,7 @@ from app.colonies import ColoniesStore, COUNCIL_SECONDS, COUNCIL_HISTORY_LIMIT
 from app.config import Settings
 from app.repository import MemoryRepository, StoreError
 from test_colonies import Clock, battle, side, actor, command
+from test_provider_queue import queue_with_advancing_clock
 
 
 def create(types=('pitcher', 'ruler', 'mug', 'TV')):
@@ -263,7 +264,8 @@ async def test_automatic_council_reads_and_answers_peers_without_fifteen_minute_
     repo, store, clock = create(('bottle', 'pencil'))
     store.initialize()
     provider = Provider()
-    worker = ColonyPlanner(repo, store, repo.settings, client=provider, clock=lambda: clock.value.timestamp())
+    worker = ColonyPlanner(repo, store, repo.settings, client=provider, clock=lambda: clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda: clock.value.timestamp(), clock.advance))
     provider.decision = {'message': {'kind': 'proposal', 'project_id': 'workshop', 'text': 'A workshop would improve our material supply.'}}
     first = worker.request('automatic-session-0', automatic=True)
     assert first['colony_id'] == 'winners'

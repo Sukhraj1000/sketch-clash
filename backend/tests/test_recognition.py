@@ -72,7 +72,7 @@ async def test_no_detector_text_evidence_does_not_block_valid_unfamiliar_photo()
     assert [v['tool'] for v in observation.pending_fighter.validation] == [
         'resolve_character_type', 'validate_fighter_config', 'validate_visual_spec', 'simulate_match_preview']
     assert client.calls[0]['store'] is False
-    assert client.calls[0]['generation_config'] == {'thinking_level': 'medium'}
+    assert client.calls[0]['generation_config'] == {'thinking_level': 'medium', 'max_output_tokens': 4096}
     assert client.calls[0]['input'][0]['content'][1]['type'] == 'image'
 
 

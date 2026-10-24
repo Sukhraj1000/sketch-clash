@@ -97,7 +97,9 @@ class ColonyPlanner:
         self.memory_embedder = memory_embedder
         self.daily_limit = max(0, settings.colony_requests_per_day)
         self.interval = settings.colony_session_interval_seconds
-        self.queue = provider_queue or ProviderQueue(settings.gemini_provider_concurrency, clock=clock, paused=settings.ai_paused)
+        self.queue = provider_queue or ProviderQueue(settings.gemini_provider_concurrency, clock=clock, paused=settings.ai_paused,
+            requests_per_minute=settings.gemini_requests_per_minute,
+            requests_per_day=settings.gemini_requests_per_day, max_pending=settings.gemini_max_pending)
         self.owns_client = client is None
         self.legacy = legacy_planner or IslandPlanner(repo, None, settings, clock=clock)
         self.state_id = key_for(repo.world_id, 'colony-planner')
@@ -156,7 +158,11 @@ class ColonyPlanner:
                 'limits': {'requests_per_day': self.daily_limit, 'automatic_interval_seconds': self.interval,
                            'manual_interval_seconds': 2, 'max_output_tokens': 2048, 'max_in_flight': 1,
                            'max_session_turns': 6, 'max_session_participants': 3},
-                'budget_scope': 'Provider project quotas apply; no local daily ceiling.' if not self.daily_limit else 'Configured optional daily ceiling shared with legacy island.',
+                'budget_scope': ('All Gemini calls share this backend process’s request-rate and rolling 24-hour guards; '
+                    'provider_queue.local_limits shows the configured values and its counters reset on restart. '
+                    + ('No additional durable council/island daily ceiling is configured. ' if not self.daily_limit else
+                       'An additional durable daily ceiling is shared by councils and the legacy island. ')
+                    + 'Google project quotas apply independently.'),
                 'runtime': 'Durable local councils; each resident reads real preceding messages in a separate Gemini invocation.'}
 
     def toggle(self, enabled):
@@ -442,8 +448,8 @@ class ColonyPlanner:
                 return current
             run = await asyncio.to_thread(self.repo.transaction, claim); reserved = True
             if self.client is None:
-                from google import genai
-                self.client = genai.Client(api_key=self.settings.gemini_api_key, http_options={'timeout':60000,'retry_options':{'attempts':1}})
+                from .gemini_client import create_gemini_client
+                self.client = create_gemini_client(self.settings.gemini_api_key, timeout_ms=60000)
             with _span(run) as span:
                 async def invoke():
                     context = span.get_span_context() if span else None

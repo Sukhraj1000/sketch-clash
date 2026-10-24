@@ -7,6 +7,7 @@ from app.colony_planner import ColonyPlanner, population_fingerprint
 from app.config import Settings
 from app.repository import MemoryRepository, StoreError
 from backend.tests.test_colonies import Clock, battle, side
+from test_provider_queue import queue_with_advancing_clock
 
 
 def setup_world():
@@ -31,7 +32,8 @@ def provider_for_garden():
 @pytest.mark.asyncio
 async def test_real_store_transcript_agreement_and_message_provenance():
     repo,store,clock,settings=setup_world(); provider,calls=provider_for_garden()
-    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp())
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(), clock.advance))
     worker.request('six-turn-council','winners')
     for _ in range(6):
         run=worker.status()['active_run']; assert run
@@ -69,7 +71,8 @@ async def test_arrival_during_provider_request_prevents_stale_commit():
         store.advance()
         return SimpleNamespace(output_text=json.dumps({'message':{'kind':'proposal','project_id':'garden','text':'Build the garden.'}}),model_dump=lambda **kw:{})
     provider=SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
-    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp())
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(), clock.advance))
     run=worker.request('population-race','winners'); await worker.run(run['id'])
     assert len(calls)==1 and worker.sessions()[0]['status']=='stale'
     assert not worker.status()['auto_blocked']
@@ -88,7 +91,8 @@ async def test_rejected_research_does_not_disable_future_reasoning_and_feedback_
             'context':{'span':1,'load':1,'support_count':4}}}
         return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{})
     provider=SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
-    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp())
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(), clock.advance))
     run=worker.request('invalid-support-count','winners'); await worker.run(run['id'])
     assert worker.status()['last_status']=='rejected' and not worker.status()['auto_blocked']
     assert repo._data['colonyReasoning'][run['id']]['validation_code']=='missing_support'
@@ -119,7 +123,8 @@ async def test_experiment_only_turn_is_published_into_the_next_agents_conversati
             decision={'message':{'kind':'reflection','text':'We can use that measured result when choosing our next test.'}}
         return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{})
     provider=SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
-    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp())
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(), clock.advance))
     run=worker.request('experiment-only-transcript','winners'); await worker.run(run['id'])
     session=worker.sessions('winners')[0]
     assert len(session['messages'])==1

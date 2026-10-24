@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.catalog import CharacterCatalog
 from app.config import Settings
+from app.gemini_client import create_gemini_client
 from app.retrieval import AtlasRetriever, RetrievalConfig, vector_index_definition
 
 async def main():
@@ -18,9 +19,8 @@ async def main():
         return 1
     from pymongo import AsyncMongoClient
     from pymongo.operations import SearchIndexModel
-    from google import genai
     mongo = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-    client = genai.Client(api_key=settings.gemini_api_key, http_options={'timeout': 20000, 'retry_options': {'attempts': 1}})
+    client = create_gemini_client(settings.gemini_api_key, timeout_ms=20000)
     try:
         await mongo.admin.command('ping')
         collection = mongo[settings.mongodb_database].characterTypes

@@ -58,8 +58,8 @@ class ApprovedReferences:
         self.index = getattr(settings, 'quality_reference_vector_index', INDEX)
         self._owns_client = client is None and bool(settings.gemini_api_key)
         if client is None and settings.gemini_api_key:
-            from google import genai
-            client = genai.Client(api_key=settings.gemini_api_key)
+            from .gemini_client import create_gemini_client
+            client = create_gemini_client(settings.gemini_api_key, timeout_ms=TIMEOUT * 1000)
         self.client = client
         self.provider_queue = None
         self.status = {'status': 'not_checked', 'available': False,

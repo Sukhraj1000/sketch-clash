@@ -151,6 +151,14 @@ Supported environment names, with defaults documented in `.env.example`: `COLONY
 
 Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VITE_`. Private captures, model weights, generated builds, caches and the operator token are excluded from commits.
 
+## Local Gemini safeguards
+
+All Gemini services in the running backend share one admission queue: recognition, council turns, original-island reflection, embeddings and quality evaluation. Defaults are **four requests per minute**, at least **15 seconds between dispatches**, **one request in flight**, **eight waiting requests**, and **200 dispatched requests in a rolling 24-hour window**. Failed requests still count. A full waiting queue or exhausted local daily guard rejects the request before contacting Google. Provider `Retry-After` cooldowns also apply.
+
+Configure these with `GEMINI_REQUESTS_PER_MINUTE`, `GEMINI_PROVIDER_CONCURRENCY`, `GEMINI_MAX_PENDING` and `GEMINI_REQUESTS_PER_DAY` in the server environment or `.env.local`, then restart. Values are local safety limits, not Google's reported quotas or a spending budget. Counters reset on backend restart and do not cover other processes, scripts or applications using the Google project. Google also applies model-specific token and project-wide quotas; this limiter does not measure remaining Google quota. Check the new project's actual limits in [AI Studio](https://ai.google.dev/gemini-api/docs/rate-limits) before raising the defaults.
+
+SDK automatic retries are disabled for both Interactions and embeddings, so each queue admission permits one HTTP attempt. Application-level retries, when allowed, must pass through the queue again; ambiguous timeouts remain uncertain. Recognition output is capped at 4,096 tokens, council/reflection and improvement turns at 2,048. Image/context bounds and existing evaluation budgets still apply. `SKETCH_AI_PAUSED=true` and the durable evaluation pause independently prevent new automatic work; changing the API key does not clear those pauses or old provider-error history.
+
 ## Model-use note
 
 - **Gemini 4 Argon**, official Python `google-genai==2.33.0`, Interactions API, medium thinking: live recognition/character proposals and the bounded improvement reasoning/tool loop. Provider/version metadata is retained when returned. Feedback influences validated configuration and approved context, not model weights.

@@ -5,6 +5,7 @@ inventing a daily spending allowance or retrying an ambiguous transport outcome.
 """
 from __future__ import annotations
 import asyncio
+from collections import deque
 from dataclasses import asdict, dataclass
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
@@ -209,24 +210,93 @@ def diagnose_provider_error(exc, now=None):
 
 
 class ProviderQueue:
-    """One local admission queue shared by every Gemini-using service."""
-    def __init__(self, concurrency=2, clock=time.time, sleep=asyncio.sleep, *, paused=False):
+    """Shared process-local admission limits, independent of Google's quotas.
+
+    Every dispatch counts, including failed or subsequently cancelled requests.
+    Counters use rolling windows and reset when this backend process restarts.
+    Admission is claimed only after a concurrency slot becomes available.
+    """
+    def __init__(self, concurrency=1, clock=time.time, sleep=asyncio.sleep, *, paused=False,
+                 requests_per_minute=4, requests_per_day=200, max_pending=8):
         self.clock, self.sleep = clock, sleep
         self.paused = bool(paused)
-        self.semaphore = asyncio.Semaphore(max(1, concurrency))
+        self.concurrency = max(1, int(concurrency))
+        self.requests_per_minute = max(1, int(requests_per_minute))
+        self.requests_per_day = max(1, int(requests_per_day))
+        self.max_pending = max(1, int(max_pending))
+        self.min_dispatch_interval_seconds = 60. / self.requests_per_minute
+        self.semaphore = asyncio.Semaphore(self.concurrency)
+        self._admission_lock = asyncio.Lock()
+        self._minute_dispatches = deque()
+        self._day_dispatches = deque()
+        self._last_dispatch = None
         self.cooldown_until = 0.
+        # waiting retains its original meaning internally: active + pending.
         self.waiting = self.active = self.completed = self.throttled = 0
-        self.last_error = None
+        self.local_rejected = 0
+        self.last_error = self.last_local_error = None
+
+    def _prune(self, now):
+        while self._minute_dispatches and self._minute_dispatches[0] <= now - 60.:
+            self._minute_dispatches.popleft()
+        while self._day_dispatches and self._day_dispatches[0] <= now - 86400.:
+            self._day_dispatches.popleft()
+
+    def _reject_local(self, category, message, retry_after_seconds=None):
+        diagnostic = ProviderDiagnostic(category, message, retryable=False,
+                                        retry_after_seconds=retry_after_seconds)
+        self.local_rejected += 1
+        self.last_local_error = diagnostic.public()
+        raise ProviderFailure(diagnostic)
+
+    def _require_daily_allowance(self, now):
+        if len(self._day_dispatches) >= self.requests_per_day:
+            self._reject_local('local_daily_cap',
+                'The local Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
+                max(0., self._day_dispatches[0] + 86400. - now))
+
+    def _wait_condition(self, now):
+        candidates = [(max(0., self.cooldown_until - now), 'provider_cooldown')]
+        if self._last_dispatch is not None:
+            candidates.append((max(0., self._last_dispatch + self.min_dispatch_interval_seconds - now),
+                               'local_dispatch_spacing'))
+        if len(self._minute_dispatches) >= self.requests_per_minute:
+            candidates.append((max(0., self._minute_dispatches[0] + 60. - now), 'local_minute_cap'))
+        delay, reason = max(candidates, key=lambda item: item[0])
+        return delay, reason if delay > 0 else None
+
+    async def _admit(self):
+        while True:
+            self.require_enabled()
+            # Never hold this lock across sleep or a provider call. A second
+            # task must recheck the same shared windows after every wake-up.
+            async with self._admission_lock:
+                now = self.clock()
+                self._prune(now)
+                self._require_daily_allowance(now)
+                delay, _ = self._wait_condition(now)
+                if delay <= 0:
+                    self._minute_dispatches.append(now)
+                    self._day_dispatches.append(now)
+                    self._last_dispatch = now
+                    return
+            await self.sleep(delay)
+            self.require_enabled()
 
     async def run(self, model, operation, category='agent'):
         self.require_enabled()
+        now = self.clock()
+        self._prune(now)
+        self._require_daily_allowance(now)
+        # No await between testing and incrementing: the pending bound is
+        # atomic on this event loop, including callers waiting on a semaphore.
+        if self.waiting - self.active >= self.max_pending:
+            self._reject_local('local_queue_full',
+                'The local Gemini waiting queue is full. No request was sent to Google; try again after pending work completes.')
         self.waiting += 1
         try:
             async with self.semaphore:
-                self.require_enabled()
-                while self.cooldown_until > self.clock():
-                    await self.sleep(self.cooldown_until - self.clock())
-                    self.require_enabled()
+                await self._admit()
                 self.active += 1
                 try:
                     result = await operation()
@@ -244,11 +314,32 @@ class ProviderQueue:
         finally: self.waiting -= 1
 
     def status(self):
+        now = self.clock()
+        self._prune(now)
+        delay, reason = self._wait_condition(now)
+        if self.paused:
+            reason, delay = 'ai_paused', 0.
+        elif len(self._day_dispatches) >= self.requests_per_day:
+            reason = 'local_daily_cap'
+            delay = max(0., self._day_dispatches[0] + 86400. - now)
+        elif not reason and self.active >= self.concurrency:
+            reason = 'local_concurrency'
         return {'waiting': max(0, self.waiting - self.active), 'active': self.active,
                 'paused': self.paused, 'pause_reason': AI_PAUSE_REASON if self.paused else None,
                 'completed': self.completed, 'throttled': self.throttled,
-                'retry_after_seconds': max(0, round(self.cooldown_until - self.clock(), 2)),
-                'last_error': self.last_error}
+                'retry_after_seconds': max(0, round(self.cooldown_until - now, 2)),
+                'last_error': self.last_error,
+                'last_local_error': self.last_local_error, 'local_rejected': self.local_rejected,
+                'counter_scope': 'process_lifetime',
+                'local_limits': {'requests_per_minute': self.requests_per_minute,
+                    'requests_per_day': self.requests_per_day, 'max_pending': self.max_pending,
+                    'min_dispatch_interval_seconds': self.min_dispatch_interval_seconds,
+                    'concurrency': self.concurrency},
+                'local_usage': {'requests_last_minute': len(self._minute_dispatches),
+                    'requests_last_24_hours': len(self._day_dispatches),
+                    'requests_remaining_minute': max(0, self.requests_per_minute - len(self._minute_dispatches)),
+                    'requests_remaining_day': max(0, self.requests_per_day - len(self._day_dispatches))},
+                'wait_reason': reason, 'dispatch_wait_seconds': round(delay, 2)}
 
     def require_enabled(self):
         if self.paused:

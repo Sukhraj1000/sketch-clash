@@ -8,6 +8,7 @@ from app.config import Settings
 from app.repository import MemoryRepository, StoreError
 from app.colony_planner import ColonyPlanner, MODEL
 from app.island_planner import utc_day
+from test_provider_queue import queue_with_advancing_clock
 
 class Clock:
     def __init__(self): self.value = 1792790000.0
@@ -45,7 +46,8 @@ class Provider:
 def fixture():
     clock=Clock(); settings=Settings(repository='memory',gemini_api_key='fixture-only',colony_requests_per_day=24)
     repo=MemoryRepository(settings); colonies=Colonies(); provider=Provider()
-    return repo,colonies,provider,clock,ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+    return repo,colonies,provider,clock,ColonyPlanner(repo,colonies,settings,client=provider,clock=clock,
+        provider_queue=queue_with_advancing_clock(clock, clock.add))
 
 @pytest.mark.asyncio
 async def test_actor_context_is_separate_and_turn_replay_has_no_new_provider_call(fixture):
@@ -244,7 +246,8 @@ async def test_separate_agents_read_actual_committed_replies_and_session_is_boun
             'text':'Build the garden, reply '+str(len(conversation))}, 'reason':'Useful shared work.'}
         return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{'usage':{'total_tokens':20}})
     provider.aio.interactions.create=reply
-    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock,
+        provider_queue=queue_with_advancing_clock(clock, clock.add))
     worker.request('council','winners')
     for _ in range(6):
         current=worker.status()['active_run']; assert current
@@ -263,7 +266,8 @@ async def test_separate_agents_read_actual_committed_replies_and_session_is_boun
 async def test_new_resident_invalidates_old_session_before_next_model_call():
     clock=Clock(); settings=Settings(repository='memory',gemini_api_key='fixture-only')
     repo=MemoryRepository(settings); colonies=CouncilColonies(); provider=Provider()
-    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock,
+        provider_queue=queue_with_advancing_clock(clock, clock.add))
     run=worker.request('before-arrival','winners'); colonies.extra=True
     await worker.run(run['id'])
     assert not provider.calls and not colonies.applied

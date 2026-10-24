@@ -240,8 +240,8 @@ class IslandPlanner:
             await asyncio.to_thread(self.repo.transaction, claim)
             reserved = True
             if self.client is None:
-                from google import genai
-                self.client = genai.Client(api_key=self.settings.gemini_api_key, http_options={'timeout':45000,'retry_options':{'attempts':1}})
+                from .gemini_client import create_gemini_client
+                self.client = create_gemini_client(self.settings.gemini_api_key, timeout_ms=45000)
             async def invoke():
                 return await asyncio.wait_for(self.client.aio.interactions.create(model=MODEL, store=False,
                     system_instruction=SYSTEM, input=encoded,
