@@ -184,3 +184,51 @@ def test_main_lifespan_integrates_observatory_without_live_models_or_external_st
         assert client.get('/api/observatory/metrics').status_code == 200
         assert client.app.state.observatory.task is not None
     assert client.app.state.observatory.task is None
+
+
+def test_atlas_export_batches_span_writes_and_minute_counters_without_per_span_roundtrips():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    captured = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(captured))
+    tracer = provider.get_tracer('bulk-fixture')
+    for _ in range(4):
+        with tracer.start_as_current_span('agent.model_turn', attributes={'sketch.island_id': 'winners',
+                'sketch.model': 'fixture', 'gen_ai.usage.total_tokens': 12}):
+            pass
+    database = SimpleNamespace(agentSpans=MagicMock(), agentMetrics=MagicMock())
+    database.agentSpans.find.return_value = []
+    transaction = SimpleNamespace(database=database, session='fixture-session')
+    repo = SimpleNamespace(world_id='bulk-fixture', transaction=lambda operation: operation(transaction))
+    exporter = AtlasSpanExporter()
+    exporter.repository = repo
+    assert exporter.export(captured.get_finished_spans()) == SpanExportResult.SUCCESS
+    assert database.agentSpans.find.call_count == 1
+    assert database.agentSpans.bulk_write.call_count == 1
+    assert database.agentMetrics.bulk_write.call_count == 1
+    writes = database.agentSpans.bulk_write.call_args.args[0]
+    updates = database.agentMetrics.bulk_write.call_args.args[0]
+    assert len(writes) == 4 and len(updates) == 1
+    assert updates[0]._doc['$inc']['count'] == 4
+    assert updates[0]._doc['$inc']['total_tokens'] == 48
+    database.agentSpans.find.return_value = [{'_id': op._filter['_id']} for op in writes]
+    assert exporter.export(captured.get_finished_spans()) == SpanExportResult.SUCCESS
+    assert database.agentSpans.bulk_write.call_count == 1
+    assert database.agentMetrics.bulk_write.call_count == 1
+    provider.shutdown()
+
+
+def test_later_action_links_to_decision_without_faking_parent_context():
+    original_trace = '1' * 32
+    original_span = '2' * 16
+    with agent_span('agent.task.complete', link_trace_id=original_trace,
+                    link_span_id=original_span, island_id='winners') as span:
+        assert format(span.get_span_context().trace_id, '032x') != original_trace
+        assert len(span.links) == 1
+        assert span.links[0].context.trace_id == int(original_trace, 16)
+        assert span.links[0].context.span_id == int(original_span, 16)
+        assert 'sketch.link_trace_id' not in span.attributes
+    with agent_span('agent.task.complete', link_trace_id='invalid', link_span_id=original_span) as span:
+        assert not span.links

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -24,7 +25,7 @@ from opentelemetry.instrumentation.utils import suppress_instrumentation
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import Link, SpanContext, Status, StatusCode, TraceFlags
 
 from .repository import Repository, StoreError, key_for, now_iso
 
@@ -36,6 +37,7 @@ _SECRET_TEXT = re.compile(r'AIza[\w-]{20,}|mongodb(?:\+srv)?://[^\s]+|Bearer\s+[
 _provider: TracerProvider | None = None
 _exporter: AtlasSpanExporter | None = None
 _init_lock = RLock()
+_scope: ContextVar[dict] = ContextVar('agent_telemetry_scope', default={})
 
 
 def safe(value: Any, depth: int = 0) -> Any:
@@ -88,19 +90,30 @@ def record_event(tx, world_id: str, *, event_id: str, kind: str,
 
 
 @contextmanager
-def agent_span(name: str, **attributes):
+def agent_span(name: str, *, link_trace_id: str | None = None, link_span_id: str | None = None, **attributes):
     provider = _ensure_provider()
     clean = {f'sketch.{k}': v for k, v in safe(attributes).items()
              if isinstance(v, (str, bool, int, float))}
-    with provider.get_tracer('sketch-clash.agents').start_as_current_span(
-            name[:100], attributes=clean, record_exception=False,
-            set_status_on_exception=False) as span:
-        try:
-            yield span
-        except BaseException as exc:
-            span.set_attribute('error.type', type(exc).__name__)
-            span.set_status(Status(StatusCode.ERROR))
-            raise
+    links = []
+    if isinstance(link_trace_id, str) and isinstance(link_span_id, str) and re.fullmatch(r'[a-fA-F0-9]{32}', link_trace_id) and re.fullmatch(r'[a-fA-F0-9]{16}', link_span_id):
+        context = SpanContext(trace_id=int(link_trace_id, 16), span_id=int(link_span_id, 16),
+            is_remote=False, trace_flags=TraceFlags(TraceFlags.SAMPLED))
+        if context.is_valid:
+            links.append(Link(context, attributes={'sketch.relationship': 'caused_by_decision'}))
+    token = _scope.set({**_scope.get(), **clean})
+    try:
+        with provider.get_tracer('sketch-clash.agents').start_as_current_span(
+                name[:100], attributes=clean, links=links, record_exception=False,
+                set_status_on_exception=False) as span:
+            try:
+                yield span
+            except BaseException as exc:
+                span.set_attribute('error.type', type(exc).__name__)
+                span.set_status(Status(StatusCode.ERROR))
+                raise
+    finally:
+        _scope.reset(token)
+
 
 
 class AtlasSpanExporter(SpanExporter):
@@ -140,6 +153,44 @@ class AtlasSpanExporter(SpanExporter):
         try:
             with suppress_instrumentation():
                 def save(tx):
+                    if hasattr(tx, 'database') and documents:
+                        # One read and two bulk writes per batch. A round trip per span
+                        # cannot keep up with instrumented Atlas calls over a home link.
+                        from pymongo import UpdateOne
+                        ids = [doc['_id'] for doc in documents]
+                        existing = {row['_id'] for row in tx.database.agentSpans.find(
+                            {'_id': {'$in': ids}}, {'_id': 1}, session=tx.session)}
+                        fresh = [doc for doc in documents if doc['_id'] not in existing]
+                        if not fresh:
+                            return
+                        groups = {}
+                        for doc in fresh:
+                            attrs = doc['attributes']
+                            minute = doc['created_at'][:16]
+                            island = attrs.get('sketch.island_id', 'system')
+                            operation = 'model' if 'model' in doc['name'] else ('database' if attrs.get('db.system', attrs.get('db.system.name')) == 'mongodb' else 'agent' if doc['name'].startswith(('agent.', 'council.', 'island.')) else 'http')
+                            model = attrs.get('sketch.model', attrs.get('gen_ai.request.model', 'none'))
+                            metric_id = key_for(repo.world_id, minute, str(island), operation, str(model))
+                            group = groups.setdefault(metric_id, {
+                                'metadata': {'world_id': repo.world_id, 'minute': minute, 'island_id': island,
+                                    'operation': operation, 'model': model,
+                                    'expires_at': datetime.fromisoformat(doc['created_at']) + timedelta(days=METRIC_DAYS)},
+                                'delta': {'count': 0, 'errors': 0, 'duration_ms': 0, 'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}})
+                            delta = group['delta']
+                            delta['count'] += 1
+                            delta['errors'] += int(doc['status'] == 'ERROR')
+                            delta['duration_ms'] += doc['duration_ms']
+                            inputs = int(attrs.get('gen_ai.usage.input_tokens', attrs.get('sketch.input_tokens', 0)) or 0)
+                            outputs = int(attrs.get('gen_ai.usage.output_tokens', attrs.get('sketch.output_tokens', 0)) or 0)
+                            delta['input_tokens'] += inputs
+                            delta['output_tokens'] += outputs
+                            delta['total_tokens'] += int(attrs.get('gen_ai.usage.total_tokens', inputs + outputs) or 0)
+                        tx.database.agentSpans.bulk_write([UpdateOne({'_id': doc['_id']},
+                            {'$setOnInsert': doc}, upsert=True) for doc in fresh], ordered=False, session=tx.session)
+                        tx.database.agentMetrics.bulk_write([UpdateOne({'_id': metric_id},
+                            {'$setOnInsert': group['metadata'], '$inc': group['delta']}, upsert=True)
+                            for metric_id, group in groups.items()], ordered=False, session=tx.session)
+                        return
                     for doc in documents:
                         if tx.get('agentSpans', doc['_id']):
                             continue
@@ -147,7 +198,7 @@ class AtlasSpanExporter(SpanExporter):
                         minute = doc['created_at'][:16]
                         attrs = doc['attributes']
                         island = attrs.get('sketch.island_id', 'system')
-                        operation = 'model' if 'model' in doc['name'] else ('database' if attrs.get('db.system') == 'mongodb' else 'agent' if doc['name'].startswith(('agent.', 'council.')) else 'http')
+                        operation = 'model' if 'model' in doc['name'] else ('database' if attrs.get('db.system') == 'mongodb' else 'agent' if doc['name'].startswith(('agent.', 'council.', 'island.')) else 'http')
                         model = attrs.get('sketch.model', attrs.get('gen_ai.request.model', 'none'))
                         metric_id = key_for(repo.world_id, minute, str(island), operation, str(model))
                         metric = tx.get('agentMetrics', metric_id) or {
@@ -197,7 +248,12 @@ def instrument_app(app: FastAPI) -> None:
     from opentelemetry.instrumentation.pymongo import PymongoInstrumentor
     provider = _ensure_provider()
     if not PymongoInstrumentor().is_instrumented_by_opentelemetry:
-        PymongoInstrumentor().instrument(tracer_provider=provider, capture_statement=False)
+        def mongo_scope(span, event):
+            # ContextVars propagate through asyncio.to_thread; IDs stay in spans,
+            # while only island/model/operation become metric dimensions.
+            for key, value in _scope.get().items():
+                span.set_attribute(key, value)
+        PymongoInstrumentor().instrument(tracer_provider=provider, capture_statement=False, request_hook=mongo_scope)
     FastAPIInstrumentor.instrument_app(app, tracer_provider=provider,
         excluded_urls=r'.*/api/observatory/.*', exclude_spans=['receive', 'send'])
 
