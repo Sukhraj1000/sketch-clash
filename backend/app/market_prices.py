@@ -43,12 +43,12 @@ def unavailable(reason='unconfigured') -> dict:
 
 def query_for(fighter: dict) -> tuple[str, tuple[str, ...]] | None:
     observed = fighter.get('observed_object') or {}
-    label = str(observed.get('label') or fighter.get('object_type') or '').lower().replace('_', ' ')
+    label = str(observed.get('label') or fighter.get('object_type') or '').lower().replace('_', ' ').strip()
     if ACCESSORY.search(label):
         return None
     # Do not use OCR, generated character names, or model-suggested brands.
     for kind in sorted(GOODS, key=len, reverse=True):
-        if re.search(r'\b' + re.escape(kind) + r's?\b', label):
+        if re.search(r'\b' + re.escape(kind) + r's?$', label):
             if re.search(r'\b(toy|drawing|picture|photo|shaped|replica)\b', label):
                 return None
             return GOODS[kind][0], GOODS[kind]

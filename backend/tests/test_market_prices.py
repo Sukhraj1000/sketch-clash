@@ -30,7 +30,7 @@ def test_requires_three_real_gbp_fixed_price_single_object_matches():
     assert quote(('1', '12', '400'))['amount_gbp'] is None
     assert query_for({'observed_object': {'label': 'cat'}}) is None
     assert query_for({'observed_object': {'label': 'picture of a mug'}}) is None
-    for label in ('phone case', 'water bottle lid', 'phone charging cable'):
+    for label in ('phone case', 'water bottle lid', 'phone charging cable', 'bottle lamp', 'mug tree'):
         assert query_for({'observed_object': {'label': label}}) is None
     accessories = {'itemSummaries': [listing(i, title=t) for i, t in enumerate(['Phone Screen Protector', 'Phone Charging Cable', 'Phone Case'])]}
     assert comparable_quote(accessories, 'phone', ('phone',))['amount_gbp'] is None
