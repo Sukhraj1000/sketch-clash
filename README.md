@@ -2,7 +2,7 @@
 
 **Making AI’s view of the physical world more reliable through human feedback and interactive play.**
 
-Sketch Clash is a local two-player object battle game with a persistent 3D island. Photograph an everyday object, review its identity and fictional character, challenge a friend, then give both fighters a home. A separate creator lab investigates failures, compares bounded pipeline changes and requires human approval before adoption.
+Sketch Clash is a local two-player object battle game with a persistent 3D colony. Photograph an everyday object, review its identity and fictional character, challenge a friend, then give both fighters useful work on their island. Residents gather, build, gain experience and remember their contributions. A separate creator lab investigates recognition failures and requires human approval before adopting pipeline changes.
 
 The research question is **“Can human feedback help AI create more reliable and useful digital representations of real-world objects?”** Storing feedback changes neither Gemini’s weights nor the active pipeline automatically. Intended benefits remain things to measure, not demonstrated improvements.
 
@@ -37,6 +37,22 @@ Normal capture time is 60 seconds per player; Quick Clash uses 20. Permission, n
 
 Quick, Power and Guard still have fixed presets and 100 HP. The server owns attacks, damage and winner; replay shows the same recorded outcome without extra unlocks. Normal/reduced battles last 12.8 seconds; Quick Clash lasts 6.4 seconds. **WATCH THE SHOWDOWN** is the original scripted cinematic, with no recognition or island progression.
 
+## Give the island a purpose
+
+Open **MY ISLAND** or **BUILD YOUR ISLAND** on the restored paper arcade home. Choose **START BUILDING** once to give existing residents persistent roles. New arrivals can join with **WELCOME NEW RESIDENTS**; up to 40 residents work at once, with the rest retained in the collection.
+
+- Choose a blueprint or click its 3D building site to set the crew's priority. The garden, workshop, beacon and boardwalk each have three levels and improve resource production.
+- Select a resident in the scene or crew dock. Read its persona, current task, XP and memories; assign a job or return it to automatic useful work. Directions apply after its current task finishes.
+- Watch residents travel, carry supplies, water, plan, survey and construct. Buildings appear in stages. Orbit, zoom, follow a resident and reset the view; the roster provides a non-3D control path.
+- Earn permanent building upgrades and resident levels. After construction, expeditions consume supplies and add discoveries. A five-resident test crew reaches its first building in roughly two minutes; timing depends on roles and assignments.
+- Pause/resume the settlement separately from **OCCASIONAL AI PLANNING**. State, tasks, memories, resources and progress persist in Atlas. Original appearances, battle stats and histories are unchanged.
+
+The **local Python backend runs the agents**; MongoDB stores their durable state. They continue with the browser closed while the Mac and backend remain awake. After a backend stop, at most 120 seconds are simulated once. This is not a remotely hosted worker or unlimited offline progress.
+
+Routine tasks use local simulation with no model request per action. Optional `gemini-3.5-flash-lite` reflection batches propose coherent personas and an allowed useful-job preference. At most six residents enter a batch, one automatic batch runs per 15 minutes, and the world has a hard ceiling of **12 provider requests / 84,000 reserved tokens per UTC day**. Each request has bounded input/output and no transport retry. Starting enables this planner; switching it off keeps local simulation running. An unknown or invalid result blocks automatic reflection until an explicit retry; its reserved budget remains spent. AI plans cannot grant resources, add powers, execute code or rewrite saved appearances. Prose is model-authored; event references are checked, not a proof of every sentence.
+
+See [ISLAND_PLAN.md](ISLAND_PLAN.md) for the implemented plan and [Design.md](Design.md) for persistence details.
+
 ## Recognition & World Quality
 
 Choose **QUALITY LAB** from the home screen. This entry is absent during a round. To unlock it, run this yourself in a private terminal on the home Mac after starting the backend:
@@ -67,7 +83,7 @@ The fixed adoption policy requires at least three reviewed development cases and
 
 ## Atlas retrieval and persistence
 
-The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Quality collections add exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Completion transactions and duplicate prevention remain intact. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
+The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Island collections add `islandState`, `islandAgents`, `islandEvents`, `islandPlanner` and `islandReasoning`: transactional economy/buildings, durable tasks and personas, append-only action/command journals, daily budgets and recoverable plans. Quality collections hold exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
 
 Two retrieval systems are deliberately separate:
 
@@ -101,6 +117,7 @@ Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VIT
 - **Gemini 4 Argon**, official Python `google-genai==2.33.0`, Interactions API, medium thinking: live recognition/character proposals and the bounded improvement reasoning/tool loop. Provider/version metadata is retained when returned. Feedback influences validated configuration and approved context, not model weights.
 - **Gemini Embedding 2**, official embedding API: existing catalogue description vectors and the explicitly prepared visual-reference adapter, both with versioned 768-dimensional provenance. No claim that visual references have been enrolled when the dataset is empty.
 - **YOLO11n** (`ultralytics==8.4.184`) and **EasyOCR** (`easyocr==1.7.2`): local still-image evidence. Their scores are distinct from Gemini uncertainty and are not calibrated identity confidence.
+- **Gemini 3.5 Flash-Lite**, the same official SDK and Interactions API, low thinking: optional island persona and useful-job reflection. Metadata and actual usage are persisted; routine colony tasks do not call it. It receives object metadata and recent simulation events, not photographs or player feedback.
 - React 19.3.1, Motion, Three 0.186.1, React Three Fiber 9.8.2 and Drei 10.7.9: local rendering, including the shared preview/verification harness. It uses supported procedural templates and parameters, not generated meshes or photo-to-3D reconstruction.
 
 ## Verification, export and backup
@@ -108,6 +125,7 @@ Keep `.env.local` at mode `0600`, ignored by Git. Never prefix secrets with `VIT
 ```sh
 npm run test:combat
 npm run test:images
+npm run test:island-scene
 npm run test:backend
 npm run build
 ```
@@ -116,8 +134,8 @@ npm run build
 
 Use the lab’s **Export approved evidence** control for reviewed, consented case metadata, immutable configurations and policy. From a selected job, export its run/result records as well. The JSON deliberately excludes raw media bytes, private gameplay feedback, embeddings, credentials and opaque model steps. Image references in that export require a separate private backup of the corresponding Atlas `media` collection to remain usable.
 
-Before hackathon resources expire, take an authorized database backup/export of the application collections **including `media` and all quality collections**, and store it privately with access controls. Retain downloaded approved-only JSON exports for portable analysis. Keep secret configuration separately from source archives. The private [GitHub repository](https://github.com/Sukhraj1000/sketch-clash) backs up source and commit history; it does not back up Atlas data. Preserve regular focused commits and existing history.
+Before hackathon resources expire, take an authorized database backup/export of the application collections **including `media`, all island collections and all quality collections**, and store it privately with access controls. Retain downloaded approved-only JSON exports for portable analysis. Keep secret configuration separately from source archives. The private [GitHub repository](https://github.com/Sukhraj1000/sketch-clash) backs up source and commit history; it does not back up Atlas data. Preserve regular focused commits and existing history.
 
-The physical MacBook camera remains unverified until the device owner checks it. AR, rotating themes, eBay pricing, online multiplayer/accounts, arbitrary mesh generation and autonomous offline island behaviour are outside this increment. Any pre-existing prototype should be disclosed according to the organisers’ rules; history must not be rewritten to hide it.
+The physical MacBook camera remains unverified until the device owner checks it. AR, rotating themes, eBay pricing, online multiplayer/accounts, arbitrary mesh generation and a hosted always-on worker are outside this increment. Any pre-existing prototype should be disclosed according to the organisers’ rules; history must not be rewritten to hide it.
 
 Candidate decisions and dataset transitions remain human actions: the comparison screen can record an explicit rejection with a reviewer/reason, and the data screen can move an exposed reserved group into development as one atomic transition. Rejection prevents adoption; retirement preserves case history and does not make used final cases independent again. Fresh reserved groups are required for a later claim.

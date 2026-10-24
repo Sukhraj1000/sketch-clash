@@ -1,6 +1,32 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment
+## Current increment — the purposeful island
+
+The original bold **paper arcade UI is restored**. The island is now a small persistent colony: object-based residents travel, gather, build, level up and remember actual contributions. The user requested this expansion; earlier statements that autonomous island behaviour was out of scope are superseded by [ISLAND_PLAN.md](ISLAND_PLAN.md). Everything remains local, with server-side Gemini and Atlas.
+
+Four staged structures—garden, workshop, beacon and boardwalk—each have three upgrade levels and a real production benefit. After all 12 upgrades, expeditions consume supplies and add discoveries. Residents have object-based capabilities, automatic useful-job selection, manual assignments, XP, levels, a bounded personal journal and optional AI-refined personas/plans. Use a 3D site or blueprint to set construction priority. Select a resident for task/personality/memory details, job assignment and original photo/history. Orbit, zoom, follow, reset, pause/resume and the accessible roster are available.
+
+**The local Python backend executes agents; MongoDB stores their state.** Work continues with the browser closed while the home Mac/backend is awake. A backend interruption allows 120 seconds of bounded catch-up, once. This does not supply cloud execution while the home computer is off. Five new collections (`islandState`, `islandAgents`, `islandEvents`, `islandPlanner`, `islandReasoning`) preserve state separately from existing characters and battles. Up to 40 residents work; additional saved residents stay in the collection. Newly unlocked residents join via **WELCOME NEW RESIDENTS**.
+
+Routine decisions/movement cost no Gemini requests. The optional **Gemini 3.5 Flash-Lite** planner uses official Interactions calls, bounded batches of six, one automatic batch per 15 minutes, at most 12 requests and 84,000 conservatively reserved tokens per UTC day. Initial roles exist without AI. AI can refine personality and an allowed useful-action preference, never resources, abilities, combat or appearances. Its inputs contain object metadata and recent recorded simulation events, not photos or quality feedback. The UI labels AI plans separately from recorded actions. Quota, provider failure and explicit retry are visible; unknown/invalid responses block automatic retries. The AI toggle is separate from simulation pause.
+
+### Current island evidence
+
+- Final backend suite: **122 passed, 2 optional real-Mongo tests skipped**. The separate live Atlas test below did run. Animation checks passed 801 authoritative timeline samples; existing combat checks passed 2,561 samples and image checks passed 14 assertions.
+- Final TypeScript/Vite production build passed. The lazy Three.js scene retains a bundle-size advisory (about 981 kB uncompressed / 260 kB gzip), plus the existing development THREE.Clock deprecation warning; no renderer errors were observed.
+- Full live server restart: with the colony temporarily paused at **112 completed actions**, all agent tasks/personas/memories, resources, projects, events, revision, discovery state and planner quota matched exactly after restart. The original five-resident world response also matched exactly. The colony was then resumed. Detailed report: `work/island-restart-verification.json` in the parent workspace.
+- Real shared-world start through the UI: **five residents**, an initial completed Flash-Lite reflection with **1,405 reported tokens**, working resource/task/XP/memory updates and durable personas. Original collection, appearances, homes and history references matched the pre-change snapshot exactly after the new simulation ran.
+- Real WebGL checks: selectable 3D residents/sites, Follow, Reset, orbit, pause/resume, task travel/work props, and growing construction. The garden reached level 1 and remained built after reload; the workshop then reached 27% and showed construction posts. Later progress is intentionally ongoing.
+- Isolated live Atlas/Gemini check: six controlled residents, 42 completed actions before reflection, a built garden, three concurrent advances with exactly-once effects, then a successful Flash-Lite response with **3,141 reported tokens**. Persona application did not alter resources. A new Atlas repository instance recovered exact agents/resources; seven days of test downtime yielded only 120 seconds once. The isolated world was removed. These are engineering fixtures, not a learning or recognition benchmark.
+- An earlier isolated reflection returned an invalid structured response. It was rejected without applying a persona, retained its budget and did not automatically retry. A new explicit diagnostic run succeeded. Neither result was presented as human judgement or model training.
+- Deterministic simulation checks cover concurrency, restart, pause, offline caps, resource reservations, unknown-object progression, persona source validation and four-hour operation without deadlock. Planner checks cover quotas, unknown outcomes, local recovery, missing model-version metadata and six-resident context bounds. Existing quality/combat/image checks remain in place.
+- Actual 320/390-pixel browser layouts had no document overflow; the roster/inspector, quality operator gate and capture handoff were usable. A temporary empty capture round was cancelled without taking/uploading a photo or calling recognition. Physical MacBook camera capture remains unverified.
+
+Desktop evidence outside Git: `../sketch-clash-arcade-restored.jpg`, `../sketch-clash-colony.jpg`, `../sketch-clash-colony-full.jpg` and `../sketch-clash-resident-agent.jpg`. Mobile checks are `../sketch-clash-arcade-mobile.jpg`, `../sketch-clash-island-mobile.jpg` and `../sketch-clash-capture-mobile.jpg`. Some include existing object thumbnails and are deliberately excluded from source commits. Non-secret detailed reports are `work/island-live-verification.json` and `work/island-scene-qa.json` in the parent workspace.
+
+The quality baseline remains `baseline-v1`; no candidate was adopted and no reviewed dataset or recognition improvement claim was added. Atlas credit redemption/balance/tier were not inspected. The private GitHub repository backs up source/history, not database records or private photos. Keep the home backend running to demonstrate a living island.
+
+## Earlier increment — recognition and quality workflow
 
 The local game now has a **human-reviewed recognition and character-quality loop**, plus a cleaner object-studio interface. The capture → confirmation → recorded battle → persistent island path remains in place. The application still runs locally on the home Mac, accessed from the MacBook through the existing SSH/Tailscale tunnel; Atlas and Gemini remain backend integrations.
 
@@ -40,7 +66,7 @@ Paste the displayed key into the lab and keep it private. The server generates t
 
 Keep existing Gemini/Atlas settings in ignored `.env.local` and never overwrite it with a blank example. Secure setup commands remain `npm run setup:gemini` and `npm run setup:mongodb`; neither requires sending secrets in chat. README lists supported environment names, runtime setup and backup boundaries.
 
-## Current verification
+## Earlier quality verification
 
 | Check | Actual scope/status |
 | --- | --- |
@@ -144,4 +170,4 @@ Historical memory-mode screenshots in the parent outputs folder include `sketch-
 
 The pre-existing prototype and its history should be disclosed under the organisers’ applicable rules. This increment neither deploys a public app nor removes an earlier hosted copy by retiring local hosting metadata.
 
-Resume instruction: **“Read HANDOVER.md. Preserve the active baseline, Atlas data and private handoff. Complete only the explicitly pending final verification, then help the owner assemble consented reviewed cases and human comparisons; do not fabricate evidence, approve a candidate or rerun finished work unnecessarily.”**
+Resume instruction: **“Read the current increment in HANDOVER.md and ISLAND_PLAN.md. Preserve the live colony, original residents, quality baseline, private handoff and existing Git history. Routine island work runs locally and persists to Atlas; optional model reflection remains bounded. Continue only the next requested improvement. Never fabricate human evidence or activate a quality candidate on the owner's behalf.”**
