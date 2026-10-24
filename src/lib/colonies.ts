@@ -7,12 +7,13 @@ export type ColonyCharacter = WorldCharacter & {
   valuation_provenance?: { kind: 'user_estimate'; currency: 'GBP'; recorded_at: string } | null
 }
 export type ColonyBoardEntry = {
-  id: string; created_at: string; kind: 'request' | 'offer' | 'report' | 'proposal' | 'support' | 'objection' | 'decision'; text: string
+  id: string; created_at: string; kind: 'request' | 'offer' | 'report' | 'proposal' | 'support' | 'objection' | 'decision' | 'question' | 'reflection'; text: string
   actor_id: string; character_id: string; actor_name: string
   resource?: string; quantity?: number; remaining?: number
-  status: 'open' | 'claimed' | 'fulfilled' | 'recorded' | 'expired'; origin: 'deterministic' | 'model' | 'player'
+  status: 'open' | 'claimed' | 'fulfilled' | 'recorded' | 'expired'; origin: 'deterministic' | 'model' | 'player' | 'executor'
   request_id?: string; claimed_by?: string; receipt_ids: string[]
   project_id?: string; council_id?: string; proposal_id?: string
+  session_id?: string; reply_to_id?: string; model?: string; run_id?: string; turn_index?: number
   interpretation?: string | null
 }
 export type ColonyAgent = IslandAgent & {
@@ -30,7 +31,7 @@ export type ColonyOpinion = {
 }
 export type ColonyCouncil = {
   id: string; at: string; chosen_project_id: string | null; previous_project_id: string | null; reason: string
-  origin: 'deterministic'; participants: ColonyOpinion[]; candidates: ColonyCandidate[]; model_message_ids: string[]
+  origin: 'deterministic' | 'model'; participants: ColonyOpinion[]; candidates: ColonyCandidate[]; model_message_ids: string[]
 }
 export type ColonyMetrics = {
   resident_count?: number; active_agents?: number; completed_actions?: number; building_levels?: number
@@ -50,6 +51,7 @@ export type Colony = {
     cooldown_seconds: number; candidates: ColonyCandidate[]
   }
   council?: ColonyCouncil[]
+  learning?: ColonyLearning
 }
 export type ColonyRun = {
   id: string; colony_id: ColonyId; agent_id?: string; agent_name?: string; status: string
@@ -57,9 +59,9 @@ export type ColonyRun = {
   usage?: Record<string, unknown> | null; receipt?: Record<string, unknown> | null; error?: string
 }
 export type ColonyPlanner = {
-  enabled: boolean; configured: boolean; model?: string; requests_today: number; max_requests_per_day: number
+  enabled: boolean; configured: boolean; model?: string; requests_today: number; max_requests_per_day: number | null
   remaining_requests?: number; last_status?: string; next_turn_at?: string; active_run?: ColonyRun | null
-  runs?: ColonyRun[]; error?: string
+  runs?: ColonyRun[]; error?: string; active_session_id?: string | null
 }
 export type ColoniesSnapshot = {
   enabled: boolean; server_time: string; persistence: 'mongodb' | 'development_memory'; colonies: Colony[]
@@ -96,3 +98,6 @@ export function numberMetric(metrics: ColonyMetrics, keys: string[], fallback = 
   for (const key of keys) if (typeof metrics[key] === 'number' && Number.isFinite(metrics[key])) return metrics[key] as number
   return fallback
 }
+
+export type LearningRecord = { id: string; [key: string]: any }
+export type ColonyLearning = { rule_version: string; capability_fingerprint?: string; last_change?: { new_resident_ids?: string[]; reopened_research_ids?: string[] }; retrieval?: {status: string; detail?: string}; dossiers: LearningRecord[]; findings: LearningRecord[]; experiments: LearningRecord[]; blueprints: LearningRecord[]; research: LearningRecord[] }
