@@ -12,6 +12,7 @@ from .agent_sdk import AgentDecision
 from .island_planner import IslandPlanner, iso, utc_day
 from .provider_queue import ProviderQueue, ProviderFailure, AI_PAUSE_REASON, require_ai_enabled
 from .repository import StoreError, key_for, public
+from .colony_context import bounded_council_context
 
 log = logging.getLogger('sketch_clash.colony_planner')
 MODEL = 'gemini-4-argon'
@@ -26,7 +27,7 @@ RECOVERABLE_CONFLICTS = {'request_unavailable', 'commitment_busy', 'colony_pause
     'capability_denied', 'action_required', 'self_claim', 'request_not_found',
     'invalid_report_evidence', 'invalid_proposal_evidence', 'research_scope_mismatch',
     'research_actor_not_found', 'planner_context_limit'}
-LOCAL_ADMISSION_DEFERRALS = {'local_daily_cap', 'local_queue_full'}
+LOCAL_ADMISSION_DEFERRALS = {'local_daily_cap', 'local_queue_full', 'local_ledger_unavailable'}
 VALIDATION_BACKOFF_MAX_SECONDS = 1800
 SYSTEM = '''You control exactly ONE object resident in a simulated island council. Make useful
 choices with your own persona and capabilities. Other residents are separately invoked agents;
@@ -175,8 +176,10 @@ class ColonyPlanner:
                 'limits': {'requests_per_day': self.daily_limit, 'automatic_interval_seconds': self.interval,
                            'manual_interval_seconds': 2, 'max_output_tokens': 2048, 'max_in_flight': 1,
                            'max_session_turns': 6, 'max_session_participants': 3},
-                'budget_scope': ('All Gemini calls share this backend process’s request-rate and rolling 24-hour guards; '
-                    'provider_queue.local_limits shows the configured values and its counters reset on restart. '
+                'budget_scope': ('All Gemini calls share request-rate and rolling 24-hour guards; '
+                    + ('the database admission ledger preserves reservations across restarts. Pre-cutover coverage is reported separately. '
+                       if self.queue.ledger else 'this isolated queue uses process-local counters that reset on restart. ')
+                    + 'provider_queue.local_limits shows the configured values. '
                     + ('No additional durable council/island daily ceiling is configured. ' if not self.daily_limit else
                        'An additional durable daily ceiling is shared by councils and the legacy island. ')
                     + 'Google project quotas apply independently.'),
@@ -318,11 +321,7 @@ class ColonyPlanner:
         actor = payload.get('actor', {})
         for key in ('memory', 'memories'):
             if key in actor: actor[key] = actor[key][-4:]
-        encoded = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
-        for field, minimum in (('project_discussion', 4), ('board', 4), ('last_receipts', 1)):
-            while len(encoded) + len(SYSTEM) > 20000 and len(payload[field]) > minimum:
-                payload[field].pop(); encoded = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
-        if len(encoded) + len(SYSTEM) > 48000: raise StoreError('The bounded council context is full.', 422, 'planner_context_limit')
+        encoded = bounded_council_context(payload, len(SYSTEM))
         return payload, encoded
 
     @staticmethod
@@ -400,7 +399,8 @@ class ColonyPlanner:
                 if previous and previous.get('error') == state.get('error'):
                     category = previous.get('provider_diagnostic', {}).get('category')
                     safe_rejection = previous.get('status') == 'rejected' and (
-                        previous.get('validation_code') in RECOVERABLE_CONFLICTS or previous.get('validation_errors'))
+                        previous.get('validation_code') in RECOVERABLE_CONFLICTS or previous.get('validation_errors')
+                        or previous.get('error') == 'The bounded council context is full.')
                     if category in LOCAL_ADMISSION_DEFERRALS:
                         session = tx.get('colonyCouncilSessions', previous.get('session_id', ''))
                         if session:
@@ -414,7 +414,8 @@ class ColonyPlanner:
                                          auto_blocked=False, last_status='retry_wait', next_due=due)
                             tx.put('colonyReasoning', previous); tx.put('colonyCouncilSessions', session)
                     elif safe_rejection:
-                        self._validation_delay(state, previous, previous.get('validation_code', 'invalid_agent_decision'))
+                        code = previous.get('validation_code') or ('planner_context_limit' if previous.get('error') == 'The bounded council context is full.' else 'invalid_agent_decision')
+                        self._validation_delay(state, previous, code)
                         state.update(auto_blocked=False, next_due=self.clock()+self.interval)
             if state['pending_run_id']:
                 run = tx.get('colonyReasoning', state['pending_run_id'])
@@ -509,9 +510,7 @@ class ColonyPlanner:
         try:
             payload, encoded = await asyncio.to_thread(self._input, run)
             payload = await self._recall(run, payload)
-            encoded = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
-            if len(encoded) + len(SYSTEM) > 48000:
-                raise StoreError('The bounded council context is full.', 422, 'planner_context_limit')
+            encoded = bounded_council_context(payload, len(SYSTEM), target=40000)
             def claim(tx):
                 state = self._state(tx, True); current = tx.get('colonyReasoning', run_id)
                 if current['status'] not in ('queued', 'retry_wait'): raise StoreError('Decision already claimed.', 409, 'planner_claimed')
@@ -551,9 +550,7 @@ class ColonyPlanner:
                     if recalled is not None:
                         payload.setdefault('learning', {})['retrieved_memory'] = recalled
                     payload['observed_at'] = iso(self.clock())
-                    encoded = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
-                    if len(encoded) + len(SYSTEM) > 48000:
-                        raise StoreError('The bounded council context is full.', 422, 'planner_context_limit')
+                    encoded = bounded_council_context(payload, len(SYSTEM), target=40000)
                 async def invoke():
                     nonlocal dispatched
                     context = span.get_span_context() if span else None

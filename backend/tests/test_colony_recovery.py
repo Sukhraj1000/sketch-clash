@@ -155,17 +155,17 @@ async def test_saved_response_recovery_never_buys_another_response(fixture, vali
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('category', ['local_daily_cap', 'invalid_report_evidence', 'unknown_outcome'])
+@pytest.mark.parametrize('category', ['local_daily_cap', 'invalid_report_evidence', 'planner_context_limit', 'unknown_outcome'])
 async def test_restart_migrates_only_proven_recoverable_legacy_blocks(fixture, category):
     repo, colonies, provider, clock, worker = fixture
     run = worker.request('old-block', 'winners')
-    message = 'Old known failure.'
+    message = 'The bounded council context is full.' if category == 'planner_context_limit' else 'Old known failure.'
     def seed(tx):
         row = tx.get('colonyReasoning', run['id'])
-        row.update(status='rejected' if category == 'invalid_report_evidence' else 'failed',
+        row.update(status='rejected' if category in ('invalid_report_evidence', 'planner_context_limit') else 'failed',
                    error=message, completed_at=row['created_at'])
         if category == 'invalid_report_evidence': row['validation_code'] = category
-        else: row['provider_diagnostic'] = ProviderDiagnostic(category, message, retry_after_seconds=5).public()
+        elif category != 'planner_context_limit': row['provider_diagnostic'] = ProviderDiagnostic(category, message, retry_after_seconds=5).public()
         state = worker._state(tx, True)
         state.update(pending_run_id=None, active_session_id=None, auto_blocked=True, error=message)
         session = tx.get('colonyCouncilSessions', run['session_id']); session['status'] = row['status']
@@ -174,5 +174,5 @@ async def test_restart_migrates_only_proven_recoverable_legacy_blocks(fixture, c
     _, restarted = await restart_paused(repo, colonies, provider, clock, worker)
     assert restarted.status()['auto_blocked'] == (category == 'unknown_outcome')
     if category == 'local_daily_cap': assert restarted.status()['active_run']['status'] == 'retry_wait'
-    if category == 'invalid_report_evidence': assert restarted.status()['validation_backoff']['winners']
+    if category in ('invalid_report_evidence', 'planner_context_limit'): assert restarted.status()['validation_backoff']['winners']
     assert not provider.calls and not colonies.applied
