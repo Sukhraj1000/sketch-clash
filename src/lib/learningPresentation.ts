@@ -21,3 +21,15 @@ export function cavityPresentation(dossier: ObjectDossier) {
 export function historicalEvidence(record: LearningRecord) {
   return Boolean(record.evidence_status && record.evidence_status !== 'current')
 }
+
+export function reflectionPresentation(dossier: ObjectDossier) {
+  const model = dossier.simulation_properties?.reflection_model
+  const labels: Record<string, string> = {
+    observed_reflective_surface: 'Reflective surface recorded · directional light can be tested',
+    observed_diffuse_surface: 'Diffuse surface recorded · no directional relay assumed',
+    conflicting_evidence: 'Conflicting surface evidence · clarification needed',
+    unknown: 'Reflection unknown · evidence missing',
+  }
+  return { label: labels[model?.status ?? 'unknown'] ?? labels.unknown,
+    detail: model?.detail ?? 'No reflective-surface evidence is recorded. An object name or material alone cannot unlock a signal relay.' }
+}

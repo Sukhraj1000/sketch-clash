@@ -145,7 +145,7 @@ const assembly = frozen({ ...baseProject, kind: 'assembly', progress: 60, bluepr
   ],
 } });
 const assemblySites = new Set();
-for (const family of ['support', 'hold', 'contain']) {
+for (const family of ['support', 'hold', 'contain', 'reflect']) {
   const project = { ...assembly, assembly: { ...assembly.assembly, family } };
   const initial = scene(FactoryStructureVisual({ project, progress: 0 }));
   const finished = scene(FactoryStructureVisual({ project, progress: 1 }));
@@ -156,7 +156,7 @@ for (const family of ['support', 'hold', 'contain']) {
   assert.ok(![...finished.named.keys()].some(name => name.startsWith('assembly-part-')), 'Factory site fittings do not invent or replace source-object parts');
   assemblySites.add(JSON.stringify(finished.geometry));
 }
-assert.equal(assemblySites.size, 3, 'Support, holding and containment have distinct fixtures');
+assert.equal(assemblySites.size, 4, 'Support, holding, containment and optical relays have distinct fixtures');
 const assemblySnapshot = JSON.stringify(assembly);
 const assemblyViews = [];
 for (const presentation of ['island', 'factory']) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { agentBehavior, crewBlockers, messageReceiptLink } from '../src/lib/agentBehavior.ts'
-import { cavityPresentation, historicalEvidence } from '../src/lib/learningPresentation.ts'
+import { cavityPresentation, historicalEvidence, reflectionPresentation } from '../src/lib/learningPresentation.ts'
 
 const agent = { id: 'agent-a', character_id: 'object-a', allowed_actions: ['build', 'water', 'rest'], task: { kind: 'rest', title: 'Wait for useful work' } }
 const receipt = (id, at, patch = {}) => ({ id, at, actor_id: agent.id, character_id: agent.character_id, kind: 'rest', receipt_version: 'island-action-v2', action_id: id, resource_delta: {}, progress_delta: 0, ...patch })
@@ -61,4 +61,12 @@ assert.match(authored.authority, /declared game capability/)
 assert.match(cavityPresentation({ id: 'd', simulation_properties: { apparent_cavity: true, cavity_model: { status: 'conflicting_evidence' } } }).label, /Conflicting/, 'Evidence conflict takes precedence over an old boolean')
 assert.equal(historicalEvidence({ id: 'finding', evidence_status: 'superseded_properties' }), true)
 assert.equal(historicalEvidence({ id: 'finding', evidence_status: 'current' }), false)
+const unobservedSurface = reflectionPresentation({ id: 'no-recorded-surface', object_type: 'mirror' })
+assert.match(unobservedSurface.label, /unknown.*missing/i, 'Identity alone is not surface evidence')
+assert.match(unobservedSurface.detail, /cannot unlock/i)
+const surface = status => reflectionPresentation({ id: 'surface', simulation_properties: { reflection_model: { status, detail: 'Authored analytical proxy.' } } })
+assert.match(surface('observed_reflective_surface').label, /can be tested/i, 'Visible reflection permits a test, not an already-earned bonus')
+assert.match(surface('observed_diffuse_surface').label, /no directional relay/i)
+assert.match(surface('conflicting_evidence').label, /clarification needed/i)
+assert.match(surface('unknown').label, /unknown.*missing/i)
 console.log('Agent behavior checks passed: actor identity, public speech, receipt-only outcomes, explicit causal references, honest waiting, supported actions and resource/capability shortages. No model calls or state writes.')

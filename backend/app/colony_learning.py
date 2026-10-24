@@ -13,7 +13,8 @@ import re
 from pydantic import ValidationError
 
 from .colony_experiments import (BlueprintProposal, ExperimentSpec, RULE_VERSION, DOSSIER_EVIDENCE_VERSION,
-                                PRODUCTION_BENCHMARKS, canonical_digest, cavity_model, context_for,
+                                PRIMARY_KINDS, PRODUCTION_BENCHMARKS, canonical_digest, cavity_model,
+                                reflection_model, dossier_fingerprint, context_for,
                                 physical_properties, physical_property_fingerprint, simulate_experiment, validate_blueprint)
 from .repository import StoreError, key_for
 
@@ -74,13 +75,17 @@ def evidence_status(record, dossiers):
     subjects = [dossiers.get(identifier) for identifier in ids]
     if not ids or any(row is None for row in subjects):
         return 'missing_subject_evidence'
-    if record.get('property_fingerprints') != [row['property_fingerprint'] for row in subjects]:
+    if record.get('property_fingerprints') != [dossier_fingerprint(row, record.get('family')) for row in subjects]:
         return 'superseded_properties'
     if record.get('family') == 'contain' and any(
             (row.get('simulation_properties', {}).get('cavity_model') or
              cavity_model(row.get('observed_evidence', {}).get('visible_features', [])))['status']
             in ('unknown', 'conflicting_evidence') for row in subjects):
         return 'missing_cavity_evidence'
+    if record.get('family') == 'reflect' and any(
+            row.get('simulation_properties', {}).get('reflection_model', {}).get('status')
+            != 'observed_reflective_surface' for row in subjects):
+        return 'missing_reflection_evidence'
     return 'current'
 
 
@@ -146,6 +151,7 @@ class ColonyLearningStore:
         capabilities = agent.get('capabilities', [])
         visual = source.get('visual_spec') or resident.get('visual_spec')
         cavity = cavity_model(features, capabilities)
+        reflection = reflection_model(features)
         evidence_fingerprint = canonical_digest({'version': DOSSIER_EVIDENCE_VERSION, 'features': features,
                                                  'visual_proportions': (visual or {}).get('proportions', {}), 'cavity': cavity})
         if existing and existing.get('evidence_fingerprint') == evidence_fingerprint:
@@ -175,11 +181,14 @@ class ColonyLearningStore:
                    'simulation_properties': {'geometry': geometry,
                        'apparent_cavity': True if cavity['status'] == 'observed_cavity' else False if cavity['status'] == 'observed_absence' else None,
                        'cavity_model': cavity,
+                       'reflection_model': reflection,
                        'material_assumption': props['material_assumption'],
                        'authority': 'authored_testbed_assumptions_not_measured_real_world_properties',
-                       'unknowns': ['mass', 'friction', 'stiffness', 'usable_capacity', 'leakage'],
+                       'unknowns': ['mass', 'friction', 'stiffness', 'usable_capacity', 'leakage', 'reflectance'],
                        'units': 'normalized_simulation_units'},
                    'property_fingerprint': property_fingerprint, '_physical_properties': props,
+                   'family_property_fingerprints': {'reflect': canonical_digest({
+                       'base': property_fingerprint, 'surface': reflection, 'reflectance': props['_reflectivity']})},
                    'tested_capabilities': [], 'finding_ids': deepcopy((existing or {}).get('finding_ids', []))}
         if existing:
             revision_id = key_for(identifier, 'revision', str(existing.get('revision', 0)),
@@ -188,11 +197,12 @@ class ColonyLearningStore:
                 tx.put(DOSSIER_REVISIONS, {**deepcopy(existing), '_id': revision_id, 'id': revision_id,
                        'dossier_id': identifier, 'archived_at': timestamp, 'immutable': True})
             dossier['previous_revision_id'] = revision_id
-            dossier['refresh_reason'] = 'Separate absent observations from declared simulation capabilities; preserve earlier evidence and receipts.'
+            dossier['refresh_reason'] = 'Refresh evidence-scoped simulation capabilities; preserve earlier evidence and receipts.'
             # A changed proxy needs a new test; unchanged numerical properties
             # retain their valid capabilities. Never reinterpret old receipts.
             dossier['tested_capabilities'] = [deepcopy(row) for row in existing.get('tested_capabilities', [])
-                if row.get('rule_version') == RULE_VERSION and existing.get('property_fingerprint') == dossier['property_fingerprint']
+                if row.get('rule_version') == RULE_VERSION and
+                dossier_fingerprint(existing, row.get('family')) == dossier_fingerprint(dossier, row.get('family'))
                 and not (row.get('family') == 'contain' and cavity['status'] in ('unknown', 'conflicting_evidence'))]
         tx.put(DOSSIERS, dossier)
         return public_learning(dossier)
@@ -311,7 +321,7 @@ class ColonyLearningStore:
         state['resources']['ideas'] -= 1
         state['revision'] += 1
         tx.put('islandState', state)
-        property_fingerprints = [dossier['property_fingerprint'] for dossier in dossiers]
+        property_fingerprints = [dossier_fingerprint(dossier, spec.family) for dossier in dossiers]
         finding_id = key_for(scope, 'finding', canonical_digest({'family': spec.family, 'subjects': spec.subject_ids,
                              'context': result['context'], 'properties': property_fingerprints, 'rules': RULE_VERSION}))
         timestamp = self.repo.clock()
@@ -325,7 +335,8 @@ class ColonyLearningStore:
                       'evidence_version': DOSSIER_EVIDENCE_VERSION,
                       'dossier_revisions': [{'resident_id': row['resident_id'], 'revision': row.get('revision'),
                           'evidence_fingerprint': row.get('evidence_fingerprint'),
-                          'cavity_model': deepcopy(row.get('simulation_properties', {}).get('cavity_model'))}
+                          'cavity_model': deepcopy(row.get('simulation_properties', {}).get('cavity_model')),
+                          'reflection_model': deepcopy(row.get('simulation_properties', {}).get('reflection_model'))}
                           for row in dossiers],
                       'reply_to_finding_id': spec.reply_to_finding_id}
         tx.put(EXPERIMENTS, experiment)
@@ -394,6 +405,13 @@ class ColonyLearningStore:
         if actor['character_id'] not in [row['resident_id'] for row in dossiers]:
             raise StoreError('A resident must contribute to the construction it proposes.', 422, 'blueprint_actor_missing')
         validated = validate_blueprint(proposal, {row['resident_id']: row for row in dossiers}, experiment)
+        if proposal.family == 'reflect' and not any(
+                'signal' in resident.get('allowed_actions', []) and
+                resident.get('action_yields', {}).get('signal', {}).get('ideas', 0) > 0
+                for resident in tx.find('islandAgents', {'world_id': scope}, limit=80)):
+            raise StoreError('A signal relay needs an existing crew member with the signal action. '
+                             'The construction improves that work; it cannot grant observation powers.',
+                             422, 'blueprint_beneficiary_missing')
         state = tx.get('islandState', key_for(scope, 'island-state')) or {}
         benefit = validated['benefit']
         actions = set(benefit.get('eligible_actions', []))
@@ -472,12 +490,14 @@ class ColonyLearningStore:
                                         'actor_must_participate': True, 'families': {
                                             'hold': {'purpose': 'Keep an arrangement stable under wind.', 'context_fields': ['wind_force', 'load', 'duration']},
                                             'contain': {'purpose': 'Deliver at least 85% of a specified liquid load.', 'context_fields': ['volume', 'distance', 'tilt_degrees']},
-                                            'support': {'purpose': 'Cover a span within load and deflection limits.', 'context_fields': ['span', 'load', 'support_count']}},
+                                            'support': {'purpose': 'Cover a span within load and deflection limits.', 'context_fields': ['span', 'load', 'support_count']},
+                                            'reflect': {'purpose': 'Redirect existing test light to improve signal contrast. Requires accepted visible reflective-surface evidence; load is background interference, tilt is alignment error. Does not create energy or grant signal.',
+                                                        'context_fields': ['distance', 'load', 'tilt_degrees']}},
                                         'support_rule': 'First subject spans two banks; each extra subject can provide one intermediate support.'},
                                     'blueprint': {'requires': 'Successful current-version experiment of the same ordered resident IDs.',
                                         'production_benchmarks': deepcopy(PRODUCTION_BENCHMARKS),
                                         'production_rule': 'An experiment must succeed at these minimum operating conditions before its blueprint can earn a normal-work bonus. Easier tests remain valid prototypes; retest them.',
-                                        'maximum_parts': 12, 'primary_kinds': {'hold': ['panel', 'connector'], 'contain': ['vessel'], 'support': ['beam', 'panel']},
+                                        'maximum_parts': 12, 'primary_kinds': deepcopy(PRIMARY_KINDS),
                                         'arrangement': 'Primary part at (0,0,0); extra part i at x=(i/part_count-0.5)*tested_span, y=z=0. All rotations zero.',
                                         'construction': 'Costs and bonus are calculated by the server. Crew agreement and actual reserved build work are required.'},
                                     'truth_boundary': 'Physical properties are simulation assumptions. Missing observations are unknown, not proof of absence. Declared game capabilities may supply a separately labelled proxy; changed proxies need a new test. Repetition does not increase confidence.'},

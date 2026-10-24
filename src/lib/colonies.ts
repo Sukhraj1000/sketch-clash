@@ -141,6 +141,7 @@ export type LearningRecord = { id: string; [key: string]: any }
 export type ObjectDossier = LearningRecord & {
   evidence_version?: string; revision?: number
   simulation_properties?: { material_assumption?: string; apparent_cavity?: boolean | null; unknowns?: string[]
-    cavity_model?: { status: string; authority: string; evidence: string[]; detail: string } }
+    cavity_model?: { status: string; authority: string; evidence: string[]; detail: string }
+    reflection_model?: { status: string; authority: string; evidence: string[]; detail: string } }
 }
 export type ColonyLearning = { rule_version: string; capability_fingerprint?: string; last_change?: { new_resident_ids?: string[]; reopened_research_ids?: string[] }; retrieval?: {status: string; detail?: string}; dossiers: ObjectDossier[]; findings: LearningRecord[]; historical_findings?: LearningRecord[]; experiments: LearningRecord[]; blueprints: LearningRecord[]; research: LearningRecord[] }

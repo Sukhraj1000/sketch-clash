@@ -38,7 +38,7 @@ export type IslandProject = {
   reward: string
   blueprint_id?: string
   assembly?: {
-    family: 'hold' | 'contain' | 'support'
+    family: 'hold' | 'contain' | 'support' | 'reflect'
     parts: IslandAssemblyPart[]
     context: Record<string, number>
   }

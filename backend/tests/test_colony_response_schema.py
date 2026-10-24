@@ -27,7 +27,7 @@ def test_provider_shape_requires_real_identifiers_and_omits_unrelated_test_input
     for branch in schema['$defs']['ExperimentSpec']['anyOf']:
         family = branch['properties']['family']['enum'][0]
         context = branch['properties']['context']
-        assert set(context['properties']) == {'hold': {'wind_force', 'load', 'duration'}, 'contain': {'volume', 'distance', 'tilt_degrees'}, 'support': {'span', 'load', 'support_count'}}[family]
+        assert set(context['properties']) == {'hold': {'wind_force', 'load', 'duration'}, 'contain': {'volume', 'distance', 'tilt_degrees'}, 'support': {'span', 'load', 'support_count'}, 'reflect': {'distance', 'load', 'tilt_degrees'}}[family]
         assert context['additionalProperties'] is False
         assert set(context['required']) == set(context['properties'])
     assert AgentDecision.model_json_schema() == before, 'Per-turn schemas cannot alter server authority or leak the previous actor permissions'

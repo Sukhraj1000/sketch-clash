@@ -78,7 +78,7 @@ const MATERIAL_COLOURS: Record<string, string> = {
 /** Installed sites have a durable footprint; unbuilt plans remain outlines. */
 function AssemblySite({ project, progress }: { project: IslandProject; progress: number }) {
   const family = project.assembly?.family
-  const accent = family === 'contain' ? '#6BAECD' : family === 'hold' ? '#D3AF5E' : '#7EAA88'
+  const accent = family === 'contain' ? '#6BAECD' : family === 'hold' ? '#D3AF5E' : family === 'reflect' ? '#B8C7DA' : '#7EAA88'
   return <group name={`island-fixture-${family ?? 'unknown'}`}>
     {progress > 0 && <>
       <mesh position={[0, .05, 0]} receiveShadow castShadow><boxGeometry args={[1.65, .1, 1.18]} /><Paint color="#C8B995" /></mesh>
@@ -97,6 +97,14 @@ function AssemblySite({ project, progress }: { project: IslandProject; progress:
       <mesh position={[side * .69, .22, 0]} castShadow><boxGeometry args={[.06, .2, .92]} /><Paint color="#87A6A6" /></mesh>
       <mesh position={[0, .22, side * .49]} castShadow><boxGeometry args={[1.4, .2, .05]} /><Paint color="#87A6A6" /></mesh>
     </group>)}
+    {progress > .45 && family === 'reflect' && <group name="island-optical-relay-mount">
+      {[-.62, .62].map(x => <mesh key={x} position={[x, .34, 0]} castShadow><boxGeometry args={[.08, .44, .82]} /><Paint color="#889CA6" /></mesh>)}
+      <mesh position={[0, .46, -.46]} castShadow><boxGeometry args={[1.42, .06, .07]} /><Paint color={INK} /></mesh>
+      {progress >= 1 && <group position={[.68, .48, -.4]}>
+        <mesh castShadow><boxGeometry args={[.12, .18, .08]} /><Paint color={INK} /></mesh>
+        <mesh position={[0, 0, .046]}><circleGeometry args={[.034, 12]} /><meshStandardMaterial color="#C8E7EF" metalness={.6} roughness={.15} /></mesh>
+      </group>}
+    </group>}
     {progress >= 1 && <group position={[.74, .3, .5]}>
       <mesh castShadow><boxGeometry args={[.18, .3, .06]} /><Paint color={WOOD} /></mesh>
       <mesh position={[0, .07, .035]}><boxGeometry args={[.12, .08, .018]} /><Paint color={accent} /></mesh>
@@ -122,7 +130,8 @@ function Assembly({ project, progress }: { project: IslandProject; progress: num
       const primarySpan = assembly.family === 'support' && index === 0
       const y = shape.position.y + shape.height / 2 + (primarySpan ? supportHeight + .05 : 0)
       const color = shape.solid ? MATERIAL_COLOURS[part.material_assumption] ?? MATERIAL_COLOURS.unknown : '#6BA9B9'
-      const material = <meshStandardMaterial color={color} roughness={.78} flatShading transparent={!shape.solid} opacity={shape.solid ? 1 : .34} wireframe={!shape.solid} depthWrite={shape.solid} />
+      const reflective = assembly.family === 'reflect' && shape.solid
+      const material = <meshStandardMaterial color={reflective ? '#CBD9E1' : color} roughness={reflective ? .12 : .78} metalness={reflective ? .86 : 0} flatShading transparent={!shape.solid} opacity={shape.solid ? 1 : .34} wireframe={!shape.solid} depthWrite={shape.solid} />
       return <group key={`${part.resident_id}-${index}`} name={`assembly-part-${part.resident_id}`} position={[shape.position.x, y, shape.position.z]} rotation={[0, part.rotation === 90 ? Math.PI / 2 : 0, 0]}>
         {part.kind === 'vessel' ? <>
           <mesh castShadow={shape.solid} receiveShadow>
@@ -141,7 +150,7 @@ function Assembly({ project, progress }: { project: IslandProject; progress: num
         </mesh>}
         {shape.solid && <mesh position={[0, shape.height / 2 + .02, 0]}>
           <boxGeometry args={[Math.min(.16, shape.width * .2), .025, Math.min(.16, shape.depth * .2)]} />
-          <Paint color={assembly.family === 'contain' ? '#6BAECD' : assembly.family === 'hold' ? '#FFD166' : '#8AC9AA'} />
+          <Paint color={assembly.family === 'contain' ? '#6BAECD' : assembly.family === 'hold' ? '#FFD166' : assembly.family === 'reflect' ? '#B8C7DA' : '#8AC9AA'} />
         </mesh>}
       </group>
     })}

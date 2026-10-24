@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .repository import StoreError
 
 RULE_VERSION = 'island-laboratory-v1'
-DOSSIER_EVIDENCE_VERSION = 'island-evidence-v2'
+DOSSIER_EVIDENCE_VERSION = 'island-evidence-v3'
 BENCHMARK_VERSION = 'island-production-v1'
 # Normal island work has a declared bounded operating envelope. Passing a tiny
 # prototype test does not authorize a bonus for that normal production workload.
@@ -25,8 +25,11 @@ PRODUCTION_BENCHMARKS = {
     'hold': {'wind_force': 1, 'load': 1, 'duration': 10},
     'contain': {'volume': .3, 'distance': 2},
     'support': {'span': .6, 'load': .2},
+    'reflect': {'distance': 2, 'load': 1},
 }
-Family = Literal['hold', 'contain', 'support']
+Family = Literal['hold', 'contain', 'support', 'reflect']
+PRIMARY_KINDS = {'hold': ['panel', 'connector'], 'contain': ['vessel'],
+                 'support': ['beam', 'panel'], 'reflect': ['panel']}
 
 
 class StrictModel(BaseModel):
@@ -96,7 +99,8 @@ def context_for(family: str, context: dict | ExperimentContext) -> dict:
     value = context if isinstance(context, ExperimentContext) else ExperimentContext.model_validate(context)
     keys = {'hold': ('wind_force', 'load', 'duration'),
             'contain': ('volume', 'distance', 'tilt_degrees'),
-            'support': ('span', 'load', 'support_count')}[family]
+            'support': ('span', 'load', 'support_count'),
+            'reflect': ('distance', 'load', 'tilt_degrees')}[family]
     return {key: getattr(value, key) for key in keys}
 
 
@@ -150,6 +154,37 @@ def physical_property_fingerprint(properties: dict) -> str:
                              if not key.startswith('_') and key != 'provenance'})
 
 
+def reflection_model(features: list[str]) -> dict:
+    """Surface observations permit an optical proxy, never a new energy source.
+
+    Material or object identity alone is insufficient: metal can be matte and a
+    screen can be opaque. Negative or ambiguous evidence blocks the test.
+    """
+    positive, negative, uncertain = [], [], []
+    cue = r'(?:reflective|shiny|polished|mirror|mirrored)'
+    for feature in features:
+        text = str(feature).lower()
+        if re.search(r'\b(?:matte|dull|opaque coating)\b|\bnon[- ]?' + cue +
+                     r'\b|\b(?:not|no|without)(?:\s+\w+){0,2}\s+' + cue + r'\b', text):
+            negative.append(str(feature))
+        elif re.search(r'\b' + cue + r'\b', text) and re.search(r'\b(?:may|might|could|possibly|perhaps|uncertain|unclear)\b', text):
+            uncertain.append(str(feature))
+        elif re.search(r'\b' + cue + r'\b', text):
+            positive.append(str(feature))
+    status = ('conflicting_evidence' if positive and (negative or uncertain) else
+              'observed_reflective_surface' if positive else 'observed_diffuse_surface' if negative else 'unknown')
+    return {'status': status, 'authority': 'accepted_visible_features' if positive or negative or uncertain else 'missing_evidence',
+            'evidence': positive + negative + uncertain,
+            'detail': 'Reflectance and directional accuracy remain authored simulation assumptions. The test redirects an existing test light; it does not produce energy.'}
+
+
+def dossier_fingerprint(dossier: dict, family: str) -> str:
+    """An additive family must not invalidate unchanged v1 physical findings."""
+    if family == 'reflect':
+        return (dossier.get('family_property_fingerprints') or {}).get('reflect', '')
+    return dossier['property_fingerprint']
+
+
 def physical_properties(features: list[str], visual_spec: dict | None = None,
                         capabilities: list[str] | None = None) -> dict:
     """Author stable testbed properties from accepted visual evidence.
@@ -180,6 +215,7 @@ def physical_properties(features: list[str], visual_spec: dict | None = None,
         'fabric': (.25, 1.5, .28), 'unknown': (1, 18, .04),
     }[material]
     variation = .9 + (seed % 21) / 100
+    reflection = reflection_model(features)
     return {'width': round(width, 5), 'height': round(height, 5), 'depth': round(depth, 5),
             'length': round(length, 5), 'mass': round(max(.08, width * height * depth * density * variation), 5),
             'stiffness': round(stiffness * variation, 5), 'friction': round(.35 + (seed % 30) / 100, 5),
@@ -188,7 +224,9 @@ def physical_properties(features: list[str], visual_spec: dict | None = None,
             'provenance': ('authored_simulation_proxy_from_declared_game_capability' if cavity['status'] == 'declared_simulation_cavity' else
                            'authored_simulation_parameters_from_accepted_visible_features' if features else
                            'authored_generic_simulation_proxy_without_recorded_shape_evidence'),
-            '_cavity_status': cavity['status'], '_cavity_authority': cavity['authority']}
+            '_cavity_status': cavity['status'], '_cavity_authority': cavity['authority'],
+            '_reflection_status': reflection['status'],
+            '_reflectivity': .8 if reflection['status'] == 'observed_reflective_surface' else 0}
 
 
 def _numeric_properties(properties: list[dict]) -> list[dict]:
@@ -209,7 +247,7 @@ def _numeric_properties(properties: list[dict]) -> list[dict]:
 
 def simulate_experiment(family: str, properties: list[dict], context: dict | ExperimentContext) -> dict:
     """Pure, replayable evaluation; no stock, memory, labels or network access."""
-    if family not in ('hold', 'contain', 'support'):
+    if family not in PRODUCTION_BENCHMARKS:
         raise StoreError('Unknown experiment family.', 422, 'invalid_experiment')
     p = _numeric_properties(properties)
     c = context_for(family, context)
@@ -242,7 +280,7 @@ def simulate_experiment(family: str, properties: list[dict], context: dict | Exp
         measures = {'usable_capacity': usable, 'retained_volume': retained, 'spilled_volume': spilled,
                     'delivery_fraction': retained / c['volume']}
         reason = 'At least 85% of the load arrived.' if success else 'The cavity, tilt or leakage prevented the required delivery.'
-    else:
+    elif family == 'support':
         # The first subject spans two banks. Further subjects may add intermediate
         # supports; an invented support_count cannot summon extra residents.
         available_supports = len(p) + 1
@@ -260,12 +298,33 @@ def simulate_experiment(family: str, properties: list[dict], context: dict | Exp
         measures = {'clear_span': clear_span, 'deflection': deflection, 'deflection_limit': clear_span * .08,
                     'supported_load': capacity, 'required_load': c['load'], 'span_covered': spans}
         reason = 'The span stayed within its load and deflection limits.' if success else 'The span was too short, overloaded or bent beyond its allowed deflection.'
+    else:
+        if any(row.get('_reflection_status') != 'observed_reflective_surface' for row in p):
+            raise StoreError('A directional reflector needs accepted visible reflective-surface evidence for every participant. Material, identity and missing evidence cannot establish this ability.',
+                             422, 'reflection_evidence_missing')
+        reflectance = [row.get('_reflectivity') for row in p]
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) or
+               not math.isfinite(value) or not 0 <= value <= 1 for value in reflectance):
+            raise StoreError('Optical proxy values must be finite reflectance fractions.', 422, 'invalid_physical_properties')
+        # A fixed, declared test light is redirected toward a target. Load is
+        # background interference. Greater distance/load and alignment error
+        # cannot improve the result. No resource is generated by this test.
+        alignment = max(0, math.cos(math.radians(c['tilt_degrees'] * 2))) ** 2
+        collected = sum(row['width'] * row['length'] * value for row, value in zip(p, reflectance))
+        received = min(1, collected / (1 + c['distance'] ** 2)) * alignment
+        contrast = received / c['load']
+        success = contrast >= .08
+        measures = {'received_signal': received, 'background_load': c['load'],
+                    'signal_contrast': contrast, 'required_contrast': .08, 'alignment_factor': alignment}
+        reason = ('The reflected test light remained distinguishable at the target.' if success else
+                  'The surface area, distance, interference or alignment lost too much of the test signal.')
     rounded = {key: round(value, 6) if isinstance(value, float) else value for key, value in measures.items()}
     return {'rule_version': RULE_VERSION, 'family': family, 'context': c, 'success': success,
             'measurements': rounded, 'summary': reason, 'authority': 'deterministic_simulation',
             'production_validation': production_validation(family, c, success),
             'replay': {'duration_seconds': min(8, c.get('duration', 4)),
-                       'motion': {'hold': 'wind_test', 'contain': 'transfer_test', 'support': 'load_test'}[family],
+                       'motion': {'hold': 'wind_test', 'contain': 'transfer_test', 'support': 'load_test',
+                                  'reflect': 'signal_test'}[family],
                        'measurements': rounded}}
 
 
@@ -273,6 +332,7 @@ BENEFITS = {
     'hold': {'kind': 'task_yield_bonus', 'resource': 'ideas', 'eligible_actions': ['plan', 'measure'], 'amount': 1},
     'contain': {'kind': 'task_yield_bonus', 'resource': 'water', 'eligible_actions': ['water'], 'amount': 1},
     'support': {'kind': 'task_yield_bonus', 'resource': 'materials', 'eligible_actions': ['carry', 'forage'], 'amount': 1},
+    'reflect': {'kind': 'task_yield_bonus', 'resource': 'ideas', 'eligible_actions': ['signal'], 'amount': 1},
 }
 
 
@@ -290,19 +350,23 @@ def validate_blueprint(proposal: BlueprintProposal | dict, dossiers: dict[str, d
     if (not experiment.get('result', {}).get('success') or experiment.get('rule_version') != RULE_VERSION
             or experiment.get('family') != value.family or experiment.get('subject_ids') != ids):
         raise StoreError('A construction needs a successful current-version test of these ordered participants.', 422, 'blueprint_evidence_mismatch')
-    if experiment.get('property_fingerprints') != [dossiers[identifier]['property_fingerprint'] for identifier in ids]:
+    if experiment.get('property_fingerprints') != [dossier_fingerprint(dossiers[identifier], value.family) for identifier in ids]:
         raise StoreError('The tested objects changed; this design needs a new experiment.', 422, 'blueprint_evidence_stale')
     if value.family == 'contain' and any(
             (dossiers[identifier].get('simulation_properties', {}).get('cavity_model') or
              cavity_model(dossiers[identifier].get('observed_evidence', {}).get('visible_features', [])))['status']
             in ('unknown', 'conflicting_evidence') for identifier in ids):
         raise StoreError('Containment needs a supported current cavity model and a successful test of it.', 422, 'containment_evidence_missing')
+    if value.family == 'reflect' and any(
+            dossiers[identifier].get('simulation_properties', {}).get('reflection_model', {}).get('status')
+            != 'observed_reflective_surface' for identifier in ids):
+        raise StoreError('A relay requires current reflective-surface evidence and a successful test of it.', 422, 'reflection_evidence_missing')
     operational = production_validation(value.family, experiment['context'], experiment['result']['success'])
     if not operational['eligible']:
         missing = ', '.join(f"{row['field']} >= {row['required_minimum']}" for row in operational['unmet_requirements'])
         raise StoreError('This prototype has not covered normal island work. Run a successful retest with ' + missing +
                          ' before proposing a production construction.', 422, 'production_benchmark_not_met')
-    primary = {'hold': {'panel', 'connector'}, 'contain': {'vessel'}, 'support': {'beam', 'panel'}}[value.family]
+    primary = PRIMARY_KINDS[value.family]
     if value.parts[0].kind not in primary:
         raise StoreError('The first construction part must match the tested function.', 422, 'blueprint_function_mismatch')
     # Only this canonical arrangement has been tested. Coordinates are not a way

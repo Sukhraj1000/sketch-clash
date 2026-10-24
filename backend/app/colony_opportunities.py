@@ -9,10 +9,9 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-from .colony_experiments import BENEFITS, PRODUCTION_BENCHMARKS, RULE_VERSION, context_for, validate_blueprint
+from .colony_experiments import (BENEFITS, PRIMARY_KINDS, PRODUCTION_BENCHMARKS, RULE_VERSION,
+                                context_for, dossier_fingerprint, validate_blueprint)
 from .repository import StoreError
-
-PRIMARY_KINDS = {'hold': ['panel', 'connector'], 'contain': ['vessel'], 'support': ['beam', 'panel']}
 
 
 def _rows(value):
@@ -87,10 +86,13 @@ def _research_options(actor, dossiers, experiments, coverage, sites, slots, reso
         cavity = props.get('cavity_model') or {}
         if family == 'contain' and cavity.get('status') not in ('observed_cavity', 'declared_simulation_cavity'):
             continue
+        reflection = props.get('reflection_model') or {}
+        if family == 'reflect' and reflection.get('status') != 'observed_reflective_surface':
+            continue
         current_tests = [test for test in experiments if test.get('family') == family
                          and test.get('rule_version') == RULE_VERSION
                          and test.get('subject_ids') == [identifier]
-                         and test.get('property_fingerprints') == [dossier.get('property_fingerprint')]
+                         and test.get('property_fingerprints') == [dossier_fingerprint(dossier, family)]
                          and test.get('status') != 'blocked' and isinstance(test.get('result'), dict)]
         # A failed normal-workload test needs a changed arrangement/evidence,
         # not another identical paid probe. Successful tests go to tested_designs.
@@ -105,8 +107,9 @@ def _research_options(actor, dossiers, experiments, coverage, sites, slots, reso
         if any(already_tested(test) for test in current_tests):
             continue
         output.append({'family': family, 'resident_id': identifier, 'dossier_id': dossier.get('id'),
-                       'evidence_basis': cavity.get('authority', 'declared_simulation_geometry') if family == 'contain' else 'declared_simulation_geometry',
-                       'property_fingerprint': dossier.get('property_fingerprint'),
+                       'evidence_basis': (reflection.get('authority') if family == 'reflect' else
+                                          cavity.get('authority', 'declared_simulation_geometry') if family == 'contain' else 'declared_simulation_geometry'),
+                       'property_fingerprint': dossier_fingerprint(dossier, family),
                        'context': deepcopy(PRODUCTION_BENCHMARKS[family]),
                        'benefits_actions': row['eligible_crew_actions'],
                        'reason': 'An uncovered useful function has current simulation evidence and no matching completed benchmark test. Test before claiming a benefit.'})
@@ -209,7 +212,7 @@ def work_opportunities(payload):
         'funded_projects': funded[:8], 'projects_needing_supplies': gathering[:4], 'blocked_projects': blocked[:4],
         'no_additional_benefit_projects': redundant[:6], 'bonus_coverage': coverage,
         'tested_designs': designs[:6], 'omitted_design_counts': excluded,
-        'research_options': research[:3],
+        'research_options': research[:4],
         'free_sites': sites, 'remaining_assembly_slots': assembly_slots,
         'next_steps': [
             'Existing funded projects can receive a proposal or support with their exact project_id; agreement permits actual build work.',

@@ -70,7 +70,8 @@ def council_response_schema(allowed_actions=None):
     variants = []
     for family, keys in (('hold', ['wind_force', 'load', 'duration']),
                          ('contain', ['volume', 'distance', 'tilt_degrees']),
-                         ('support', ['span', 'load', 'support_count'])):
+                         ('support', ['span', 'load', 'support_count']),
+                         ('reflect', ['distance', 'load', 'tilt_degrees'])):
         variant = deepcopy(experiment)
         variant['properties']['family'] = {'type': 'string', 'enum': [family]}
         variant['properties']['context'] = {'type': 'object', 'additionalProperties': False,

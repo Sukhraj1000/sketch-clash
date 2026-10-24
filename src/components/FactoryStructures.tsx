@@ -153,6 +153,17 @@ function AssemblyFixture({ project, progress }: { project: IslandProject; progre
       <Box position={[side * .69, .24, 0]} size={[.06, .24, .92]} color={FRAME} material="steel" />
       <Box position={[0, .24, side * .49]} size={[1.4, .24, .04]} color="#718B92" material="steel" />
     </group>)}
+    {progress > .45 && family === 'reflect' && <group name="factory-optical-relay-mount">
+      {[-.62, .62].map(x => <group key={x}>
+        <Box position={[x, .34, 0]} size={[.08, .44, .82]} color={FRAME} material="steel" />
+        <Tube position={[x, .32, .34]} length={.3} radius={.018} color={DARK_STEEL} />
+      </group>)}
+      <Box position={[0, .46, -.46]} size={[1.42, .06, .07]} color={DARK_STEEL} material="steel" />
+      {progress >= 1 && <group position={[.68, .48, -.4]}>
+        <Box size={[.12, .18, .08]} color={DARK_STEEL} material="paint" />
+        <mesh position={[0, 0, .046]}><circleGeometry args={[.034, 12]} /><Paint color="#C8E7EF" material="glass" /></mesh>
+      </group>}
+    </group>}
     {progress >= 1 && <group position={[.73, .3, .5]}>
       <Box size={[.18, .3, .08]} color={DARK_STEEL} material="paint" />
       <Box position={[0, .075, .046]} size={[.1, .07, .012]} color="#91B8A1" material="glass" />
