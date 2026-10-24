@@ -6,32 +6,58 @@ Implemented 24 October 2026. The game asks whether a useful combination of objec
 
 ```mermaid
 flowchart TB
-  Photo[Camera or uploaded object] --> Review[Gemini recognition + human identity review]
+  Browser[Local React app: camera / upload / review] --> API[Local FastAPI service]
+  API --> Evidence[Available detector and OCR evidence]
+  Evidence --> Recognition[Gemini recognition + catalogue retrieval]
+  Recognition <--> Catalogue[(Atlas character catalogue / configured Vector Search)]
+  Recognition --> Review[Human confirms accepted identity]
   Review --> Battle[Server-authoritative battle]
-  Battle --> Commit[Atomic completion + immutable placement records]
-  Commit --> W[Winner Island: distinct crew and state]
-  Commit --> L[Loser Island: distinct crew and state]
-  Commit --> Legacy[Preserved original shared collection]
-  W --> Loop[Local Python simulation worker]
-  L --> Loop
-  Loop --> Board[Same-island requests and commitments]
-  Board --> Observe[One actor's observation + memory]
-  Observe --> Gemini[Bounded Gemini Flash-Lite decision]
-  Gemini --> SDK[Typed capability SDK + live validation]
-  SDK --> Task[Next permitted task]
-  Task --> Receipt[Atomic resource/work effect + receipt]
-  Receipt --> Board
-  Receipt --> Atlas[(MongoDB Atlas)]
-  Atlas --> UI[3D island + comparison + live evidence diagram]
-  UI --> Control[Player priorities / jobs / pause / AI toggle]
-  Control --> Loop
+  Battle --> Commit[Atomic result + immutable placement records]
+  Commit --> W[Winner Island: own crew and state]
+  Commit --> L[Loser Island: own crew and state]
+  Commit --> Original[Preserved original shared collection]
+  W --> Council[Local crew council: feasible whole upgrades]
+  L --> Council
+  Council --> Board[Own-island proposals / support / objections / decision]
+  Board --> Observe[One actor: abilities + memory + stock + board]
+  Observe --> Gemini[Bounded Gemini Flash-Lite turn]
+  Gemini --> SDK[Typed SDK + scope / capability validator]
+  SDK --> Board
+  SDK --> Tasks[Permitted next tasks / exclusive commitments]
+  Council --> Tasks
+  Tasks --> Executor[Local executor: preserve in-flight reservations]
+  Executor --> Receipts[Atomic resource + work effects and receipts]
+  Receipts --> Board
+  Receipts --> Atlas[(Atlas: states / agents / boards / journals / model runs)]
+  Atlas --> Scene[3D display + discussion + architecture]
+  Scene --> Controls[Optional player override / pause / return to crew]
+  Controls --> Council
+  Review --> Feedback[Capture feedback]
+  Feedback --> Quality[Operator review + candidate generation + evaluation + render checks]
+  Quality --> Activate[Explicit activation / rollback]
+  Activate --> Recognition
 ```
+
+The full diagram is also in **Islands → Architecture**, with an interactive illustrative communication sequence. **Island** shows the current build and actual supplies/work. **Discussion** shows saved council decisions and linked resource requests; advanced model records and value estimates are collapsed.
+
 
 Every completed battle records both accepted fighter slots. Winner and loser placement follows the authoritative `winner_slot`, never model prose or price. One canonical object type has one persistent resident **per side**; repeat appearances add placement history without replacing its first appearance. The same type may exist on both sides. Existing battles are backfilled chronologically and idempotently. The original `worldCharacters` collection remains separate.
 
-Accepted identities now select 18 recognizable procedural silhouettes, including televisions, microwaves, pitchers and rulers. This presentation upgrade also improves coarse legacy templates while retaining their identity, palette, accessories and scale; genuine book/unknown templates retain their existing shape.
+Accepted identities now select 18 recognizable procedural silhouettes, including televisions, microwaves, pitchers and rulers. Known shapes use uniform presentation scaling; rigid bodies do not squash or deeply lean at rest. Stable display slots separate residents sharing an abstract task coordinate. Saved identity, palette, accessories and appearance records remain unchanged; genuine book/unknown templates retain their existing shape.
 
 Each side starts with the same resources and building definitions. Its crew composition, timing and player interventions may differ. Four buildings have three levels; tasks, XP, bounded memories, resources and completed projects survive restart. The scene uses one active WebGL canvas, switches shores, and exposes roster controls independently of picking a 3D mesh.
+
+## Autonomous project council
+
+Crew control is the default, including migration of islands created before councils existed. Every 45 seconds the local engine reassesses each unfinished building. It computes the remaining work for the **entire next upgrade**, subtracts already-reserved work, includes incoming supplies from in-flight tasks, and checks the remaining resource cost against stock and the crew’s allowed production actions. It uses the least productive eligible builder for a conservative admission budget.
+
+A temporary shortage that the crew can gather does not trigger a switch. A missing capability that prevents finishing the upgrade does. Each actor casts a capability-based preference; the council chooses a feasible project and normally finishes the agreed upgrade before reconsidering. A majority of independent active model preferences may select another feasible project. No proposal can create stock, add abilities or override a player-selected project. Identical discussions are not republished on every recheck.
+
+The board stores per-actor support/objection entries and the council’s chosen project and explanation. Rule explanations are labelled game rule. Gemini may submit typed `proposal`, `support` and `objection` messages with a project ID and optional same-island proposal reference. One active stance per actor prevents repeated-message vote amplification; stances expire after six hours or when their project is fully upgraded, and a newer opinion replaces the actor’s previous stance. This lets an opinion survive the 15-minute automatic turn interval and be read by another actor; supply requests still expire after five minutes. Model text is public intent, not evidence of completed work. A whole council decision is still validated by local rules and labelled accordingly.
+
+`POST /api/colonies/command` with `kind: "priority"` explicitly enters manual control. `kind: "council", mode: "crew"` returns control to the crew. Both are durable and idempotent. Existing work, resource reservations and contribution commitments are preserved when direction changes.
+
+Example: a crew containing a pitcher, ruler, mug and TV has water, materials and ideas but no energy supplier. An energy-starved beacon is marked infeasible. The crew can choose a garden/workshop/boardwalk upgrade, request its missing supplies, claim tasks with suitable residents, and verify contributions from actual completion receipts. The Architecture walkthrough illustrates this; live decisions in Discussion may choose a different feasible building based on current progress and votes.
 
 ## What “agents talk” means here
 
@@ -88,7 +114,8 @@ The validator checks actor/island ownership, accepted actions, project IDs, open
 | `colonyModes` | Explicit activation of two-island simulation |
 | `islandState`, `islandAgents` | Scoped resources, projects, tasks, persona, memory, contributions |
 | `islandEvents` | Scoped action receipts and command journal |
-| `colonyBoard`, `colonyCommitments` | Requests, exclusive accepted work, expiry and fulfillment |
+| `colonyBoard`, `colonyCommitments` | Council discussion, requests, exclusive accepted work, expiry and fulfillment |
+| `colonyProjectOpinions` | One expiring model project stance per actor; linked same-island board evidence |
 | `colonyDecisions`, `colonyContributions` | Validated proposals and actual credited cooperative units |
 | `colonyPlanner`, `colonyReasoning` | Scheduling, independent model runs, output and recovery |
 | `islandPlanner` | Shared daily usage counter, including prior legacy requests |
@@ -116,9 +143,9 @@ To investigate whether communication helps rather than simply decorate the demo,
 
 1. Enter the islands; start once if not already initialized.
 2. Switch shores and show the actual crew composition and capability gaps.
-3. Select a building and an object. Its task, declared abilities and memory explain its role.
-4. Open the shared board. Follow a request to its offer and actual contribution receipt.
-5. Inspect **Under the hood**. Trigger one actor turn if quota/cooldown permit; show acceptance or rejection honestly.
+3. Read the current goal and why the crew chose it. Select an object to see its contribution, abilities and task.
+4. Open **Discussion**. Read actor positions, the agreed project and its feasibility; follow a supply request through a claim to an actual receipt.
+5. Open **Architecture** for the whole system and step-through communication example. Expand live run records for actual model evidence; trigger a turn only if quota/cooldown permit.
 6. Compare both shores, including estimate coverage if values were entered.
 7. Reload to show persistence. Closing the browser leaves the local worker running; stopping the backend does not.
 

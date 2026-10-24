@@ -84,11 +84,17 @@ Requests, repairs and embeddings count against budgets. Unknown request outcomes
 
 The fixed adoption policy requires at least three reviewed development cases and three fresh reserved cases from three independent groups, complete matching results, valid combat/schema and actual render checks, no increase in wrong accepted identities, no coverage drop, no increase in unnecessary clarification and bounded latency. Recognition candidates need independent improvement; appearance candidates need supporting human comparison. Passing remains provisional and still requires an explicit human activation.
 
+## Autonomous island crews
+
+Open **The islands**. **Island** shows the crew’s current goal and actual construction/supply contributions. **Discussion** shows capability-based project opinions, the validated choice, and request → offer → receipt threads. **Architecture** shows the complete capture-to-island system and an illustrative communication sequence; live model records sit in a separate disclosure.
+
+Crews choose projects automatically, test the cost of the whole next upgrade, and switch away from missing capabilities. Temporary shortages are gathered by suitable objects. Optional manual project overrides have a **Return control to crew** action. Gemini can propose/support/object through the same typed SDK; rules and model intent have distinct labels. All execution remains local, with Atlas persistence. See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md).
+
 ## Atlas retrieval and persistence
 
 The existing collections hold battles, captures, content-hashed media, residents, worlds and encounters. Island collections add `islandState`, `islandAgents`, `islandEvents`, `islandPlanner` and `islandReasoning`: transactional economy/buildings, durable tasks and personas, append-only action/command journals, daily budgets and recoverable plans. Quality collections hold exact-output feedback, human reviews, case revisions, frozen jobs/results/comparisons, immutable pipeline versions, an atomic active pointer and activation history. Evaluation paths cannot create battles, rewards or residents, and do not write to the live type catalogue.
 
-Colony collections add `colonyModes`, `colonyResidents`, `colonyPlacements`, `colonyBoard`, `colonyCommitments`, `colonyDecisions`, `colonyContributions`, `colonyEstimates`, `colonyPlanner` and `colonyReasoning`. Scoped `islandState`, `islandAgents` and `islandEvents` hold each side’s simulation. Placement, action effects, commitments and idempotency are checked transactionally; model calls run outside transactions. The colony decision loop uses ordinary indexed queries, not a claim of Vector Search or MongoDB-hosted execution.
+Colony collections add `colonyModes`, `colonyResidents`, `colonyPlacements`, `colonyBoard`, `colonyProjectOpinions`, `colonyCommitments`, `colonyDecisions`, `colonyContributions`, `colonyEstimates`, `colonyPlanner` and `colonyReasoning`. Scoped `islandState`, `islandAgents` and `islandEvents` hold each side’s simulation. Placement, action effects, commitments and idempotency are checked transactionally; model calls run outside transactions. The colony decision loop uses ordinary indexed queries, not a claim of Vector Search or MongoDB-hosted execution.
 
 Two retrieval systems are deliberately separate:
 

@@ -1,6 +1,20 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment — two islands and useful cooperation
+## Current increment — autonomous crews and clearer islands
+
+Both islands now choose projects through a persisted crew council. Whole-upgrade feasibility separates missing capabilities from supplies the crew can gather; existing tasks/reservations remain intact. Rules cast capability-based actor preferences, and bounded Gemini turns can submit proposals, support and objections. One actor has one active project stance, retained up to six hours or full project completion so the next automatic actor can read it. Supply requests keep their separate five-minute expiry. Manual priority is an explicit optional override with a return-to-crew command.
+
+The page now has **Island / Discussion / Architecture** tabs. Island focuses on the shared goal and actual build work/resource contributions. Discussion shows real council positions, the recorded choice, model-origin notes and request/offer/receipt threads. Architecture contains the entire capture/recognition/battle/routing/agent/storage flow, local-versus-cloud boundaries, an illustrative communication walkthrough, and expandable live run records. No example dialogue is labelled as a live transcript.
+
+Deformation came from four residents sharing the exact rest coordinate and coarse saved proportions stretching precise object meshes. Known rigid objects now use uniform presentation scale, grounded feet, calmer motion and deterministic display slots. Mug/pitcher handles and the spout face correctly. Source identities, saved appearances and authoritative task positions remain unchanged. Current 4+4 residents are visually verified; a 40-resident shared station can still be crowded.
+
+Live Atlas migration automatically moved both shores from the energy-blocked beacon to garden level 2, then to boardwalk level 2. The original world API matched the pre-restart checkpoint exactly. A real saved rule-generated supply exchange was verified: Sir Measure-a-Lot requested 2 water; Creamy Citadel Mug offered and supplied 2; the request links to the completion receipt. No fabricated battle or resident was inserted. The four-building/three-level content ceiling still applies.
+
+Final backend suite: **189 passed, 2 optional Mongo fixture tests skipped**. Coverage includes automatic peer discussion across 0/15/30-minute turns, six-hour opinion expiry, scope/replay, full-upgrade resource admission, capability gaps, manual release and long-run construction. Browser QA covered both shores, live council data, step-through example, keyboard tabs, 390px/737px layouts without horizontal overflow and no new console errors. Production build and scene geometry/timeline/animation checks passed. Fresh screenshots are outside Git: `../sketch-clash-island-council.jpg`, `../sketch-clash-crew-discussion.jpg`, `../sketch-clash-architecture-guide.jpg`.
+
+The final live Gemini check returned **RateLimitError**. No decision/output was applied; shared usage is 17/24 including earlier turns. The durable run remains uncertain and automatic provider calls are blocked conservatively. Local council/tasks continue and Discussion surfaces the provider error. Do not silently reset usage or repeatedly retry. A later explicit actor turn can be requested after the provider quota is available; a successful result resumes normal automatic scheduling. Model proposal/support across independent actor turns was verified with provider fixtures, not claimed as a successful live call in this increment.
+
+## Earlier increment — two islands and useful cooperation
 
 The default island view now compares Winner Island and Loser Island. Immutable completed battle slots route to distinct per-side residents; the original collection and original island are preserved. Each side has its own resources, tasks, projects, capability-limited agents and shared work board. A typed internal SDK accepts requests, offers, actions and evidence-backed reports; transactions enforce ownership, accepted capability, exclusive commitments and exactly-once effects. See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for architecture, diagrams, limits and demo steps.
 
