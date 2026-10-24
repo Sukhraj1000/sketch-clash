@@ -9,3 +9,9 @@ export function boardCommentary(row: BoardWording): string | null {
   return row.kind === 'report' && row.origin === 'model' && row.interpretation?.trim() && row.interpretation !== row.text
     ? row.interpretation : null
 }
+
+/** Do not repeat an executor note already included in the factual receipt text. */
+export function boardExecutorNote(row: BoardWording): string | null {
+  const note = row.interpretation?.trim()
+  return row.origin === 'executor' && note && !boardText(row).includes(note) ? note : null
+}

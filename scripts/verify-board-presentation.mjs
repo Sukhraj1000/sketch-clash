@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { transformWithOxc } from 'vite'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { boardText, boardCommentary } from '../src/lib/boardPresentation.ts'
+import { boardText, boardCommentary, boardExecutorNote } from '../src/lib/boardPresentation.ts'
 
 const report = { id: 'report-1', kind: 'report', origin: 'model', text: 'Pencil added 3 ideas.', interpretation: 'I generated 999 energy.' }
 assert.equal(boardText(report), 'Pencil added 3 ideas.')
@@ -27,6 +27,17 @@ assert.match(html, /<b>Unverified model commentary:<\/b> I generated 999 energy\
 assert.ok(html.indexOf(report.text) < html.indexOf(report.interpretation))
 assert.doesNotMatch(render({ ...report, origin: 'executor', interpretation: 'Storage had room.' }), /Unverified model commentary/)
 assert.match(render({ ...report, origin: 'executor', interpretation: 'Storage had room.' }), /Executor note:/)
+const restNote = 'Supported supplies are full. No unfinished project can use them.'
+const restReport = { ...report, origin: 'executor', text: `Pencil rested; ${restNote}`, interpretation: restNote }
+assert.equal(boardExecutorNote(restReport), null)
+assert.doesNotMatch(render(restReport), /Executor note:/, 'A full note already in the receipt must appear only once')
+assert.equal(render(restReport).split(restNote).length - 1, 1)
+assert.equal(boardExecutorNote({ ...restReport, interpretation: `  ${restNote}  ` }), null)
+assert.equal(boardExecutorNote({ ...restReport, interpretation: 'Storage had room.' }), 'Storage had room.')
+assert.match(render({ ...restReport, interpretation: 'Storage had room.' }), /<b>Executor note:<\/b> Storage had room\./)
+assert.equal(boardExecutorNote({ ...restReport, interpretation: '   ' }), null)
+// Deduplication applies only to executor notes, never to model provenance labels.
+assert.match(render({ ...restReport, origin: 'model' }), /Unverified model commentary:/)
 // Reply previews use the same text policy, including for historical reports.
 assert.equal(boardText(report).slice(0, 100), report.text)
-console.log('Board presentation regressions passed: factual reports, labelled commentary, executor notes and safe reply previews.')
+console.log('Board presentation regressions passed: factual reports, labelled commentary, unique executor notes and safe reply previews.')
