@@ -104,6 +104,12 @@ def comparable_quote(payload: dict, query: str, terms: tuple[str, ...]) -> dict:
 
 def combat_price(value: dict | None) -> dict:
     """Reject incomplete receipts and arbitrary estimates at the combat boundary."""
+    from .retail_quotes import POLICY as RETAIL_POLICY, neutral
+    if isinstance(value, dict) and value.get('source') == 'unavailable' and value.get('policy_version') == RETAIL_POLICY:
+        return neutral(value.get('status', 'unavailable'))
+    if isinstance(value, dict) and value.get('source') in {'curated_retail', 'retailer_page'}:
+        from .retail_quotes import valid_retail_quote
+        return deepcopy(value) if valid_retail_quote(value) else unavailable('invalid_receipt')
     if not isinstance(value, dict) or value.get('source') != 'ebay_browse' or value.get('policy_version') != POLICY or value.get('status') != 'available':
         return unavailable((value or {}).get('status', 'unavailable') if isinstance(value, dict) else 'unavailable')
     try:

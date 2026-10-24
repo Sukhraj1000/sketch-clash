@@ -147,7 +147,7 @@ def simulate_capture_battle(fighters: list[dict], observations: list[dict], seed
         event['at'] = round(event['at'] * duration / 12800)
     result.update(duration_ms=duration, playback_mode=playback_mode)
     priced = all(p['price']['amount_gbp'] is not None for p in profiles)
-    price_note = ('Frozen medians of similar eBay UK asking prices, excluding postage; not appraisals or sold prices. '
+    price_note = ('Frozen medians of the sourced price references shown for each object, excluding delivery; not appraisals or sold prices. '
                   'The logarithmic price premium is capped at 1% damage.' if priced else
                   'At least one capture lacks a sourced comparable price. Both price premiums are zero; removing price cannot change this winner.')
     result['price_policy'] = {**result['price_policy'], 'kind': 'sourced_comparables' if priced else 'unknown_capture_prices',
@@ -156,7 +156,8 @@ def simulate_capture_battle(fighters: list[dict], observations: list[dict], seed
     result['explanation']['highlights'].append('Combat attributes come from the accepted photographs. Quick, Power and Guard labels do not select stats or the winner.')
     result['provenance'] = {'kind': 'accepted_capture', 'profile_version': PROFILE_VERSION,
         'resolution': 'Deterministic local simulation; no model selects the winner.',
-        'frozen_at': 'battle_start', 'price_source': 'ebay_browse' if priced else 'unavailable'}
+        'frozen_at': 'battle_start', 'price_source': 'sourced_references' if priced else 'unavailable',
+        'price_sources': [p['price'].get('source', 'unavailable') for p in profiles]}
     result['rules_snapshot'] = deepcopy(RULES)
     result['rules_hash'] = sha256(json.dumps(RULES, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     result['immutable'] = True

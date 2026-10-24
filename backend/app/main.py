@@ -93,6 +93,11 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.service = BattleService(settings, app.state.repository, app.state.recognizer) if app.state.repository else None
         if hasattr(app.state.recognizer, 'provider_queue'):
             app.state.recognizer.provider_queue = app.state.provider_queue
+        if app.state.service:
+            try:
+                await asyncio.to_thread(app.state.service.market_prices.initialize)
+            except Exception as exc:
+                logger.warning('price_cache_startup_unavailable category=%s', type(exc).__name__)
         retriever = getattr(getattr(app.state.recognizer, 'catalog', None), 'retriever', None)
         if retriever:
             retriever.provider_queue = app.state.provider_queue
@@ -269,8 +274,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                            'status': ai_status, 'paused': settings.ai_paused,
                            'pause_reason': AI_PAUSE_REASON if settings.ai_paused else None},
                 'world_id': settings.world_id,
-                'market_prices': {'configured': bool(settings.ebay_client_id and settings.ebay_client_secret),
-                                  'provider': 'ebay_browse', 'basis': 'UK category asking-price comparables; unknown stays neutral'},
+                'market_prices': app.state.service.market_prices.status() if app.state.service else {'configured': False},
                 'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
                 'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index, 'paused': settings.ai_paused},
                 'quality': {'available': app.state.quality is not None, 'operator_required': True, 'ai_paused': settings.ai_paused},

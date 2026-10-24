@@ -16,7 +16,7 @@ from .engine import validate_fighter_config, validate_visual_spec
 from .images import ProcessedImage, normalize_image, crop_image
 from .repository import Repository, StoreError
 from .provider_queue import require_ai_enabled
-from .market_prices import MarketPrices
+from .retail_prices import RetailPrices
 
 logger = logging.getLogger('sketch.capture')
 
@@ -24,7 +24,7 @@ class BattleService:
     def __init__(self, settings: Settings, repository: Repository, recognizer: Any):
         self.settings, self.repository, self.recognizer = settings, repository, recognizer
         self.reference_provider = None
-        self.market_prices = MarketPrices(settings)
+        self.market_prices = RetailPrices(settings, repository, recognizer)
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
     @asynccontextmanager

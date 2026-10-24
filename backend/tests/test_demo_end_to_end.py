@@ -126,6 +126,12 @@ async def test_capture_correction_battle_two_crews_research_build_receipts_wait_
     ])
     recognition = RecognitionService(settings, evidence_runner=evidence, client=recognizer_client)
     service = BattleService(settings, repo, recognition)
+    # Pricing is a separate optional provider interaction. This connected agent
+    # scenario has no price evidence, so it must not consume the next scripted
+    # recognition proposal as if it were a retailer response.
+    async def no_retail_reference(*args, **kwargs):
+        return []
+    monkeypatch.setattr('app.retailer_lookup.lookup_retailer_prices', no_retail_reference)
     monkeypatch.setattr('app.repository.secrets.randbelow', lambda _: 0)
 
     async def capture_battle(request, correct=False):

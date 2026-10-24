@@ -13,6 +13,7 @@ class Settings:
     ebay_client_id: str = field(default='', repr=False)
     ebay_client_secret: str = field(default='', repr=False)
     gemini_model: str = 'gemini-4-argon'
+    price_lookup_model: str = 'gemini-3.8-flash'
     mongodb_uri: str = field(default='', repr=False)
     mongodb_database: str = 'sketch_clash'
     world_id: str = 'shared-demo'
@@ -62,6 +63,7 @@ class Settings:
             gemini_key_source=key_source,
             ai_paused=boolean('SKETCH_AI_PAUSED', 'false'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-4-argon'),
+            price_lookup_model=os.getenv('PRICE_LOOKUP_MODEL', 'gemini-3.8-flash'),
             mongodb_uri=os.getenv('MONGODB_URI', ''),
             mongodb_database=os.getenv('MONGODB_DATABASE', 'sketch_clash'),
             world_id=os.getenv('SKETCH_WORLD_ID', 'shared-demo'),
