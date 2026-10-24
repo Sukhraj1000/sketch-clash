@@ -8,11 +8,12 @@ import { CaptureStudio, type CaptureInput, type CaptureResponse } from './compon
 import { api, post, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
 import './LiveFlow.css';
 const WorldView = lazy(()=>import('./components/WorldView'));
+const ColoniesView = lazy(()=>import('./components/ColoniesView'));
 const QualityConsole = lazy(()=>import('./components/QualityConsole'));
 import BattleArena from './components/BattleArena';
 
 const spring = { type: 'spring' as const, stiffness: 320, damping: 21 };
-const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE OBJECT ISLAND', QUALITY:'RECOGNITION & WORLD QUALITY' };
+const PHASE_LABEL: Record<Phase, string> = { HOME: 'THE SKETCHBOOK ARCADE', THEME: 'ROUND 01 · THE BRIEF', DRAW_P1: 'ROUND 01 · CAMERAS READY', DRAW_P2: 'ROUND 01 · CAMERAS READY', REVEAL: 'ROUND 01 · MEET THE FIGHTERS', BATTLE: 'ROUND 01 · THE SHOWDOWN', RESULTS: 'ROUND 01 · THAT’S A WRAP', WORLD:'THE TALE OF TWO ISLANDS', QUALITY:'RECOGNITION & WORLD QUALITY' };
 
 function Star({ className = '', color = 'currentColor' }: { className?: string; color?: string }) {
   return <svg className={className} viewBox="0 0 100 100" fill={color} aria-hidden="true"><path d="M51 3 62 35 96 31 73 54 89 88 54 72 25 96 28 61 2 43 37 36Z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" /></svg>;
@@ -31,7 +32,7 @@ function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;
   const reduced=useReducedMotion();
   return <motion.main className="landing" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0,y:-22}}>
     <div className="landing-note note-left">a little imagination.<br/>a lot of chaos.<svg viewBox="0 0 100 70" aria-hidden="true"><path d="M5 8q66-4 65 45m-13-9 13 15 13-17"/></svg></div>
-    <div className="landing-note note-right">fight for glory.<br/>build something after.<Star /></div>
+    <div className="landing-note note-right">one wins the clash.<br/>both get a new chapter.<Star /></div>
     <div className="hero-eyebrow"><span className="tiny-star">✳</span> ORDINARY OBJECTS. EXTRAORDINARY GRUDGES. <span className="tiny-star">✳</span></div>
     <div className="hero-grid">
       <motion.div className="hero-fighter hero-fighter-left" initial={{x:-60,opacity:0,rotate:-14}} animate={{x:0,opacity:1,rotate:-8}} transition={{...spring,delay:.18}}>
@@ -42,10 +43,11 @@ function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;
       </motion.div>
       <div className="hero-center">
         <h1 className="hero-logo" aria-label="Sketch Clash"><motion.span className="logo-sketch" initial={{y:-50,rotate:-9,opacity:0}} animate={{y:0,rotate:-4,opacity:1}} transition={{...spring,delay:.05}}>SKETCH</motion.span><motion.span className="logo-clash" initial={{scale:.6,rotate:8,opacity:0}} animate={{scale:1,rotate:-5,opacity:1}} transition={{...spring,delay:.2}}>CLASH<span className="logo-period">!</span></motion.span></h1>
-        <motion.p className="hero-tagline" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:.4}}>SNAP. CLASH. BUILD A WORLD.</motion.p>
-        <p className="hero-description">Your desk is full of unlikely heroes.<br/>Win the clash. Put their talents to work.</p>
+        <motion.p className="hero-tagline" initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:.4}}>SNAP. CLASH. PICK A SHORE.</motion.p>
+        <p className="hero-description">Winners get an island. So do the losers.<br/>Whose little crew will build something great?</p>
         <div className="hero-actions"><ActionButton onClick={onPlay}>LET’S PLAY <ArrowRight size={27}/></ActionButton><motion.button className="demo-button" onClick={onDemo} whileHover={{x:3}} whileTap={{scale:.97}}><Play size={15} fill="currentColor"/> WATCH THE SHOWDOWN <ArrowUpRight size={15}/></motion.button></div>
         <label className="quick-toggle"><input type="checkbox" checked={quick} onChange={e=>setQuick(e.target.checked)}/><span className="toggle-track"><span/></span> QUICK CLASH <span className="toggle-seconds">{quick?'20':'60'} SEC / PLAYER</span></label>
+        <button className="home-colonies-entry" onClick={onIsland}><Globe2 size={16}/><span>ENTER THE ISLANDS<small>TWO CREWS. PLENTY TO PROVE.</small></span><ArrowUpRight size={17}/></button>
       </div>
       <motion.div className="hero-fighter hero-fighter-right" initial={{x:60,opacity:0,rotate:13}} animate={{x:0,opacity:1,rotate:7}} transition={{...spring,delay:.28}}>
         <div className="fighter-paper mint-paper"><span className="tape tape-top"/><div className="paper-grid"/>
@@ -54,8 +56,8 @@ function LandingScreen({onPlay,onDemo,onIsland,quick,setQuick}:{onPlay:()=>void;
         </div><Star className="fighter-star star-two" color="var(--coral)"/>
       </motion.div>
     </div>
-    <button className="no-skills-stamp island-stamp" onClick={onIsland}>AFTER THE CLASH…<br/><b>BUILD YOUR ISLAND</b><span>MEET YOUR LITTLE WORKFORCE <ArrowUpRight size={11}/></span></button>
-    <div className="how-strip"><div><span className="step-number">01</span><p><b>FIND AN OBJECT</b><span>A mug. A bottle. Your everyday champion.</span></p></div><div><span className="step-number">02</span><p><b>SNAP YOUR FIGHTER</b><span>Two players. Camera or photo upload.</span></p></div><div><span className="step-number">03</span><p><b>CLASH. THEN CREATE.</b><span>Every resident has a job on your island.</span></p></div></div>
+    <button className="no-skills-stamp island-stamp" onClick={onIsland}>ONE WINNER.<br/><b>TWO NEW CHAPTERS.</b><span>VISIT THE RIVAL ISLANDS <ArrowUpRight size={11}/></span></button>
+    <div className="how-strip"><div><span className="step-number">01</span><p><b>FIND AN OBJECT</b><span>A mug. A bottle. Your everyday champion.</span></p></div><div><span className="step-number">02</span><p><b>SNAP. THEN CLASH.</b><span>Two players. Camera or photo upload.</span></p></div><div><span className="step-number">03</span><p><b>TWO CREWS. ONE RIVALRY.</b><span>They talk, share work and build their shores.</span></p></div></div>
   </motion.main>;
 }
 
@@ -108,6 +110,7 @@ const saveActive=(id:string|null)=>{try{if(id)localStorage.setItem(ACTIVE_KEY,id
 
 export default function App() {
   const [phase,setPhase]=useState<Phase>('HOME');
+  const [worldMode,setWorldMode]=useState<'colonies'|'legacy'>('colonies');
   const [quick,setQuick]=useState(false);
   const [isDemo,setIsDemo]=useState(false);
   const [fighters,setFighters]=useState<[Fighter,Fighter]>(PRESET_FIGHTERS);
@@ -217,7 +220,7 @@ export default function App() {
   const stage=phase==='DRAW_P1'||phase==='DRAW_P2'?0:phase==='REVEAL'?1:2;
   const memory=battle?.persistence==='development_memory'||health?.persistence==='development_memory';
   return <div className={`game-shell phase-${phase.toLowerCase()}`}><div className="paper-noise" aria-hidden="true"/>
-    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>setPhase('WORLD')}><Globe2 size={15}/> YOUR ISLAND <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
+    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}><Globe2 size={15}/> THE ISLANDS <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
     {memory&&<div className="service-note">LOCAL MEMORY PREVIEW · Your island disappears when the backend restarts. MongoDB is not connected.</div>}
     {!memory&&health?.status==='configuration_required'&&phase==='HOME'&&<div className="service-note">Camera battles need your Atlas connection. The cinematic demo remains available.</div>}
     {busy&&<div className="flow-message" role="status">{busy}</div>}
@@ -225,14 +228,14 @@ export default function App() {
     {phase==='HOME'&&recovery&&<div className="recovery-card"><b>A round is waiting in your sketchbook.</b><button onClick={()=>void resume()}>RESUME ROUND</button><button onClick={()=>{saveActive(null);setRecovery(null);createRequest.current=null}}>DISMISS RECOVERY</button></div>}
     {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
     <AnimatePresence mode="wait" initial={false}><motion.div key={`${roundKey}-${phase}`} className="screen-wrap" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:.18}}>
-      {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} onIsland={()=>setPhase('WORLD')} quick={quick} setQuick={setQuick}/>}
+      {phase==='HOME'&&<LandingScreen onPlay={()=>void play()} onDemo={demo} onIsland={()=>{setWorldMode('colonies');setPhase('WORLD')}} quick={quick} setQuick={setQuick}/>}
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
       {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?.duration_ms&&battle.winner_slot!==null?{events:battle.events,duration_ms:battle.duration_ms,winner_slot:battle.winner_slot}:undefined}/>}
-      {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>{memory?'Added to this temporary island':'Your fighters have joined the island'} ✦</b><p>{battle?.completion?.new_resident_ids.length??0} new residents. Returning types keep their first appearance.</p><ActionButton onClick={()=>setPhase('WORLD')}>ENTER YOUR ISLAND <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
+      {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
       {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>setPhase('HOME')}/></Suspense>}
-      {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening your island…</div>}><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></Suspense>}
+      {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening the islands…</div>}>{worldMode==='colonies'?<ColoniesView onBack={()=>void home()} onLegacy={()=>{setWorldMode('legacy');window.scrollTo({top:0,behavior:'instant'})}}/>:<><div className="legacy-island-return"><button onClick={()=>{setWorldMode('colonies');window.scrollTo({top:0,behavior:'instant'})}}><Globe2 size={14}/> BACK TO THE TWO ISLANDS <ArrowRight size={14}/></button><span>Your original shared island and its memories are preserved.</span></div><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></>}</Suspense>}
     </motion.div></AnimatePresence>
     <footer className="game-footer"><span><span className="footer-asterisk">✳</span> REAL OBJECTS. UNREASONABLE AMBITION.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">CAPTURE · CLASH · BUILD · GROW</span></footer>
   </div>;
