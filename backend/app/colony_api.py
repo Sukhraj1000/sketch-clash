@@ -12,7 +12,8 @@ class Body(BaseModel):
 class Command(Body):
     idempotency_key: str = Field(min_length=8, max_length=100, pattern=r'^[A-Za-z0-9_:-]+$')
     colony_id: Literal['winners', 'losers']
-    kind: Literal['pause', 'resume', 'priority', 'assign', 'value']
+    kind: Literal['pause', 'resume', 'priority', 'assign', 'value', 'council']
+    mode: Literal['crew', 'manual'] | None = None
     project_id: str | None = Field(default=None, max_length=60)
     character_id: str | None = Field(default=None, max_length=100)
     assignment: str | None = Field(default=None, max_length=30)

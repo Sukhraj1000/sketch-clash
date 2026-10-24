@@ -179,3 +179,30 @@ async def test_invalid_provider_proposal_keeps_bounded_diagnostic_without_fake_r
     assert saved['proposal_text'] and saved['provider_status']=='completed'
     assert 'receipt' not in saved and worker.status()['requests_today']==1
     assert 'reason' in worker.status()['error']
+
+
+def test_crowded_council_context_keeps_proposals_and_receipts_within_existing_budget(fixture):
+    _,colonies,_,_,worker=fixture
+    original=colonies.observation
+    def crowded(side, actor):
+        result=original(side,actor)
+        result['planning']={'mode':'crew','selected_project_id':'garden','candidates':[{
+            'project_id':'beacon','feasible':False,'missing_capabilities':['energy']}]}
+        result['council']=[{'id':'council-1','at':'2026-10-24','chosen_project_id':'garden',
+            'reason':'Energy cannot be supplied.','participants':[{'private_large_detail':'x'*30000}]}]
+        result['project_discussion']=[{'id':f'proposal-{i}','actor_id':f'actor-{i}','actor_name':'Mug',
+            'kind':'proposal','project_id':'garden','text':'Useful supply work. '*12,'origin':'model'} for i in range(40)]
+        result['board']=[{'id':f'request-{i}','kind':'request','resource':'water','quantity':2,
+            'text':'Need water. '*20,'evidence':{'irrelevant_detail':'x'*30000}} for i in range(12)]
+        result['last_receipts']=[{'id':f'receipt-{i}','sequence':i,'resource_delta':{'water':2},
+            'description':'Water supplied.','irrelevant_detail':'x'*30000} for i in range(4)]
+        return result
+    colonies.observation=crowded
+    payload,encoded=worker._input({'colony_id':'winners','agent_id':'winners-agent'})
+    from app.colony_planner import SYSTEM
+    assert len(encoded)+len(SYSTEM)<=20000
+    assert payload['council'][0]['chosen_project_id']=='garden'
+    assert payload['project_discussion'][0]['id']=='proposal-0'
+    assert payload['last_receipts'][0]['id']=='receipt-0'
+    assert 'irrelevant_detail' not in encoded and 'private_large_detail' not in encoded
+    assert len(payload['project_discussion'])>=4

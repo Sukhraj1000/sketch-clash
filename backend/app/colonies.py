@@ -23,6 +23,8 @@ COLONY_NAMES = {'winners': 'Winner Island', 'losers': 'Loser Island'}
 BOARD_SECONDS = 300
 BOARD_LIMIT = 80
 BACKFILL_LIMIT = 1000
+COUNCIL_SECONDS = 45
+COUNCIL_HISTORY_LIMIT = 8
 
 
 def colony_world_id(world_id: str, colony_id: str) -> str:
@@ -117,9 +119,9 @@ class _ColonyIsland(IslandStore):
         return agent
 
     def command(self, body, now=None):
-        if not isinstance(body, dict) or body.get('kind') != 'assign':
+        if not isinstance(body, dict) or body.get('kind') not in ('assign', 'priority', 'council'):
             return super().command(body, now)
-        allowed = {'idempotency_key', 'kind', 'project_id', 'character_id', 'assignment', 'expected_revision'}
+        allowed = {'idempotency_key', 'kind', 'project_id', 'character_id', 'assignment', 'expected_revision', 'mode'}
         request_id = body.get('idempotency_key')
         if set(body) - allowed or not isinstance(request_id, str) or not 8 <= len(request_id) <= 128:
             raise StoreError('An assignment needs supported fields and a durable request key.', 422, 'invalid_island_command')
@@ -139,6 +141,23 @@ class _ColonyIsland(IslandStore):
                 raise StoreError('The colony changed. Refresh before giving this direction.', 409, 'island_revision_conflict')
             self._advance(tx, timestamp)
             state = tx.get('islandState', self.state_id)
+            if body['kind'] in ('priority', 'council'):
+                mode = 'manual' if body['kind'] == 'priority' else body.get('mode')
+                if mode not in ('crew', 'manual'):
+                    raise StoreError('Choose crew or manual project control.', 422, 'invalid_council_mode')
+                project = self._project(state, body.get('project_id')) if body.get('project_id') else None
+                if mode == 'manual' and (project is None or project['level'] >= project['max_level']):
+                    raise StoreError('Choose an unfinished project for manual control.', 422, 'invalid_project')
+                state.setdefault('planning', {})['mode'] = mode
+                state['planning']['manual_project_id'] = project['id'] if mode == 'manual' else None
+                self._run_council(tx, state, self._agents(tx), timestamp, force=True)
+                state['revision'] += 1
+                tx.put('islandState', state)
+                tx.put('islandEvents', {'_id': event_id, 'id': event_id, 'world_id': self.world_id, 'kind': 'command',
+                        'at': _iso(timestamp), 'fingerprint': fingerprint, 'command': body['kind'],
+                        'title': 'Crew project control' if mode == 'crew' else 'Player project override',
+                        'description': 'Project direction changed; work already in flight remains reserved.', 'resource_delta': {}})
+                return self._snapshot(tx, timestamp)
             agent = tx.get('islandAgents', key_for(self.world_id, 'island-agent', str(body.get('character_id', ''))))
             if agent is None or agent['world_id'] != self.world_id:
                 raise StoreError('That resident is not an active colony agent.', 404, 'agent_not_found')
@@ -158,6 +177,221 @@ class _ColonyIsland(IslandStore):
                     'resource_delta': {}, 'character_id': agent['character_id']})
             return self._snapshot(tx, timestamp)
         return self.repo.transaction(assign)
+
+    def initialize(self, now=None):
+        timestamp = self._now(now)
+        super().initialize(timestamp)
+        def plan(tx):
+            state = tx.get('islandState', self.state_id)
+            self._run_council(tx, state, self._agents(tx), timestamp)
+            tx.put('islandState', state)
+            return self._snapshot(tx, timestamp)
+        return self.repo.transaction(plan)
+
+    def _choose_project(self, state):
+        # A council owns selection in colony mode. The legacy island's sequential
+        # fallback must not silently commit resources to an impossible next upgrade.
+        planning = state.get('planning', {})
+        project = self._project(state, planning.get('selected_project_id')) if planning.get('selected_project_id') else None
+        if project is None or project['level'] >= project['max_level']:
+            return None
+        if planning.get('mode', 'crew') == 'crew' and project['level'] >= planning.get('target_level', project['level'] + 1):
+            return None
+        state['active_project_id'] = project['id']
+        return project
+
+    def _assess_projects(self, state, agents):
+        producers = {resource for agent in agents for action in agent['allowed_actions']
+                     if (resource := action_resource(agent, action)) is not None}
+        incoming = {resource: 0 for resource in RESOURCE_KEYS}
+        for agent in agents:
+            for resource, amount in (agent.get('task') or {}).get('gain', {}).items():
+                incoming[resource] += amount
+        available = {resource: min(MAX_RESOURCE, state['resources'][resource] + incoming[resource]) for resource in RESOURCE_KEYS}
+        workers = [agent for agent in agents if 'build' in agent['allowed_actions']]
+        # Use the least productive eligible builder, not an optimistic best actor:
+        # any valid future schedule must be able to finish with this admission budget.
+        work_per_action = min((2 + ('measure' in a['allowed_actions']) + (a['level'] - 1) // 5 for a in workers), default=2)
+        candidates = []
+        for project in state['projects']:
+            remaining = max(0, project['required_progress'] - project['progress'] - project['reserved_progress'])
+            actions = math.ceil(remaining / work_per_action)
+            required = {resource: cost * actions for resource, cost in self._cost(project).items()}
+            missing = [resource for resource, amount in required.items() if amount > available[resource] and resource not in producers]
+            complete = project['level'] >= project['max_level']
+            feasible = not complete and bool(workers) and not missing
+            shortages = [resource for resource, amount in required.items() if amount > available[resource] and resource in producers]
+            if complete:
+                reason = 'All upgrades are complete.'
+            elif not workers:
+                reason = 'The colony needs an active resident before construction can begin.'
+            elif missing:
+                reason = 'Cannot finish this upgrade: no resident can supply ' + ', '.join(missing) + ', and stored plus incoming stock is insufficient.'
+            elif shortages:
+                reason = 'Feasible after gathering ' + ', '.join(shortages) + '; the crew has the required abilities.'
+            else:
+                reason = 'Stored and already scheduled supplies cover the remaining upgrade.'
+            candidates.append({'project_id': project['id'], 'name': project['name'], 'target_level': min(project['level'] + 1, project['max_level']),
+                    'feasible': feasible, 'complete': complete, 'remaining_work': remaining, 'reserved_work': project['reserved_progress'],
+                    'remaining_actions': actions, 'required_resources': required, 'available_resources': deepcopy(available),
+                    'incoming_resources': deepcopy(incoming), 'gatherable_resources': sorted(producers),
+                    'gathering_needed': shortages, 'missing_capabilities': missing, 'reason': reason})
+        return candidates
+
+    def _project_opinions(self, tx, now):
+        return [row for row in tx.find('colonyProjectOpinions', {'world_id': self.world_id}, limit=MAX_AGENTS)
+                if _time(row['expires_at']) > now]
+
+    def _project_discussion(self, tx, now):
+        discussion = []
+        for stance in self._project_opinions(tx, now):
+            message = tx.get('colonyBoard', stance['message_id'])
+            if message is None or message.get('world_id') != self.world_id:
+                continue
+            discussion.append({'id': message['id'], 'actor_id': message['actor_id'], 'actor_name': message['actor_name'],
+                    'kind': message['kind'], 'project_id': message['project_id'],
+                    'proposal_id': message.get('proposal_id'), 'text': message.get('interpretation') or message['text'],
+                    'origin': message['origin'], 'expires_at': stance['expires_at']})
+        return discussion
+
+    def _planning_view(self, tx, state, agents, now):
+        candidates = self._assess_projects(state, agents) if state else []
+        planning = deepcopy((state or {}).get('planning', {}))
+        selected = next((item for item in candidates if item['project_id'] == planning.get('selected_project_id')), None)
+        project = self._project(state, planning.get('selected_project_id')) if state and planning.get('selected_project_id') else None
+        if not planning:
+            status = 'waiting'
+        elif project and project['workers']:
+            status = 'building'
+        elif selected and not selected['feasible'] and not selected['complete']:
+            status = 'blocked'
+        elif project and planning.get('mode') == 'crew' and project['level'] >= planning.get('target_level', 999):
+            status = 'waiting'
+        elif selected and selected['feasible']:
+            status = 'gathering' if selected['gathering_needed'] else 'building'
+        else:
+            status = 'complete' if candidates and all(row['complete'] for row in candidates) else 'blocked' if agents else 'waiting'
+        return {'mode': planning.get('mode', 'crew'), 'status': status,
+                'selected_project_id': planning.get('selected_project_id'),
+                'target_level': planning.get('target_level'), 'reason': planning.get('reason', 'The crew will assess its first project when colony life starts.'),
+                'last_council_at': planning.get('last_council_at'), 'next_council_at': planning.get('next_council_at'),
+                'cooldown_seconds': COUNCIL_SECONDS, 'candidates': candidates}
+
+    def _run_council(self, tx, state, agents, now, force=False):
+        if state is None:
+            return
+        previous_plan = state.get('planning', {})
+        if state['paused'] and previous_plan and not force:
+            return
+        if not force and previous_plan.get('next_council_at') and now < _time(previous_plan['next_council_at']):
+            return
+        candidates = self._assess_projects(state, agents)
+        feasible = [row for row in candidates if row['feasible']]
+        by_id = {row['project_id']: row for row in candidates}
+        stances = {row['actor_id']: row for row in self._project_opinions(tx, now)}
+        participants, votes = [], {row['project_id']: 0 for row in feasible}
+        model_votes = {row['project_id']: 0 for row in feasible}
+        for agent in agents:
+            resources = sorted({resource for action in agent['allowed_actions'] if (resource := action_resource(agent, action)) is not None})
+            stance = stances.get(agent['id'])
+            options = [row for row in feasible if not (stance and stance['kind'] == 'objection' and stance['project_id'] == row['project_id'])]
+            if not options:
+                options = feasible
+            def preference(row):
+                project = self._project(state, row['project_id'])
+                relevance = sum(max((agent['action_yields'][a].get(resource, 0) for a in agent['action_yields']), default=0) / cost
+                                for resource, cost in self._cost(project).items())
+                return (-relevance, project['level'], sum(row['required_resources'].values()), row['project_id'])
+            preferred = min(options, key=preference) if options else None
+            origin, message_id = 'deterministic', None
+            if stance:
+                message_id = stance['message_id']
+                proposed = by_id.get(stance['project_id'])
+                if stance['kind'] in ('proposal', 'support') and proposed and proposed['feasible']:
+                    preferred, origin = proposed, 'model'
+                    model_votes[proposed['project_id']] += 1
+                elif stance['kind'] == 'objection':
+                    origin = 'model'
+            project_id = preferred['project_id'] if preferred else None
+            contributes = [resource for resource in resources if preferred and resource in preferred['required_resources']]
+            reason = ('Can contribute ' + ', '.join(contributes) + ' and construction work.' if preferred else
+                      'No remaining upgrade is feasible with the current crew and stock.')
+            if stance and stance['kind'] == 'objection':
+                reason = 'The actor objected to this project; its capability-based alternative is ' + (preferred['name'].lower() if preferred else 'not yet feasible') + '.'
+            elif stance:
+                reason = ('Accepted model preference; ' + reason if origin == 'model' else
+                          'The model suggestion did not pass feasibility; ' + reason)
+            opinion = {'agent_id': agent['id'], 'character_id': agent['character_id'], 'actor_name': agent['display_name'],
+                    'project_id': stance['project_id'] if stance and stance['kind'] == 'objection' else project_id,
+                    'vote_project_id': project_id, 'kind': 'objection' if stance and stance['kind'] == 'objection' else 'support' if preferred else 'objection', 'reason': reason,
+                    'contributes': contributes, 'origin': origin, 'message_id': message_id}
+            participants.append(opinion)
+            if project_id:
+                votes[project_id] += 1
+        previous_id = previous_plan.get('selected_project_id')
+        mode = previous_plan.get('mode', 'crew')
+        selected = None
+        if mode == 'manual':
+            selected = by_id.get(previous_plan.get('manual_project_id'))
+            if selected and selected['complete']:
+                selected = None
+            reason = 'Player project override is active. Return control to the crew for automatic selection.'
+        else:
+            current = by_id.get(previous_id)
+            current_project = self._project(state, previous_id) if previous_id else None
+            model_majority = next((row for row in feasible if model_votes[row['project_id']] > len(agents) / 2), None)
+            if model_majority:
+                selected = model_majority
+                reason = 'A majority of individual model preferences selected a feasible upgrade.'
+            elif current and current['feasible'] and current_project['level'] < previous_plan.get('target_level', -1):
+                selected = current
+                reason = 'Finish the agreed upgrade before changing projects; temporary shortages can be gathered.'
+            elif feasible:
+                selected = min(feasible, key=lambda row: (-votes[row['project_id']], self._project(state, row['project_id'])['level'],
+                                                          sum(row['required_resources'].values()), row['project_id']))
+                reason = f"The crew selected {selected['name'].lower()} with {votes[selected['project_id']]} of {len(agents)} capability-based votes."
+                if current and current['missing_capabilities']:
+                    reason += ' Switched away from missing ' + ', '.join(current['missing_capabilities']) + '.'
+            else:
+                reason = ('Every building is fully upgraded; the crew can maintain supplies and explore.' if all(row['complete'] for row in candidates)
+                          else 'No whole upgrade is feasible. A new capability or more externally supplied stock is needed; unfinished work stays safe.')
+        selected_id = selected['project_id'] if selected else None
+        discussion_signature = sha256(json.dumps({'mode': mode, 'selected': selected_id,
+                'target_level': selected['target_level'] if selected else None, 'reason': reason,
+                'feasibility': [(c['project_id'], c['target_level'], c['feasible'], c['complete'], c['missing_capabilities']) for c in candidates],
+                'opinions': [(p['agent_id'], p['project_id'], p['kind'], p['message_id']) for p in participants]}, sort_keys=True).encode()).hexdigest()
+        if not force and previous_plan.get('discussion_signature') == discussion_signature:
+            # Recheck feasibility on schedule without inventing repetitive dialogue.
+            state['planning']['next_council_at'] = _iso(now + timedelta(seconds=COUNCIL_SECONDS))
+            state['planning']['last_checked_at'] = _iso(now)
+            tx.put('islandState', state)
+            return
+        sequence = state.get('council_sequence', 0) + 1
+        identifier = key_for(self.world_id, 'council', str(sequence))
+        decision = {'id': identifier, 'at': _iso(now), 'chosen_project_id': selected_id, 'previous_project_id': previous_id,
+                    'reason': reason, 'origin': 'deterministic', 'mode': mode, 'participants': participants,
+                    'candidates': candidates, 'model_message_ids': sorted({p['message_id'] for p in participants if p['message_id']}),
+                    'votes': votes, 'authority': 'Feasibility checked by the executor; model text cannot create stock or abilities.'}
+        state['planning'] = {'mode': mode, 'manual_project_id': previous_plan.get('manual_project_id'),
+                'selected_project_id': selected_id, 'target_level': selected['target_level'] if selected else None,
+                'reason': reason, 'discussion_signature': discussion_signature, 'last_checked_at': _iso(now),
+                'last_council_at': _iso(now), 'next_council_at': _iso(now + timedelta(seconds=COUNCIL_SECONDS))}
+        state['active_project_id'] = selected_id
+        state['council_sequence'] = sequence
+        state['council'] = [*state.get('council', []), decision][-COUNCIL_HISTORY_LIMIT:]
+        state['revision'] += 1
+        # Each published opinion is attributed to its real actor. Text here is a
+        # rule explanation, never fabricated dialogue from a model or another actor.
+        for opinion in participants:
+            agent = next(a for a in agents if a['id'] == opinion['agent_id'])
+            self._new_board(tx, agent, opinion['kind'], now, key_for(identifier, agent['id']),
+                    project_id=opinion['project_id'], council_id=identifier, origin='deterministic',
+                    text=opinion['reason'], evidence=deepcopy(opinion), verified=True)
+        if agents:
+            self._new_board(tx, agents[0], 'decision', now, key_for(identifier, 'decision'), actor_id='council',
+                    character_id='', actor_name='Crew council', project_id=selected_id, council_id=identifier,
+                    text=reason, verified=True, origin='deterministic', participants=[p['agent_id'] for p in participants])
+        tx.put('islandState', state)
 
     def _choose_action(self, state, agent, project):
         assigned = agent['assignment']
@@ -404,7 +638,9 @@ class _ColonyIsland(IslandStore):
         super()._advance(tx, now)
         if before and not before['paused'] and now > _time(before['last_tick_at']):
             state = tx.get('islandState', self.state_id)
-            self._coordinate(tx, state, self._agents(tx), now)
+            agents = self._agents(tx)
+            self._run_council(tx, state, agents, now)
+            self._coordinate(tx, state, agents, now)
             tx.put('islandState', state)
 
     def _complete(self, tx, state, agent, at):
@@ -469,6 +705,7 @@ class ColoniesStore:
         db.colonyResidents.create_index([('world_id', 1), ('canonical_type_id', 1)], unique=True)
         db.colonyPlacements.create_index([('world_id', 1), ('battle_id', 1), ('player_slot', 1)], unique=True)
         db.colonyBoard.create_index([('world_id', 1), ('kind', 1), ('status', 1), ('created_at', -1)])
+        db.colonyProjectOpinions.create_index([('world_id', 1), ('actor_id', 1)], unique=True)
         for collection in ('colonyBoard', 'colonyCommitments', 'colonyDecisions', 'colonyContributions'):
             db[collection].create_index([('world_id', 1), ('created_at', -1)])
         for island in self.islands.values():
@@ -524,10 +761,12 @@ class ColoniesStore:
             snapshot = island.snapshot()
             characters = island.repo.read(lambda tx: tx.find('worldCharacters', {'world_id': island.world_id}, sort='unlocked_at', limit=501))
             board = island.repo.read(lambda tx: island._board(tx))[:BOARD_LIMIT]
+            planning = island.repo.read(lambda tx: island._planning_view(tx, tx.get('islandState', island.state_id), island._agents(tx), island._now()))
             metrics = self._metrics(characters, snapshot)
             metrics['open_requests'] = island.repo.read(lambda tx: len(island._requests(tx)))
             colonies.append({'id': colony_id, 'name': COLONY_NAMES[colony_id], 'characters': [public(row) for row in characters[:500]],
                              'island': snapshot, 'board': [public(row) for row in reversed(board)], 'metrics': metrics,
+                             'planning': planning, 'council': deepcopy(snapshot.get('council', [])),
                              'world': {'id': island.world_id, 'name': COLONY_NAMES[colony_id], 'layout_seed': 4127}})
         left, right = (colony['metrics']['project_levels'] for colony in colonies)
         return {'enabled': bool(mode), 'server_time': self.repo.clock(), 'persistence': self.repo.persistence, 'colonies': colonies,
@@ -559,6 +798,9 @@ class ColoniesStore:
                               'capabilities', 'action_yields', 'resource_sources', 'persona', 'assignment', 'task', 'memory', 'active_commitment', 'contributions')},
                     'resources': deepcopy(state['resources']), 'projects': deepcopy(state['projects']), 'active_project_id': state['active_project_id'],
                     'board': [public(row) for row in board], 'last_receipts': [public(row) for row in receipts if 'sequence' in row][:4],
+                    'planning': island._planning_view(tx, state, all_agents, island._now()),
+                    'council': [{key: deepcopy(row[key]) for key in ('id', 'at', 'chosen_project_id', 'reason', 'origin', 'votes', 'model_message_ids')} for row in state.get('council', [])[-1:]],
+                    'project_discussion': island._project_discussion(tx, island._now()),
                     'known_capability_gaps': [resource for resource in RESOURCE_KEYS if not any(resource_actions(other, resource) for other in all_agents)],
                     'limits': {'message_characters': 240, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS},
                     'authority': 'Propose only accepted actions; requests and offers do not create resources. Shared stock is abstract, not physical cargo. Sentience, walking, loose-material gathering and basic construction are shared game attributes.'}
@@ -577,7 +819,11 @@ class ColoniesStore:
             existing = tx.get('colonyDecisions', decision_id)
             if existing:
                 if existing['fingerprint'] != fingerprint:
-                    raise StoreError('That actor turn already has a different immutable decision.', 409, 'decision_conflict')
+                    # New optional SDK fields must not invalidate replay of an old
+                    # accepted turn. Normalize both DTOs without rewriting history.
+                    prior = validate_decision(agent, existing['decision'])
+                    if prior.model_dump() != value.model_dump():
+                        raise StoreError('That actor turn already has a different immutable decision.', 409, 'decision_conflict')
                 return public(existing)
             state = tx.get('islandState', island.state_id)
             if state is None or state['paused']:
@@ -616,6 +862,27 @@ class ColoniesStore:
                 records.append(island._new_board(tx, agent, 'report', now, key_for(decision_id, 'report'),
                         text=receipt['description'], receipt_ids=[receipt['id']], verified=True,
                         interpretation=value.message.text, origin='model'))
+            if value.message and value.message.kind in ('proposal', 'support', 'objection'):
+                message = value.message
+                project = island._project(state, message.project_id)
+                if project is None or project['level'] >= project['max_level']:
+                    raise StoreError('Project opinions need an unfinished project in this colony.', 422, 'invalid_project')
+                if message.proposal_id:
+                    proposal = tx.get('colonyBoard', message.proposal_id)
+                    if proposal is None or proposal['world_id'] != island.world_id or proposal['kind'] != 'proposal' or proposal.get('project_id') != project['id']:
+                        raise StoreError('The proposal is outside this colony or project.', 422, 'invalid_proposal_evidence')
+                candidate = next(row for row in island._assess_projects(state, island._agents(tx)) if row['project_id'] == project['id'])
+                record_id = key_for(decision_id, 'project-opinion')
+                row = island._new_board(tx, agent, message.kind, now, record_id,
+                        project_id=project['id'], proposal_id=message.proposal_id,
+                        text=f"{agent['display_name']} submitted a project {message.kind} for {project['name'].lower()}. " + candidate['reason'],
+                        interpretation=message.text, origin='model', feasibility=candidate, verified=False,
+                        effect='One actor opinion for the next due crew council; it is not a direct project command.')
+                records.append(row)
+                tx.put('colonyProjectOpinions', {'_id': key_for(island.world_id, 'project-opinion', agent['id']),
+                        'world_id': island.world_id, 'actor_id': agent['id'], 'character_id': agent['character_id'],
+                        'project_id': project['id'], 'kind': message.kind, 'message_id': record_id, 'decision_id': decision_id,
+                        'created_at': _iso(now), 'expires_at': _iso(now + timedelta(seconds=BOARD_SECONDS)), 'origin': 'model'})
             agent.update(last_decision_at=_iso(now), decision_origin='model', decision_reason=value.reason)
             tx.put('islandAgents', agent)
             state['revision'] += 1

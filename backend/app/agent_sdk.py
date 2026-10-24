@@ -15,13 +15,14 @@ MAX_BOARD_QUANTITY = 8
 
 class BoardMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['request', 'offer', 'report']
+    kind: Literal['request', 'offer', 'report', 'proposal', 'support', 'objection']
     text: str = Field(default='', max_length=240)
     request_id: str | None = Field(default=None, max_length=128)
     resource: Resource | None = None
     quantity: int | None = Field(default=None, ge=1, le=MAX_BOARD_QUANTITY)
     project_id: str | None = Field(default=None, max_length=60)
     receipt_id: str | None = Field(default=None, max_length=128)
+    proposal_id: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode='after')
     def typed_payload(self):
@@ -31,6 +32,8 @@ class BoardMessage(BaseModel):
             raise ValueError('An offer must answer a request.')
         if self.kind == 'report' and not self.receipt_id:
             raise ValueError('A report requires an executor receipt.')
+        if self.kind in ('proposal', 'support', 'objection') and not self.project_id:
+            raise ValueError('A project opinion requires a project identifier.')
         return self
 
 

@@ -283,3 +283,56 @@ def test_optional_colony_planner_startup_failure_keeps_local_colonies_available(
         assert result['planner']['last_status'] == 'unavailable'
         assert client.post('/api/colonies/think', json={
             'idempotency_key': 'planner-unavailable', 'colony_id': 'winners'}).status_code == 503
+
+
+def test_api_manual_priority_can_return_to_autonomous_crew_without_changing_other_shore():
+    settings, repo = route_fixture()
+    with TestClient(create_app(settings, repo, object())) as client:
+        assert client.post('/api/colonies/start', json={}).status_code == 200
+        before = client.get('/api/colonies').json()
+        other = next(c for c in before['colonies'] if c['id']=='losers')
+        manual=client.post('/api/colonies/command',json={
+            'idempotency_key':'manual-project-fixture','colony_id':'winners','kind':'priority','project_id':'beacon'})
+        assert manual.status_code==200
+        assert next(c for c in manual.json()['colonies'] if c['id']=='winners')['planning']['mode']=='manual'
+        command={'idempotency_key':'return-crew-fixture','colony_id':'winners','kind':'council','mode':'crew'}
+        result=client.post('/api/colonies/command',json=command)
+        assert result.status_code==200
+        winner=next(c for c in result.json()['colonies'] if c['id']=='winners')
+        assert winner['planning']['mode']=='crew'
+        assert winner['planning']['selected_project_id']!='beacon'
+        assert next(c for c in result.json()['colonies'] if c['id']=='losers')==other
+        data=deepcopy(repo._data)
+        assert client.post('/api/colonies/command',json=command).status_code==200
+        assert data==repo._data
+        assert client.post('/api/colonies/command',json={**command,'mode':'anything'}).status_code==422
+
+
+@pytest.mark.asyncio
+async def test_model_project_proposal_is_readable_to_next_same_island_actor(colony):
+    repo,store,provider,clock,worker=colony
+    completed_battle(repo,'second-colony-battle','pencil','mug')
+    store.initialize()
+    bottle=actor(store,'winners','bottle')
+    pencil=actor(store,'winners','pencil')
+    provider.decision={'reason':'Use our water capability.', 'message':{
+        'kind':'proposal','project_id':'garden','text':'I can collect water; let us finish the garden.'}}
+    run=worker.request('propose-garden-fixture','winners',bottle['id'])
+    await worker.run(run['id'])
+    assert worker.status()['last_status']=='completed'
+    payload,encoded=worker._input({'colony_id':'winners','agent_id':pencil['id']})
+    proposal=next(item for item in payload['project_discussion'] if item['actor_id']==bottle['id'])
+    assert proposal['kind']=='proposal' and proposal['text']==provider.decision['message']['text']
+    assert proposal['id'] in repo._data['colonyBoard']
+    assert not store.observation('losers',actor(store,'losers','pencil')['id'])['project_discussion']
+    clock.advance(61)
+    provider.decision={'message':{'kind':'support','project_id':'garden','proposal_id':proposal['id'],
+        'text':'Agreed. I can help with construction and gather materials.'}}
+    run2=worker.request('support-garden-fixture','winners',pencil['id'])
+    await worker.run(run2['id'])
+    assert worker.status()['last_status']=='completed'
+    clock.advance(46); store.advance()
+    council=side(store,'winners')['council'][-1]
+    assert council['chosen_project_id']=='garden'
+    assert len(council['model_message_ids'])==2
+    assert len(provider.calls)==2
