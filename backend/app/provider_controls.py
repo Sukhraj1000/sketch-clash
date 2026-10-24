@@ -23,10 +23,16 @@ class ProviderControls:
         self.record = None
 
     def load(self):
-        record = self.repository.read(lambda tx: tx.get('providerControls', self.key))
-        if record and record.get('world_id') == self.repository.world_id:
-            self.queue.set_pacing(record['mode'])
-            self.record = record
+        def operation(tx):
+            record = tx.get('providerControls', self.key)
+            valid = record and record.get('world_id') == self.repository.world_id
+            mode = record['mode'] if valid else self.queue.pacing_mode
+            if self.queue.ledger:
+                mode = self.queue.ledger.pacing_in_transaction(tx, mode, self.queue.clock(), only_if_unset=True)
+            return record if valid else None, mode
+        read = self.repository.transaction if self.queue.ledger else self.repository.read
+        self.record, mode = read(operation)
+        self.queue.set_pacing(mode)
 
     def status(self):
         return {**self.queue.pacing(), 'persistence': self.repository.persistence,
@@ -40,6 +46,8 @@ class ProviderControls:
                       'revision': prior.get('revision', 0) + 1,
                       'updated_at': self.repository.clock()}
             tx.put('providerControls', record)
+            if self.queue.ledger:
+                self.queue.ledger.pacing_in_transaction(tx, mode, self.queue.clock())
             return record
         return self.repository.transaction(operation)
 

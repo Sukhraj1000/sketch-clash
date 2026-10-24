@@ -27,7 +27,10 @@ def key_for(*parts: str) -> str:
     # Unambiguous framing preserves world scoping even when user request IDs contain ':'.
     return sha256(json.dumps(parts, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
-class StoreError(Exception):
+from .provider_errors import LocalProviderControlError
+
+
+class StoreError(LocalProviderControlError):
     def __init__(self, message: str, status: int = 409, code: str = 'invalid_transition'):
         super().__init__(message)
         self.status, self.code = status, code

@@ -70,7 +70,10 @@ export type GeminiQueueStatus = {
     requests_remaining_minute?: number; requests_remaining_day?: number
   }
   wait_reason?: string | null; dispatch_wait_seconds?: number
-  counter_scope?: string; last_local_error?: { message?: string; category?: string } | null
+  counter_scope?: 'database_rolling_window' | 'process_lifetime'
+  admission_ledger?: { historical_usage_unknown?: boolean; rolling_window_complete?: boolean; cutover_at_epoch?: number }
+  admission_ledger_error?: string | null
+  last_local_error?: { message?: string; category?: string } | null
 }
 export type ColonyPlanner = {
   enabled: boolean; configured: boolean; model?: string; requests_today: number; max_requests_per_day: number | null

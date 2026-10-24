@@ -59,6 +59,16 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             except StoreError as exc:
                 app.state.store_error = exc
         if app.state.repository:
+            from .provider_ledger import ProviderLedger
+            from .provider_queue import ProviderFailure
+            app.state.provider_queue.ledger = ProviderLedger(app.state.repository,
+                lease_seconds=max(300, settings.api_timeout_seconds+30))
+            try:
+                await app.state.provider_queue.load_ledger()
+            except ProviderFailure:
+                # Local gameplay can still load. Paid dispatch is fail-closed
+                # until an atomic ledger admission can be confirmed.
+                logger.warning('provider_admission_history_unavailable')
             from .provider_controls import ProviderControls
             app.state.provider_controls = ProviderControls(app.state.repository, app.state.provider_queue)
             await asyncio.to_thread(app.state.provider_controls.load)

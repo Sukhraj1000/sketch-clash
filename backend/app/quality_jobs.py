@@ -14,11 +14,12 @@ from .pipeline import BASE_PROMPT_HASH, validate_pipeline_config, version_key
 from .quality import POLICY, TERMINAL, inference_payload, score_outcome, technical_check
 from .repository import StoreError, key_for
 from .provider_queue import require_ai_enabled
+from .provider_errors import LocalProviderControlError
 
 log = logging.getLogger('sketch_clash.quality')
 
-class BudgetExceeded(Exception): pass
-class JobCancelled(Exception): pass
+class BudgetExceeded(LocalProviderControlError): pass
+class JobCancelled(LocalProviderControlError): pass
 
 def response_data(response):
     if hasattr(response, 'model_dump'): return response.model_dump(mode='json', exclude_none=True)

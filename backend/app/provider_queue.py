@@ -15,6 +15,8 @@ import random
 import json
 import re
 import time
+from uuid import uuid4
+from .provider_errors import LocalProviderControlError
 
 AI_PAUSE_REASON = 'AI requests are paused for local development during the Gemini credit outage. Saved island work and Atlas persistence continue.'
 
@@ -210,14 +212,15 @@ def diagnose_provider_error(exc, now=None):
 
 
 class ProviderQueue:
-    """Shared process-local admission limits, independent of Google's quotas.
+    """Shared admission limits, independent of Google's quotas.
 
     Every dispatch counts, including failed or subsequently cancelled requests.
-    Counters use rolling windows and reset when this backend process restarts.
+    A repository-backed ledger survives restarts and coordinates backend workers.
+    The explicit no-ledger fallback is process-local for isolated fixtures.
     Admission is claimed only after a concurrency slot becomes available.
     """
     def __init__(self, concurrency=1, clock=time.time, sleep=asyncio.sleep, *, paused=False,
-                 requests_per_minute=4, requests_per_day=200, max_pending=8):
+                 requests_per_minute=4, requests_per_day=200, max_pending=8, ledger=None):
         self.clock, self.sleep = clock, sleep
         self.paused = bool(paused)
         self.concurrency = max(1, int(concurrency))
@@ -237,6 +240,41 @@ class ProviderQueue:
         self.waiting = self.active = self.completed = self.throttled = 0
         self.local_rejected = 0
         self.last_error = self.last_local_error = None
+        self.ledger = ledger
+        self.ledger_snapshot = None
+        self.ledger_error = None
+
+    def _sync_ledger(self, snapshot):
+        if snapshot is None: return
+        now = self.clock()
+        stamps = sorted(snapshot['timestamps'])
+        self._day_dispatches = deque(stamp for stamp in stamps if stamp > now-86400.)
+        self._minute_dispatches = deque(stamp for stamp in stamps if stamp > now-60.)
+        self._last_dispatch = snapshot['last_dispatch_at']
+        self.cooldown_until = max(self.cooldown_until, snapshot.get('cooldown_until', 0))
+        if snapshot.get('pacing_mode'):
+            self.set_pacing(snapshot['pacing_mode'])
+        self.ledger_snapshot = snapshot
+        self.ledger_error = None
+
+    async def load_ledger(self):
+        if self.ledger:
+            try:
+                self._sync_ledger(await asyncio.to_thread(self.ledger.snapshot, self.clock()))
+            except Exception:
+                self.ledger_error = 'Admission history is unavailable; provider requests remain blocked until storage recovers.'
+                self._reject_local('local_ledger_unavailable', self.ledger_error, 5.)
+
+    async def _finish_ledger(self, ticket, outcome):
+        if self.ledger:
+            try:
+                snapshot = await asyncio.to_thread(self.ledger.finish, ticket['id'], self.clock(),
+                    outcome=outcome, cooldown_until=self.cooldown_until)
+                self._sync_ledger(snapshot)
+            except Exception:
+                # The already-reserved allowance is never refunded after an
+                # uncertain save. Future admissions must read the database again.
+                self.ledger_error = 'Admission completion could not be saved; its reservation remains charged.'
 
     def pacing(self):
         options = [{'mode': mode, 'label': mode.title(),
@@ -285,11 +323,14 @@ class ProviderQueue:
         self.last_local_error = diagnostic.public()
         raise ProviderFailure(diagnostic)
 
-    def _require_daily_allowance(self, now):
+    def _require_daily_allowance(self, now, *, refreshed=False):
+        # Another worker may have added or released a known-undispatched
+        # reservation. Only the transaction may decide a durable admission.
+        if self.ledger and not refreshed: return
         if len(self._day_dispatches) >= self.requests_per_day:
             self._reject_local('local_daily_cap',
                 'The local Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
-                max(0., self._day_dispatches[0] + 86400. - now))
+                max(0., self._day_dispatches[-self.requests_per_day] + 86400. - now))
 
     def _wait_condition(self, now):
         candidates = [(max(0., self.cooldown_until - now), 'provider_cooldown')]
@@ -301,7 +342,11 @@ class ProviderQueue:
         delay, reason = max(candidates, key=lambda item: item[0])
         return delay, reason if delay > 0 else None
 
-    async def _admit(self, prepare=None):
+    async def _admit(self, prepare=None, *, model='', category='agent'):
+        identifier = uuid4().hex
+        if self.ledger:
+            await self.load_ledger()
+            self._require_daily_allowance(self.clock(), refreshed=True)
         while True:
             self.require_enabled()
             # Never hold this lock across sleep or a provider call. A second
@@ -328,10 +373,30 @@ class ProviderQueue:
                 delay, _ = self._wait_condition(now)
                 changed = self._pacing_changed
                 if delay <= 0:
-                    self._minute_dispatches.append(now)
-                    self._day_dispatches.append(now)
-                    self._last_dispatch = now
-                    return
+                    if self.ledger:
+                        try:
+                            admission = await asyncio.to_thread(self.ledger.admit, identifier, now,
+                                requests_per_minute=self.requests_per_minute, requests_per_day=self.requests_per_day,
+                                interval_seconds=self.min_dispatch_interval_seconds, concurrency=self.concurrency,
+                                model=model, category=category)
+                        except Exception:
+                            self.ledger_error = 'Admission history could not be confirmed. No provider request was sent.'
+                            self._reject_local('local_ledger_unavailable', self.ledger_error, 5.)
+                        self._sync_ledger(admission['snapshot'])
+                        if admission['admitted']:
+                            return {'id': identifier, 'at': now}
+                        if admission['reason'] == 'local_daily_cap':
+                            self._reject_local('local_daily_cap',
+                                'The shared Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
+                                admission['wait_seconds'])
+                        # Another worker can finish a lease early. Recheck that
+                        # lease periodically rather than waiting its full timeout.
+                        delay = min(5., admission['wait_seconds']) if admission['reason'] == 'local_concurrency' else admission['wait_seconds']
+                    else:
+                        self._minute_dispatches.append(now)
+                        self._day_dispatches.append(now)
+                        self._last_dispatch = now
+                        return {'id': identifier, 'at': now}
             await self._wait_for_pacing(delay, changed)
 
     async def run(self, model, operation, category='agent', *, prepare=None):
@@ -343,27 +408,48 @@ class ProviderQueue:
         # atomic on this event loop, including callers waiting on a semaphore.
         if self.waiting - self.active >= self.max_pending:
             self._reject_local('local_queue_full',
-                'The local Gemini waiting queue is full. No request was sent to Google; try again after pending work completes.')
+                'The local Gemini waiting queue is full. No request was sent to Google; try again after pending work completes.',
+                5.)
         self.waiting += 1
         try:
             async with self.semaphore:
                 # Local validation errors are not Google errors and do not spend
                 # a dispatch allowance. Preparation may rerun after a queue race.
-                await self._admit(prepare)
+                ticket = await self._admit(prepare, model=model, category=category)
                 self.active += 1
+                outcome = 'uncertain'
                 try:
+                    # Storage admission yields; a pause may arrive while its
+                    # transaction is in flight. Do not dispatch after that pause.
+                    self.require_enabled()
                     result = await operation()
                     self.completed += 1
+                    outcome = 'completed'
                     return result
                 except asyncio.CancelledError: raise
+                except LocalProviderControlError:
+                    # A wrapper can fail saving its budget after the SDK returns.
+                    # Do not misclassify that as Google failure or refund a call
+                    # that may already have happened. prepare prevents ordinary
+                    # paused work from reaching reservation in the first place.
+                    outcome = 'local_control'
+                    raise
                 except Exception as exc:
+                    if isinstance(exc, ProviderFailure) and exc.diagnostic.category == 'ai_paused':
+                        outcome = 'local_control'
+                        raise
                     diagnostic = diagnose_provider_error(exc, self.clock())
+                    outcome = 'failed' if diagnostic.outcome_known else 'uncertain'
                     self.last_error = diagnostic.public()
                     if diagnostic.retryable:
                         self.throttled += 1
                         self.cooldown_until = max(self.cooldown_until, self.clock() + (diagnostic.retry_after_seconds or 5))
                     raise ProviderFailure(diagnostic) from None
-                finally: self.active -= 1
+                finally:
+                    try:
+                        await asyncio.shield(self._finish_ledger(ticket, outcome))
+                    finally:
+                        self.active -= 1
         finally: self.waiting -= 1
 
     def status(self):
@@ -374,7 +460,7 @@ class ProviderQueue:
             reason, delay = 'ai_paused', 0.
         elif len(self._day_dispatches) >= self.requests_per_day:
             reason = 'local_daily_cap'
-            delay = max(0., self._day_dispatches[0] + 86400. - now)
+            delay = max(0., self._day_dispatches[-self.requests_per_day] + 86400. - now)
         elif not reason and self.active >= self.concurrency:
             reason = 'local_concurrency'
         return {'waiting': max(0, self.waiting - self.active), 'active': self.active,
@@ -383,7 +469,10 @@ class ProviderQueue:
                 'retry_after_seconds': max(0, round(self.cooldown_until - now, 2)),
                 'last_error': self.last_error,
                 'last_local_error': self.last_local_error, 'local_rejected': self.local_rejected,
-                'counter_scope': 'process_lifetime',
+                'counter_scope': 'database_rolling_window' if self.ledger else 'process_lifetime',
+                'admission_ledger': {key: value for key, value in (self.ledger_snapshot or {}).items()
+                    if key not in ('timestamps', 'last_dispatch_at', 'cooldown_until')},
+                'admission_ledger_error': self.ledger_error,
                 'pacing': self.pacing(),
                 'local_limits': {'requests_per_minute': self.requests_per_minute,
                     'requests_per_day': self.requests_per_day, 'max_pending': self.max_pending,

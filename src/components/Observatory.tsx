@@ -295,12 +295,14 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
     {localLimits && <section className="obs-guardrails" aria-label="Current local Gemini safeguards">
       <header><span><ShieldCheck size={14}/> GEMINI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
       <dl>
-        <div><dt>REQUEST PACE</dt><dd>{count(pacing?.effective_requests_per_minute ?? localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} dispatched in the last minute · at least {count(pacing?.options.find(option => option.mode === pacing.mode)?.min_dispatch_interval_seconds ?? localLimits.min_dispatch_interval_seconds)}s apart</small></div>
+        <div><dt>REQUEST PACE</dt><dd>{count(pacing?.effective_requests_per_minute ?? localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} reserved in the last minute · at least {count(pacing?.options.find(option => option.mode === pacing.mode)?.min_dispatch_interval_seconds ?? localLimits.min_dispatch_interval_seconds)}s apart</small></div>
         <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
         <div><dt>SHARED QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.active)} active · {count(providerQueue?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
       </dl>
       <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
-      <p className="obs-guard-note">These are application safety limits, not Google quotas. Usage counters reset when the backend restarts.</p>
+      <p className="obs-guard-note">These are application safety limits, not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The rolling request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
+      {providerQueue?.admission_ledger?.historical_usage_unknown && !providerQueue.admission_ledger.rolling_window_complete && <p className="obs-guard-note">Earlier usage was not fully recorded. Known requests were carried forward conservatively; complete rolling coverage starts after the first 24 hours.</p>}
+      {providerQueue?.admission_ledger_error && <p className="obs-guard-note" role="alert">Saved request budget is unavailable. New model requests are blocked until storage recovers.</p>}
       {providerQueue?.last_local_error?.message && <p className="obs-guard-note"><b>Last local limit event:</b> {providerQueue.last_local_error.message}</p>}
     </section>}
 
