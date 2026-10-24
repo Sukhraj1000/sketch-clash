@@ -35,6 +35,12 @@ Open **[Island Playground](http://127.0.0.1:5173/#/playground)** for a separate 
 
 The live islands now show shared supply shortages, productive tasks and the gains expected when each job completes. The Observatory distinguishes a public plan, a validated action and the saved receipt proving its effect. After the provider recovers, restart without `--offline` to remove the startup pause; the evaluation pause and existing provider-failure records are not automatically cleared. Resume and validate those deliberately before claiming new model-authored conversations.
 
+## Island / Factory appearance
+
+On the **Islands** page, use **Island / Factory** above the 3D scene to switch appearances. The factory shows the same residents as compact robots and the same projects as grow shelves, fabrication benches, communication terminals and service walkways. Approved assemblies retain their tested parts. Select a robot to see its original object, capability-based robot module, abilities, current task and contributions in the existing inspector.
+
+The switch is local presentation only: it preserves selection, camera and task motion, adds no model calls or saved world changes, and defaults to Island when the page is reopened. Other pages keep their original appearance. Reduced-motion preferences skip the transition.
+
 ## Object battles while Gemini is paused
 
 Choose **PLAY OBJECT BATTLE** on the home page or open [the object arena](http://127.0.0.1:5173/#/battles). Choose two of twelve illustrated fixtures, inspect their attributes, limitations and conditional matchup effects, then start a battle. These are authored game profiles and **illustrative GBP prices**, not recognized photos or live market appraisals. The new arena requires the local API and configured storage, but no Gemini calls.
@@ -199,6 +205,7 @@ npm run test:combat
 npm run test:images
 npm run test:polish
 npm run test:island-scene
+npm run test:factory-scene
 npm run test:backend
 npm run build
 ```
