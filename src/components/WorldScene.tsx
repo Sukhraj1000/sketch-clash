@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Html, Line, OrbitControls } from '@react-three/drei'
-import { Group, Mesh, OrthographicCamera, Shape, SRGBColorSpace, Texture, TextureLoader, Vector3 } from 'three'
+import { Line, OrbitControls } from '@react-three/drei'
+import { CanvasTexture, Group, Mesh, OrthographicCamera, Shape, SRGBColorSpace, Texture, TextureLoader, Vector3 } from 'three'
 import type { MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { computeTaskPose, safeIslandPoint } from '../lib/island'
@@ -247,6 +247,32 @@ function Tree({ x, z, size = 1, color = '#4B9D47' }: { x: number; z: number; siz
   </group>
 }
 
+function ChargingDockLabel() {
+  const [texture, setTexture] = useState<CanvasTexture | null>(null)
+  const invalidate = useThree(state => state.invalidate)
+  useEffect(() => {
+    // The label stays inside the WebGL scene. A DOM portal would create a second
+    // React root whose synchronous cleanup can race scene unmounts in React 19.
+    const canvas = document.createElement('canvas')
+    canvas.width = 512; canvas.height = 160
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.fillStyle = PAPER; context.fillRect(0, 0, 512, 160)
+    context.strokeStyle = INK; context.lineWidth = 10; context.strokeRect(5, 5, 502, 150)
+    context.fillStyle = INK; context.textAlign = 'center'; context.textBaseline = 'middle'
+    context.font = '800 39px sans-serif'; context.fillText('SOLAR', 256, 49)
+    context.font = '800 49px sans-serif'; context.fillText('CHARGING DOCK', 256, 110)
+    const owned = new CanvasTexture(canvas)
+    owned.colorSpace = SRGBColorSpace
+    setTexture(owned)
+    invalidate()
+    return () => owned.dispose()
+  }, [invalidate])
+  return texture ? <sprite name="solar-charging-dock-label" position={[0, 1.65, -.18]} scale={[2.05, .64, 1]} raycast={() => {}}>
+    <spriteMaterial map={texture} toneMapped={false} depthWrite={false} />
+  </sprite> : null
+}
+
 function ChargingDock() {
   return <group position={[3.65, .02, -.12]}>
     <mesh position={[0, .065, .2]} receiveShadow castShadow><boxGeometry args={[1.22, .13, 1.08]} /><Material color="#D6AB70" /></mesh>
@@ -266,7 +292,7 @@ function ChargingDock() {
     <mesh position={[.22, .16, .48]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.27, 12]} /><Material color={INK} /></mesh>
     <mesh position={[.22, .174, .48]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[.19, .025, 4, 12]} /><Material color="#FFCF59" /></mesh>
     <Line points={[[-.23, .3, .33], [-.11, .18, .58], [.03, .18, .61], [.16, .18, .5]]} color={INK} lineWidth={3} />
-    <Html position={[0, 1.55, -.18]} center zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}><span style={{ display: 'block', whiteSpace: 'nowrap', color: INK, background: PAPER, border: `1px solid ${INK}`, borderRadius: 3, padding: '3px 5px', font: '800 8px/1.2 sans-serif', letterSpacing: '.06em' }}>SOLAR CHARGING DOCK</span></Html>
+    <ChargingDockLabel />
   </group>
 }
 
