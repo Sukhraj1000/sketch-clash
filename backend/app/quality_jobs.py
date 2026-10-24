@@ -23,12 +23,26 @@ def response_data(response):
     if hasattr(response, 'model_dump'): return response.model_dump(mode='json', exclude_none=True)
     return response if isinstance(response, dict) else {}
 
+def hold_for_evaluation_pause(job, control):
+    if job['status'] in TERMINAL:
+        return
+    if job.get('deadline_at') is not None:
+        job['remaining_deadline_seconds'] = max(0, job['deadline_at'] - min(time.time(), control.get('paused_at_epoch') or time.time()))
+        job.pop('deadline_at', None)
+    # An uncertain external request never becomes safe to resubmit just because
+    # the operator paused. Existing checkpoints and budget remain untouched.
+    job.update(status='interrupted' if job.get('inflight') else 'queued',
+               evaluation_paused_at=control.get('updated_at'),
+               error='Evaluation batches paused; completed checkpoints and budget reservations are preserved.')
+
 class JobBudget:
     def __init__(self, store, job_id): self.store, self.job_id = store, job_id
 
-    async def check(self):
+    async def check(self, *, allow_paused=False):
         job = await asyncio.to_thread(self.store.job, self.job_id)
         if job.get('cancel_requested'): raise JobCancelled()
+        if not allow_paused:
+            await asyncio.to_thread(self.store.assert_evaluation_enabled)
         if job['budget']['reported_tokens'] > job['budget']['max_tokens']: raise BudgetExceeded('Reported token usage exceeded the job ceiling.')
         if job.get('deadline_at') and datetime.now(timezone.utc).timestamp() >= job['deadline_at']: raise BudgetExceeded('Job deadline reached.')
         return job
@@ -49,7 +63,7 @@ class JobBudget:
             b['reserved_tokens'] += reservation['tokens']
             reservation['number'] = b['requests']
             job['inflight'] = {**reservation, 'started_at': self.store.repo.clock(), 'outcome': 'unknown_until_response'}
-        await asyncio.to_thread(self.store.mutate_job, self.job_id, change)
+        await asyncio.to_thread(self.store.mutate_job, self.job_id, change, require_evaluation_enabled=True)
         return reservation
 
     async def complete(self, reservation, response):
@@ -64,7 +78,9 @@ class JobBudget:
                 'usage': usage, 'at': self.store.repo.clock()})
             job['inflight'] = None
         await asyncio.to_thread(self.store.mutate_job, self.job_id, change)
-        await self.check()
+        # Save the response already paid for. The pause gate applies before the
+        # next request, not between its return and its durable checkpoint.
+        await self.check(allow_paused=True)
 
 class QualityWorker:
     def __init__(self, store, settings, recognizer_factory=None, agent_client=None):
@@ -76,7 +92,12 @@ class QualityWorker:
 
     async def start(self):
         def recover(tx):
+            control = self.store.evaluation_control(tx)
             for job in self.store.rows(tx, 'qualityJobs'):
+                if control['evaluation_paused'] and job['status'] in ('running', 'queued'):
+                    hold_for_evaluation_pause(job, control)
+                    tx.put('qualityJobs', job)
+                    continue
                 if job['status'] == 'running':
                     uncertain = bool(job.get('inflight'))
                     job['status'] = 'interrupted' if uncertain else 'queued'
@@ -96,14 +117,15 @@ class QualityWorker:
     async def loop(self):
         while not self.stopping:
             try:
-                jobs = await asyncio.to_thread(self.store.repo.read, lambda tx: self.store.rows(tx, 'qualityJobs'))
+                control, jobs = await asyncio.to_thread(self.store.repo.read, lambda tx:
+                    (self.store.evaluation_control(tx), self.store.rows(tx, 'qualityJobs')))
             except StoreError:
                 log.warning('quality_worker_store_unavailable; queued jobs remain durable')
                 try: await asyncio.wait_for(self.wake.wait(), 5)
                 except asyncio.TimeoutError: pass
                 self.wake.clear()
                 continue
-            pending = next((j for j in jobs if j['status'] == 'queued'), None)
+            pending = next((j for j in jobs if j['status'] == 'queued'), None) if not control['evaluation_paused'] else None
             if pending:
                 await self.run(pending['id'])
                 continue
@@ -117,9 +139,13 @@ class QualityWorker:
             if job.get('cancel_requested'): raise JobCancelled()
             job['status'] = 'running'
             job.setdefault('started_at', self.store.repo.clock())
-            job.setdefault('deadline_at', time.time() + job['policy']['deadline_seconds'])
+            if 'remaining_deadline_seconds' in job:
+                job['deadline_at'] = time.time() + job.pop('remaining_deadline_seconds')
+            else:
+                job.setdefault('deadline_at', time.time() + job['policy']['deadline_seconds'])
+            job.pop('evaluation_paused_at', None)
         try:
-            job = await asyncio.to_thread(self.store.mutate_job, identifier, claim)
+            job = await asyncio.to_thread(self.store.mutate_job, identifier, claim, require_evaluation_enabled=True)
             budget = JobBudget(self.store, identifier)
             async with asyncio.timeout(max(0.01, job['deadline_at'] - time.time())):
                 if job['kind'] == 'references':
@@ -148,15 +174,32 @@ class QualityWorker:
                 gate = await asyncio.to_thread(self.store.gates, identifier)
                 await asyncio.to_thread(self.store.mutate_job, identifier, lambda j: j.update(gate=gate, summary='Comparison completed. Human and render review remain separate from automated scores.'))
         except asyncio.CancelledError:
-            await asyncio.shield(asyncio.to_thread(self.store.mutate_job, identifier, lambda j: j.update(status='interrupted', error='Worker stopped; unfinished external requests remain conservatively reserved.')))
+            control = await asyncio.shield(asyncio.to_thread(self.store.evaluation_control))
+            if control['evaluation_paused']:
+                await asyncio.shield(self.defer_paused(identifier))
+            else:
+                await asyncio.shield(asyncio.to_thread(self.store.mutate_job, identifier, lambda j: j.update(status='interrupted', error='Worker stopped; unfinished external requests remain conservatively reserved.')))
             raise
         except (JobCancelled, BudgetExceeded, TimeoutError) as exc:
+            if not isinstance(exc, JobCancelled) and (await asyncio.to_thread(self.store.evaluation_control))['evaluation_paused']:
+                await self.defer_paused(identifier)
+                return
             status = 'cancelled' if isinstance(exc, JobCancelled) else 'budget_exceeded'
             await asyncio.to_thread(self.store.mutate_job, identifier, lambda j: j.update(status=status, error='Cancelled by operator.' if status == 'cancelled' else 'A fixed request, token or time budget was reached.'))
         except Exception as exc:
             if isinstance(exc, StoreError) and exc.code == 'job_claimed': return
+            if ((isinstance(exc, StoreError) and exc.code == 'evaluation_paused') or
+                    (await asyncio.to_thread(self.store.evaluation_control))['evaluation_paused']):
+                await self.defer_paused(identifier)
+                return
             log.warning('quality_job_failed job_id=%s category=%s', identifier, type(exc).__name__)
             await asyncio.to_thread(self.store.mutate_job, identifier, lambda j: j.update(status='interrupted' if j.get('inflight') else 'failed', error=f'Quality run failed ({type(exc).__name__}). No version was activated. An uncertain provider outcome is never retried automatically.'))
+
+    async def defer_paused(self, identifier):
+        control = await asyncio.to_thread(self.store.evaluation_control)
+        def hold(job):
+            hold_for_evaluation_pause(job, control)
+        await asyncio.to_thread(self.store.mutate_job, identifier, hold)
 
     async def prepare_references(self, job, budget):
         from .quality_references import ApprovedReferences
@@ -179,6 +222,7 @@ class QualityWorker:
 
     async def claim_reserved(self, identifier, case):
         def operation(tx):
+            self.store.assert_evaluation_enabled(tx, admission=True)
             key = key_for(self.store.world_id, 'reserved-use', case['group_id'])
             existing = tx.get('qualityReservedUse', key)
             if existing and existing['job_id'] != identifier:
@@ -223,7 +267,7 @@ class QualityWorker:
                 source='upload', pipeline_config=config, pipeline_version_id=version_id,
                 persist_catalog=False, request_budget=budget, references=references)
             if hasattr(observation, 'model_dump'): observation = observation.model_dump()
-            await budget.check()
+            await budget.check(allow_paused=True)
             evidence = observation.get('evidence', {})
             failed = evidence.get('gemini', {}).get('status') in ('failed', 'unavailable')
             if failed:

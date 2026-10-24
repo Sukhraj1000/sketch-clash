@@ -52,6 +52,10 @@ class OperatorGate:
 
 class Body(BaseModel): model_config = ConfigDict(extra='forbid')
 class SessionBody(Body): token: str = Field(min_length=1, max_length=256)
+class EvaluationControlBody(Body):
+    evaluation_paused: bool = Field(strict=True)
+    reviewer: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=600)
 class CreativeRubric(Body):
     resemblance: int | None = Field(default=None, ge=1, le=5)
     feature_preservation: int | None = Field(default=None, ge=1, le=5)
@@ -127,6 +131,14 @@ def register_quality_routes(app):
         result = await asyncio.to_thread(store.overview)
         adapter = getattr(app.state, 'references', None)
         if adapter: result['reference_retrieval']['adapter'] = adapter.status
+        return result
+
+    @app.post('/api/quality/control')
+    async def evaluation_control(body: EvaluationControlBody, store=Depends(operator)):
+        result = await asyncio.to_thread(store.set_evaluation_pause, body.evaluation_paused, body.reviewer, body.reason)
+        worker = getattr(app.state, 'quality_worker', None)
+        if worker:
+            worker.wake.set()
         return result
 
     @app.post('/api/quality/reviews')

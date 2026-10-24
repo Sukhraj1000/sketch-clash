@@ -10,6 +10,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import secrets
+import time
 from PIL import Image
 from .catalog import CHARACTER_TYPES, normalize_key
 from .engine import validate_fighter_config, validate_visual_spec
@@ -99,6 +100,44 @@ class QualityStore:
             raise StoreError('Quality record not found.', 404, 'not_found')
         return doc
 
+    def evaluation_control(self, tx=None):
+        def read(current):
+            identifier = key_for(self.world_id, 'evaluation-control')
+            return current.get('qualityState', identifier) or {
+                '_id': identifier, 'id': 'evaluation-control', 'world_id': self.world_id,
+                'evaluation_paused': False, 'revision': 0, 'admission_revision': 0,
+                'reason': None, 'reviewer': None, 'updated_at': None, 'paused_at_epoch': None}
+        return deepcopy(read(tx)) if tx is not None else public(self.repo.read(read))
+
+    def assert_evaluation_enabled(self, tx=None, *, admission=False):
+        """Every paid batch admission shares a write fence with the pause switch."""
+        if tx is None:
+            return self.repo.read(lambda current: self.assert_evaluation_enabled(current))
+        control = self.evaluation_control(tx)
+        if control['evaluation_paused']:
+            raise StoreError('Evaluation batches are paused by the operator. Queued jobs and checkpoints are preserved.',
+                             409, 'evaluation_paused')
+        if admission:
+            # Snapshot reads alone would allow write skew between a pause and a
+            # concurrent job/request reservation. Both write this row instead.
+            control['admission_revision'] = control.get('admission_revision', 0) + 1
+            tx.put('qualityState', control)
+        return public(control)
+
+    def set_evaluation_pause(self, paused, reviewer='operator', reason='Operator evaluation control.'):
+        if not isinstance(paused, bool) or not isinstance(reviewer, str) or not reviewer.strip() or not isinstance(reason, str) or not reason.strip():
+            raise StoreError('Evaluation control needs an explicit boolean, reviewer and reason.', 422, 'invalid_evaluation_control')
+        def change(tx):
+            control = self.evaluation_control(tx)
+            if control['evaluation_paused'] == paused and control['revision']:
+                return public(control)
+            control.update(evaluation_paused=paused, reviewer=reviewer.strip()[:80], reason=reason.strip()[:600],
+                           updated_at=self.repo.clock(), revision=control['revision'] + 1,
+                           paused_at_epoch=time.time() if paused else None)
+            tx.put('qualityState', control)
+            return public(control)
+        return self.repo.transaction(change)
+
     def overview(self):
         def read(tx):
             feedback = self.rows(tx, 'qualityFeedback')
@@ -141,7 +180,9 @@ class QualityStore:
             exposed_groups = [{'group_id': use['group_id'], 'case_ids': sorted(c['id'] for c in cases
                 if c['group_id'] == use['group_id'] and c['role'] == 'reserved')} for use in exposed]
             exposed_groups = [group for group in exposed_groups if group['case_ids']]
+            control = public(self.evaluation_control(tx))
             return {'active': public(tx.get('qualityState', active_key(self.world_id))),
+                    'evaluation_paused': control['evaluation_paused'], 'evaluation_control': control,
                     'versions': versions, 'queue': queue[:100],
                     'cases': [public(c) for c in cases], 'jobs': [self.public_job(j) for j in jobs][-50:][::-1],
                     'exposed_reserved_groups': exposed_groups,
@@ -214,6 +255,7 @@ class QualityStore:
         def operation(tx):
             existing = tx.get('qualityJobs', identifier)
             if existing: return self.public_job(existing)
+            self.assert_evaluation_enabled(tx, admission=True)
             active = tx.get('qualityState', active_key(self.world_id))
             version = tx.get('pipelineVersions', version_key(self.world_id, active['active_version_id']))
             all_cases = [c for c in self.rows(tx, 'qualityCases') if self.eligible(c)]
@@ -328,6 +370,7 @@ class QualityStore:
         def operation(tx):
             prior = tx.get('qualityJobs', identifier)
             if prior: return self.public_job(prior)
+            self.assert_evaluation_enabled(tx, admission=True)
             references = [self.get(tx, 'qualityCases', cid) for cid in dict.fromkeys(body['case_ids'])]
             if not references or any(not self.eligible(c) or c['role'] != 'reference' for c in references):
                 raise StoreError('Select approved, consented reference cases first.', 409, 'reference_ineligible')
@@ -351,8 +394,10 @@ class QualityStore:
     def job(self, identifier):
         return self.repo.read(lambda tx: self.get(tx, 'qualityJobs', identifier))
 
-    def mutate_job(self, identifier, callback):
+    def mutate_job(self, identifier, callback, *, require_evaluation_enabled=False):
         def operation(tx):
+            if require_evaluation_enabled:
+                self.assert_evaluation_enabled(tx, admission=True)
             job = self.get(tx, 'qualityJobs', identifier)
             callback(job)
             tx.put('qualityJobs', job)
