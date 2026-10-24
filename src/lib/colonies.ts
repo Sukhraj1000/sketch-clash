@@ -134,6 +134,8 @@ export async function coloniesRequest<T>(path = '', options: RequestInit = {}, s
 }
 
 export const colonyMutation = <T,>(path: string, body: Record<string, unknown>, signal?: AbortSignal) => coloniesRequest<T>(path, { method: 'POST', body: JSON.stringify(body) }, signal)
+/** "1 resident", "5 residents". */
+export const countLabel = (count: number, singular: string, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`
 export function numberMetric(metrics: ColonyMetrics, keys: string[], fallback = 0): number {
   for (const key of keys) if (typeof metrics[key] === 'number' && Number.isFinite(metrics[key])) return metrics[key] as number
   return fallback

@@ -1,8 +1,21 @@
 import type { Colony, ColonyPlanner } from './colonies'
+import { formatWait, resumeClock } from './wait.ts'
 
 type Activity = { label: string; detail: string; tone: 'active' | 'waiting' | 'paused' | 'unavailable' }
 const shoreName = (id: string) => id === 'winners' ? 'Winner Island' : 'Loser Island'
 const activeStatuses = new Set(['queued', 'queue_wait', 'running', 'dispatching', 'response_received', 'applying', 'retry_wait'])
+
+/** The rolling island request cap is a safeguard, not a fault; callers report it with a resume time. */
+export function dailyCapWait(planner: ColonyPlanner | undefined) {
+  const queue = planner?.provider_queue
+  if (!queue || (queue.wait_reason !== 'local_daily_cap' && queue.local_usage?.requests_remaining_day !== 0)) return null
+  return { limit: queue.local_limits?.requests_per_day, seconds: Math.max(0, queue.dispatch_wait_seconds ?? 0) }
+}
+
+export function dailyCapDetail(cap: { limit?: number; seconds: number }, now = Date.now()) {
+  const when = cap.seconds > 0 ? `around ${resumeClock(cap.seconds, now)} (in ${formatWait(cap.seconds)})` : 'as soon as the oldest request is 24 hours old'
+  return `Island agents have used ${cap.limit ? `all ${cap.limit}` : 'all'} of their Gemini requests for the last 24 hours. New discussions resume ${when}. Local work, battles and photo recognition carry on.`
+}
 
 /** Current saved controls and scheduler ownership, never inferred from a quiet event window. */
 export function colonyActivity(colony: Colony | undefined, planner: ColonyPlanner | undefined, aiPaused = false, now = Date.now()): Activity {
@@ -14,6 +27,8 @@ export function colonyActivity(colony: Colony | undefined, planner: ColonyPlanne
   if (!planner) return { label: 'Council state unavailable', detail: 'The island is running; its current discussion status has not loaded.', tone: 'unavailable' }
   if (!planner.configured) return { label: 'Gemini not configured', detail: 'Local work can continue, but no Gemini provider is configured.', tone: 'paused' }
   if (!planner.enabled) return { label: 'Councils switched off', detail: 'Local work can continue. Enable agent councils for new discussions.', tone: 'paused' }
+  const cap = dailyCapWait(planner)
+  if (cap) return { label: 'Daily AI limit reached', detail: dailyCapDetail(cap, now), tone: 'paused' }
   if (planner.auto_blocked) return { label: 'Councils blocked', detail: planner.error || 'The saved planner state blocks new automatic councils.', tone: 'paused' }
   if (!colony.island.agents.some(a => a.assignment_origin !== 'player' || a.assignment === 'auto')) return { label: 'Crew manually assigned', detail: 'Return a resident to automatic work to include them in councils.', tone: 'waiting' }
   const run = planner.active_run && activeStatuses.has(planner.active_run.status) ? planner.active_run : undefined

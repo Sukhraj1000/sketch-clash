@@ -10,6 +10,7 @@ import { startIndependentPoll } from '../lib/independentPolling'
 import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
 import { colonyActivity, emptyActivityWindow } from '../lib/colonyActivity'
 import { startEventReconciliation } from '../lib/observatoryFeed'
+import { formatWait, resumeClock } from '../lib/wait'
 import AgentBehaviorReview from './AgentBehaviorReview'
 
 const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})
@@ -53,7 +54,7 @@ export function GeminiSafeguards({ providerQueue, reasoningPaused }: { providerQ
         <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
         <div><dt>ISLAND QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.scopes?.island?.active)} active · {count(providerQueue?.scopes?.island?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
       </dl>
-      <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
+      <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in {formatWait(providerQueue!.dispatch_wait_seconds!)}{providerQueue!.dispatch_wait_seconds! >= 3600 ? ` · around ${resumeClock(providerQueue!.dispatch_wait_seconds!)}` : ''}</span>}</p>
       <p className="obs-guard-note">These application limits apply only to island agents. They are not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The island request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
       {providerQueue?.interactive_limits && <p className="obs-guard-note"><b>Camera recognition:</b> normal requests with no artificial pacing or minute/day cap. Up to {count(providerQueue.interactive_limits.concurrency)} run at once, independently of island work. {count(providerQueue.scopes?.interactive?.active)} active · {count(providerQueue.scopes?.interactive?.waiting)} waiting. Google cooldowns are respected.</p>}
       {providerQueue?.admission_ledger?.historical_usage_unknown && !providerQueue.admission_ledger.rolling_window_complete && <p className="obs-guard-note">Earlier usage was not fully recorded. Known requests were carried forward conservatively; complete rolling coverage starts after the first 24 hours.</p>}

@@ -404,6 +404,13 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, sel
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix(); invalidate() }
   }, [camera, size.width, size.height, invalidate])
   useEffect(() => {
+    // A plain wheel scrolls the page past the island; pinch (sent as Ctrl+wheel) or Ctrl/⌘ + scroll zooms, as embedded maps do.
+    const element = gl.domElement
+    const gate = (event: WheelEvent) => { if (orbit.current) orbit.current.enableZoom = event.ctrlKey || event.metaKey }
+    element.addEventListener('wheel', gate, { capture: true })
+    return () => element.removeEventListener('wheel', gate, { capture: true })
+  }, [gl])
+  useEffect(() => {
     projectFocus.current = null
     camera.position.set(9, 11, 13)
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix() }
@@ -451,7 +458,7 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   const routeFrom = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.from, selectedSlot) : null
   const routeTo = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.to, selectedSlot) : null
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
-  return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building"}>
+  return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, pinch or Ctrl + scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, pinch or Ctrl + scroll to zoom, click a resident or building"}>
     <color attach="background" args={[factory ? '#333D44' : '#82CDE8']} />
     <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} selectedProjectId={selectedProjectId} projectTarget={simulation?.projects.find(project => project.id === selectedProjectId)?.position} positions={positions.current} active={active} reducedMotion={reducedMotion} />
     <ambientLight intensity={factory ? .25 : .55} />

@@ -30,5 +30,10 @@ assert.match(emptyActivityWindow(true), /selected replay so far/)
 assert.doesNotMatch(emptyActivityWindow(false), /recorded.*yet|never|first/)
 const ownManualRetry = {...duringLoser, active_run: {...duringLoser.active_run, colony_id: 'winners'}, sessions: [], validation_backoff: {winners: {until: 120}}}
 assert.equal(colonyActivity(winner, ownManualRetry, false, 60_000).label, 'Gemini request queued', 'An active manual retry takes precedence over future automatic cooldown')
-assert.equal(colonyActivity(winner, {...planner, provider_queue: {local_usage: {requests_remaining_day: 0}}}).label, 'Local request allowance used')
+const capQueue = {wait_reason: 'local_daily_cap', dispatch_wait_seconds: 2 * 3600 + 30 * 60, local_limits: {requests_per_day: 200}, local_usage: {requests_remaining_day: 0}}
+assert.equal(colonyActivity(winner, {...planner, provider_queue: capQueue}).label, 'Daily AI limit reached')
+assert.match(colonyActivity(winner, {...planner, provider_queue: capQueue}, false, 0).detail, /all 200 .*in about 2 h 30 min/)
+assert.equal(colonyActivity(winner, {...duringLoser, provider_queue: capQueue}).label, 'Daily AI limit reached', 'A council stalled on the daily cap must not read as waiting for the other island')
+assert.match(colonyActivity(winner, {...planner, provider_queue: {local_usage: {requests_remaining_day: 0}}}).detail, /oldest request is 24 hours old/)
+assert.equal(colonyActivity(winner, {...planner, max_requests_per_day: 5, requests_today: 5}).label, 'Local request allowance used')
 console.log('Colony activity regressions passed: pause, ownership, queue admission, cooldowns, manual assignments and bounded history.')
