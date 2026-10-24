@@ -55,6 +55,14 @@ def _validation_errors(exc: ValidationError) -> list[str]:
     return [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()][:12]
 
 
+async def _progress(callback, stage: str, *, model: str, attempt: int | None = None):
+    if callback is not None:
+        value = {'stage': stage, 'model': model}
+        if attempt is not None:
+            value['attempt'] = attempt
+        await callback(value)
+
+
 def identity_support(detector: dict, candidates: list[dict], record: dict) -> dict:
     """Compare labels transparently, never turn detector support into proof of identity."""
     base = {'scope': 'selected_region', 'detector_labels': [item['label'] for item in candidates],
@@ -101,7 +109,8 @@ class RecognitionService:
                 timeout_ms=self.settings.api_timeout_seconds * 1000)
 
     async def _request(self, history: list[dict], *, pipeline_config: dict | None = None,
-                       request_budget: Any = None) -> Any:
+                       request_budget: Any = None, on_progress=None, request_attempt: int = 1,
+                       timing: dict | None = None) -> Any:
         require_ai_enabled(self.settings)
         if self.provider_queue: self.provider_queue.require_enabled()
         config = validate_pipeline_config(pipeline_config or BASELINE_CONFIG)
@@ -125,24 +134,41 @@ class RecognitionService:
         # the shared queue; never submit an automatic duplicate.
         for attempt in range(1 + min(1, max(0, self.settings.transport_retries))):
             reservation = None
+            queued_at = None
+            admitted = False
             try:
+                await _progress(on_progress, 'queued', model=config['model'], attempt=request_attempt)
+                queued_at = time.monotonic()
                 async def invoke():
-                    nonlocal reservation
+                    nonlocal reservation, admitted
+                    admitted = True
+                    if timing is not None:
+                        timing['queue_ms'] += round((time.monotonic()-queued_at)*1000)
                     # Admission must happen after any Slow queue wait, immediately
                     # before the paid call. A paused batch must not leak a queued request.
                     if request_budget is not None:
                         reservation = await request_budget.reserve(input_tokens=input_tokens, output_tokens=4096, kind='recognition')
-                    return await asyncio.wait_for(self.client.aio.interactions.create(
-                    model=config['model'], store=False, input=history,
-                    system_instruction=system_instruction(config), tools=[PROPOSAL_TOOL],
-                    generation_config={"thinking_level": config['thinking_level'], "max_output_tokens": 4096},
-                    timeout=self.settings.api_timeout_seconds), timeout=self.settings.api_timeout_seconds + 2)
-                response = await self.provider_queue.run(config['model'], invoke, category='recognition',
-                    prepare=request_budget.check if request_budget is not None else None) if self.provider_queue else await invoke()
+                    await _progress(on_progress, 'gemini_recognition', model=config['model'], attempt=request_attempt)
+                    provider_started = time.monotonic()
+                    try:
+                        return await asyncio.wait_for(self.client.aio.interactions.create(
+                        model=config['model'], store=False, input=history,
+                        system_instruction=system_instruction(config), tools=[PROPOSAL_TOOL],
+                        generation_config={"thinking_level": config['thinking_level'], "max_output_tokens": 4096},
+                        timeout=self.settings.api_timeout_seconds), timeout=self.settings.api_timeout_seconds + 2)
+                    finally:
+                        if timing is not None:
+                            timing['provider_ms'] += round((time.monotonic()-provider_started)*1000)
+                response = await self.provider_queue.run(config['model'], invoke,
+                    category='evaluation_recognition' if request_budget is not None else 'recognition',
+                    prepare=request_budget.check if request_budget is not None else None,
+                    priority='background' if request_budget is not None else 'foreground') if self.provider_queue else await invoke()
                 if request_budget is not None:
                     await request_budget.complete(reservation, response)
                 return response
             except Exception as exc:
+                if timing is not None and queued_at is not None and not admitted:
+                    timing['queue_ms'] += round((time.monotonic()-queued_at)*1000)
                 status = getattr(exc, "status_code", getattr(exc, "code", None))
                 transient = status == 429
                 # Evaluation records uncertainty rather than blindly paying for a possible duplicate.
@@ -152,7 +178,7 @@ class RecognitionService:
                     raise
                 await asyncio.sleep(.5)
 
-    async def _verify_proposal(self, raw: dict, appearance_seed: int) -> tuple[Proposal | None, dict | None, list[dict]]:
+    async def _verify_proposal(self, raw: dict, appearance_seed: int, *, semantic_search: bool = True) -> tuple[Proposal | None, dict | None, list[dict]]:
         """Each result below is computed, not trusted from a model's `validated` flag."""
         traces: list[dict] = []
         try:
@@ -163,7 +189,8 @@ class RecognitionService:
             return proposal, None, [{"tool": "recognition_disposition", "valid": False,
                                      "errors": proposal.uncertainty or ["A clearer single-object photograph is needed."]}]
         before = time.monotonic()
-        resolved = await self.catalog.resolve_character_type(proposal.canonical_type_candidate, " ".join(proposal.visible_features))
+        resolved = await self.catalog.resolve_character_type(proposal.canonical_type_candidate, " ".join(proposal.visible_features),
+            semantic_search=semantic_search)
         traces.append({"tool": "resolve_character_type", **resolved, "duration_ms": round((time.monotonic()-before)*1000)})
         config = {"archetype": proposal.archetype, "stats": proposal.stats}
         before = time.monotonic()
@@ -192,7 +219,7 @@ class RecognitionService:
                                 pipeline_config: dict | None = None, pipeline_version_id: str = LEGACY_VERSION,
                                 correction_context: dict | None = None, persist_catalog: bool = True,
                                 request_budget: Any = None, references: list[dict] | None = None,
-                                reference_provider: Any = None) -> Observation:
+                                reference_provider: Any = None, on_progress=None) -> Observation:
         require_ai_enabled(self.settings)
         started = time.monotonic()
         config = validate_pipeline_config(pipeline_config or BASELINE_CONFIG)
@@ -206,6 +233,7 @@ class RecognitionService:
         # to Gemini/OCR while YOLO still described unrelated full-frame objects.
         selected_image = crop_image(ProcessedImage(image_bytes, width, height), crop) if crop else ProcessedImage(image_bytes, width, height)
         selected = selected_image.data
+        await _progress(on_progress, 'local_detection', model=config['model'])
         detector = await self.evidence.detect(selected)
         detector = {**detector, 'coordinate_space': 'selected_region',
                     'dimensions': {'width': selected_image.width, 'height': selected_image.height}}
@@ -218,6 +246,7 @@ class RecognitionService:
         if crop is None and len(candidates) > 1:
             return Observation(**base, status="needs_selection", candidates=candidates, evidence=evidence,
                                uncertainty=["Choose one detected object, or crop more tightly around your fighter."])
+        await _progress(on_progress, 'local_ocr', model=config['model'])
         ocr = await self.evidence.read_text(selected)
         evidence["ocr"] = ocr
         evidence["degraded"] = any(e.get("status") in ("failed", "unavailable", "skipped") for e in (detector, ocr))
@@ -266,23 +295,37 @@ class RecognitionService:
                     {"type": "image", "mime_type": "image/jpeg", "data": base64.b64encode(selected).decode("ascii")},
                     *reference_content]}]
         all_traces: list[dict] = []
-        model_duration_ms = 0
         last_proposal: Proposal | None = None
         repair_budget = min(2, max(0, self.settings.repair_attempts))
         repairs = 0
         retrieval_reviewed = False
         usages: list[dict] = []
+        request_timings: list[dict] = []
+        def record_timings():
+            evidence['timings'] = {
+                'version': 'capture-timings-v1',
+                'total_ms': round((time.monotonic()-started)*1000),
+                'local_detection_ms': detector.get('duration_ms', 0), 'local_ocr_ms': ocr.get('duration_ms', 0),
+                'queue_ms': sum(item['queue_ms'] for item in request_timings),
+                'provider_ms': sum(item['provider_ms'] for item in request_timings),
+                'catalog_ms': sum(item.get('duration_ms', 0) for item in all_traces if item.get('tool') == 'resolve_character_type'),
+                'requests': request_timings}
+            component = evidence.get('gemini', {})
+            component.update(duration_ms=evidence['timings']['provider_ms'],
+                             queue_duration_ms=evidence['timings']['queue_ms'],
+                             total_request_duration_ms=evidence['timings']['queue_ms']+evidence['timings']['provider_ms'])
         try:
             async with self._gate:
                 # One optional retrieval-review turn is distinct from the two-error repair budget.
                 for attempt in range(2 + repair_budget):
-                    model_started = time.monotonic()
-                    response = await self._request(history, pipeline_config=config, request_budget=request_budget)
+                    timing = {'attempt': attempt+1, 'queue_ms': 0, 'provider_ms': 0}
+                    request_timings.append(timing)
+                    response = await self._request(history, pipeline_config=config, request_budget=request_budget,
+                        on_progress=on_progress, request_attempt=attempt+1, timing=timing)
                     usage = getattr(response, 'usage', None)
                     usages.append({'model': getattr(response, 'model', config['model']),
                         'model_version': getattr(response, 'model_version', None),
                         'usage': usage.model_dump(mode='json') if hasattr(usage, 'model_dump') else usage})
-                    model_duration_ms += round((time.monotonic() - model_started) * 1000)
                     steps = [_json_step(step) for step in (response.steps or [])]
                     history.extend(steps)  # Includes opaque thought signatures exactly as supplied by the SDK.
                     calls = [step for step in steps if step.get("type") == "function_call"]
@@ -296,6 +339,7 @@ class RecognitionService:
                         if repairs >= repair_budget:
                             break
                         repairs += 1
+                        await _progress(on_progress, 'repair', model=config['model'], attempt=attempt+2)
                         continue
                     call = calls[0]
                     args = call.get("arguments", {})
@@ -311,7 +355,8 @@ class RecognitionService:
                                 'stats': original['stats']}
                         if isinstance(args.get('visual_spec'), dict):
                             args['visual_spec'] = {**args['visual_spec'], 'template_id': original['visual_spec']['template_id']}
-                    proposal, accepted, traces = await self._verify_proposal(args, seed)
+                    await _progress(on_progress, 'validation', model=config['model'], attempt=attempt+1)
+                    proposal, accepted, traces = await self._verify_proposal(args, seed, semantic_search=config['catalog_mode'] == 'hybrid')
                     last_proposal = proposal
                     for trace in traces:
                         trace["attempt"] = attempt
@@ -346,11 +391,12 @@ class RecognitionService:
                             archetype=proposal.archetype, stats=proposal.stats, visual_spec=accepted["visual_spec"],
                             validation=traces, config_versions={"catalog": CATALOG_VERSION, "visual": "1", "engine": ENGINE_VERSION,
                                                               "recognition_model": config['model'], 'pipeline': pipeline_version_id})
-                        evidence.update({"gemini": result("completed", model=self.settings.gemini_model, repair_attempts=repairs, retrieval_reviewed=retrieval_reviewed, duration_ms=model_duration_ms),
+                        evidence.update({"gemini": result("completed", model=config['model'], repair_attempts=repairs, retrieval_reviewed=retrieval_reviewed),
                                          "tools": all_traces, "related_discoveries": accepted["resolved"].get("related", []),
                                          "retrieval": accepted["resolved"].get("retrieval", {})})
                         evidence['provider_requests'] = usages
-                        self._log(battle_id, capture_id, started, "recognized", all_traces)
+                        record_timings()
+                        self._log(battle_id, capture_id, started, "recognized", all_traces, model=config['model'])
                         return Observation(**base, status="recognized", proposed_label=proposal.proposed_label,
                             canonical_type_candidate=record["canonical_key"], visible_features=proposal.visible_features,
                             observed_object=pending.observed_object,
@@ -358,25 +404,28 @@ class RecognitionService:
                     if repairs >= repair_budget:
                         break
                     repairs += 1
-            evidence.update({"gemini": result("completed", model=self.settings.gemini_model, duration_ms=model_duration_ms,
+                    await _progress(on_progress, 'repair', model=config['model'], attempt=attempt+2)
+            evidence.update({"gemini": result("completed", model=config['model'],
                             detail="Image uncertain or verification repair budget exhausted."), "tools": all_traces})
             evidence['provider_requests'] = usages
-            self._log(battle_id, capture_id, started, "needs_recapture", all_traces)
+            record_timings()
+            self._log(battle_id, capture_id, started, "needs_recapture", all_traces, model=config['model'])
             return Observation(**base, status="needs_recapture", candidates=candidates, evidence=evidence,
                 proposed_label=last_proposal.proposed_label if last_proposal else None,
                 visible_features=last_proposal.visible_features if last_proposal else [],
                 uncertainty=(last_proposal.uncertainty if last_proposal and last_proposal.uncertainty else
                              ["We could not safely prepare this fighter. Try a clearer, tightly framed photograph."]))
         except Exception as exc:
-            evidence.update({"gemini": result("failed", model=self.settings.gemini_model, duration_ms=model_duration_ms,
+            evidence.update({"gemini": result("failed", model=config['model'],
                               detail="Recognition service failed. Retry this image.", error_category=type(exc).__name__), "tools": all_traces})
-            self._log(battle_id, capture_id, started, type(exc).__name__, all_traces)
+            record_timings()
+            self._log(battle_id, capture_id, started, type(exc).__name__, all_traces, model=config['model'])
             return Observation(**base, status="needs_recapture", candidates=candidates, evidence=evidence,
                                uncertainty=["Recognition could not finish. Retry the same image, or check local backend configuration."])
 
-    def _log(self, battle_id: str, capture_id: str, started: float, status: str, traces: list[dict]) -> None:
+    def _log(self, battle_id: str, capture_id: str, started: float, status: str, traces: list[dict], *, model: str) -> None:
         logger.info("recognition battle=%s capture=%s model=%s duration_ms=%d status=%s tools=%s", battle_id, capture_id,
-                    self.settings.gemini_model, round((time.monotonic()-started)*1000), status,
+                    model, round((time.monotonic()-started)*1000), status,
                     [{"tool": t.get("tool"), "valid": t.get("valid"), "attempt": t.get("attempt")} for t in traces])
 
     async def close(self) -> None:

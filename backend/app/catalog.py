@@ -58,7 +58,7 @@ class CharacterCatalog:
             for alias in [record["canonical_key"], *record["aliases"]]:
                 self._aliases[normalize_key(alias)] = record
 
-    async def resolve_character_type(self, candidate: str, description: str = "") -> dict:
+    async def resolve_character_type(self, candidate: str, description: str = "", *, semantic_search: bool = True) -> dict:
         key = normalize_key(candidate)
         if key in {"", "object", "thing", "item", "unknown", "generic", "unidentified", "unclear"}:
             return {"valid": False, "errors": ["The visible object needs a specific object-kind label."], "related": []}
@@ -77,7 +77,9 @@ class CharacterCatalog:
                 return {"valid": True, "match": "exact_or_alias", "record": found, "related": [],
                         "retrieval": {"status": "skipped", "detail": "Exact persisted type resolved."}}
         retrieval = {"status": "unavailable", "detail": "Atlas semantic retrieval is not configured.", "candidates": []}
-        if self.retriever is not None:
+        if not semantic_search:
+            retrieval = {'status': 'skipped', 'detail': 'This pipeline uses exact names and aliases; optional semantic template search is not requested.', 'candidates': []}
+        elif self.retriever is not None:
             retrieval = await self.retriever.search(description or candidate)
         # Similarity proposes reusable templates; it must never silently merge canonical identity.
         record = _type(key, [], description[:600] or candidate)

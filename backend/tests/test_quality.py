@@ -274,6 +274,25 @@ async def test_agent_tools_see_development_only_and_cannot_approve_or_edit_truth
     assert store.job(job['id'])['candidate_id'] == candidate['candidate_id']
 
 
+@pytest.mark.asyncio
+async def test_legacy_job_config_defaults_do_not_block_bounded_candidate_or_allow_model_change(state):
+    repo, store, settings = state
+    seed_case(repo, 'legacy-dev')
+    job = create_job(store, kind='candidate')
+    store.mutate_job(job['id'], lambda value: value['baseline_config'].pop('catalog_mode', None))
+    worker = QualityWorker(store, settings, recognizer_factory=FakeRecognizer)
+    budget = JobBudget(store, job['id'])
+    denied = await worker.agent_tool(job['id'], 'propose_pipeline_configuration', {
+        'config': {'model': 'gemini-3.8-flash'}, 'rationale': 'Cannot silently switch a pinned model.'}, budget)
+    assert 'error' in denied
+    candidate = await worker.agent_tool(job['id'], 'propose_pipeline_configuration', {
+        'config': {'recognition_guidance': 'Check the handle.'}, 'rationale': 'Controlled legacy development case.'}, budget)
+    assert candidate['frozen'] is True
+    assert candidate['config']['model'] == 'gemini-4-argon'
+    assert candidate['config']['catalog_mode'] == 'hybrid'
+    assert 'catalog_mode' not in store.job(job['id'])['baseline_config']
+
+
 def comparison_fixture(repo, store, *, scope='recognition'):
     cases = [seed_case(repo, f'{role}-{i}', role, seed=20+i+(10 if role == 'reserved' else 0))
         for role in ('development', 'reserved') for i in range(3)]

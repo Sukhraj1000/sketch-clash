@@ -362,8 +362,9 @@ class QualityWorker:
         if name == 'propose_pipeline_configuration':
             if job.get('candidate_id'): return {'error': 'Only one immutable candidate is allowed per job.'}
             try:
-                config = validate_pipeline_config({**job['baseline_config'], **arguments['config']})
-                changed = {k for k in config if config[k] != job['baseline_config'][k]}
+                baseline_config = validate_pipeline_config(job['baseline_config'])
+                config = validate_pipeline_config({**baseline_config, **arguments['config']})
+                changed = {k for k in config if config[k] != baseline_config[k]}
                 allowed = {'recognition_guidance', 'clarification_mode', 'reference_limit'} if job['scope'] == 'recognition' else {'appearance_guidance'}
                 if not changed or changed - allowed: return {'error': 'Change only the declared scope; combat/model settings are fixed.'}
                 rationale = str(arguments.get('rationale', ''))[:1200]
