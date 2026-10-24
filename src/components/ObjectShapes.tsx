@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
 import { ObjectArms, ObjectFace, ObjectFeet, ObjectMaterial as Paint } from './ObjectRig'
 import type { ObjectSilhouette } from './objectIdentity'
+import FurnitureShape from './FurnitureShape'
+import type { FurnitureFeatures } from './furniturePresentation'
 
 const INK = '#1E1C29'
 const PAPER = '#FFF9EB'
 const METAL = '#A7BEC7'
-type Props = { kind: ObjectSilhouette; color: string; accent: string; feet: boolean; eyes: boolean; arms: boolean }
+type Props = { kind: ObjectSilhouette; color: string; accent: string; feet: boolean; eyes: boolean; arms: boolean; furnitureFeatures?: FurnitureFeatures }
 
 /** Recognizable silhouettes are presentation only. The accepted identity, palette and proportions stay server-owned. */
-export default function ObjectShapes({ kind, color, accent, feet, eyes, arms }: Props) {
+export default function ObjectShapes({ kind, color, accent, feet, eyes, arms, furnitureFeatures }: Props) {
+  if (kind === 'table' || kind === 'chair') return <FurnitureShape kind={kind} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} features={furnitureFeatures} />
   let body: ReactNode
   let face = { y: 1.03, z: .2, width: .11, size: 1 }
   let rig = { armWidth: .32, armY: .86, footWidth: .17, size: 1 }

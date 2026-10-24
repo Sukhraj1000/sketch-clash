@@ -19,6 +19,7 @@ import type { RobotWheelState } from './robotMotion'
 import ObjectShapes from './ObjectShapes'
 import VesselShape from './VesselShape'
 import { vesselPresentation } from './vesselPresentation'
+import { furniturePresentation } from './furniturePresentation'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
 import { objectSilhouette } from './objectIdentity'
 import { objectPose } from './objectMotion'
@@ -77,11 +78,12 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
   const arms = spec.accessories.includes('arms')
   const template = spec.template_id
   const silhouette = objectSilhouette(template, character.object_type, character.canonical_type_id)
+  const furniture = silhouette === 'table' || silhouette === 'chair' ? furniturePresentation(silhouette, character.observed_object) : undefined
   const vessel = silhouette ? null : vesselPresentation(character)
   useEffect(() => { if (silhouette || template !== 'generic') onAssetState?.('ready') }, [silhouette, template, onAssetState])
-  return <group name="sc-character" userData={{ rigKey: `${template}:${silhouette ?? vessel?.kind ?? 'photo'}:${vessel?.handle}:${vessel?.lid}:${spec.accessories.join(',')}` }}>
+  return <group name="sc-character" userData={{ rigKey: `${template}:${silhouette ?? vessel?.kind ?? 'photo'}:${vessel?.handle}:${vessel?.lid}:${furniture?.stretchers}:${furniture?.taperedLegs}:${spec.accessories.join(',')}` }}>
     {feet && !silhouette && !vessel && <Feet />}
-    {silhouette ? <ObjectShapes kind={silhouette} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : vessel ? <VesselShape shape={vessel} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : template === 'mug' ? <group>
+    {silhouette ? <ObjectShapes kind={silhouette} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} furnitureFeatures={furniture} /> : vessel ? <VesselShape shape={vessel} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : template === 'mug' ? <group>
       <mesh position={[0, .67, 0]} castShadow><cylinderGeometry args={[.48, .43, .96, 12]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.154, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.37, 12]} /><Material color="#6D5142" /></mesh>
       <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.427, .055, 5, 12]} /><Material color={accent} /></mesh>
@@ -120,7 +122,7 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
 
 export type CharacterActivity = ObjectActivity
 
-type RigBindings = { root: Object3D | undefined; key: string; eyes?: Object3D; leftArm?: Object3D; rightArm?: Object3D; leftFoot?: Object3D; rightFoot?: Object3D; tail?: Object3D; detail?: Object3D; detailLeft?: Object3D; detailRight?: Object3D; wheels: (Object3D | undefined)[] }
+type RigBindings = { root: Object3D | undefined; key: string; eyes?: Object3D; leftArm?: Object3D; rightArm?: Object3D; leftFoot?: Object3D; rightFoot?: Object3D; backLeftFoot?: Object3D; backRightFoot?: Object3D; tail?: Object3D; detail?: Object3D; detailLeft?: Object3D; detailRight?: Object3D; wheels: (Object3D | undefined)[] }
 const rigs = new WeakMap<Group, RigBindings>()
 function characterRig(body: Group) {
   const root = body.getObjectByName('sc-character')
@@ -128,7 +130,7 @@ function characterRig(body: Group) {
   const previous = rigs.get(body)
   if (previous && previous.root === root && previous.key === key) return previous
   const find = (name: string) => root?.getObjectByName(name)
-  const rig = { root, key, eyes: find('sc-eyes'), leftArm: find('sc-arm-left'), rightArm: find('sc-arm-right'), leftFoot: find('sc-foot-left'), rightFoot: find('sc-foot-right'), tail: find('sc-tail'), detail: find('sc-detail'), detailLeft: find('sc-detail-left'), detailRight: find('sc-detail-right'), wheels: [-1, 1].flatMap(side => [-1, 1].map(axle => find(`robot-wheel-${side}-${axle}`))) }
+  const rig = { root, key, eyes: find('sc-eyes'), leftArm: find('sc-arm-left'), rightArm: find('sc-arm-right'), leftFoot: find('sc-foot-left'), rightFoot: find('sc-foot-right'), backLeftFoot: find('sc-foot-back-left'), backRightFoot: find('sc-foot-back-right'), tail: find('sc-tail'), detail: find('sc-detail'), detailLeft: find('sc-detail-left'), detailRight: find('sc-detail-right'), wheels: [-1, 1].flatMap(side => [-1, 1].map(axle => find(`robot-wheel-${side}-${axle}`))) }
   rigs.set(body, rig)
   return rig
 }
@@ -143,8 +145,12 @@ export function animateCharacterBody(body: Group, style: WorldCharacter['visual_
   if (rig.eyes) rig.eyes.scale.y = pose.blink
   if (rig.leftArm) { rig.leftArm.rotation.x = pose.leftArmX; rig.leftArm.rotation.z = pose.leftArmZ }
   if (rig.rightArm) { rig.rightArm.rotation.x = pose.rightArmX; rig.rightArm.rotation.z = pose.rightArmZ }
-  if (rig.leftFoot) { rig.leftFoot.rotation.x = pose.leftFootX; rig.leftFoot.position.y = Number(rig.leftFoot.userData.restY ?? .14) + pose.leftFootY }
-  if (rig.rightFoot) { rig.rightFoot.rotation.x = pose.rightFootX; rig.rightFoot.position.y = Number(rig.rightFoot.userData.restY ?? .14) + pose.rightFootY }
+  for (const [foot, rotation, lift] of [[rig.leftFoot, pose.leftFootX, pose.leftFootY], [rig.rightFoot, pose.rightFootX, pose.rightFootY], [rig.backLeftFoot, pose.rightFootX, pose.rightFootY], [rig.backRightFoot, pose.leftFootX, pose.leftFootY]] as const) {
+    if (!foot) continue
+    const stride = Number(foot.userData.strideScale ?? 1)
+    foot.rotation.x = rotation * stride
+    foot.position.y = Number(foot.userData.restY ?? .14) + lift * stride * Number(foot.userData.liftScale ?? 1)
+  }
   if (rig.tail) rig.tail.rotation.y = pose.tail
   if (rig.detail) rig.detail.rotation.x = pose.detail
   if (rig.detailLeft) rig.detailLeft.rotation.z = Number(rig.detailLeft.userData.restZ ?? -.2) - Math.abs(pose.detail)

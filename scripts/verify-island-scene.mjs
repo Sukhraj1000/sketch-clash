@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { computeTaskPose, safeIslandPoint } from '../src/lib/island.ts';
 import { objectSilhouette } from '../src/components/objectIdentity.ts';
+import { furniturePresentation } from '../src/components/furniturePresentation.ts';
 import { vesselPresentation } from '../src/components/vesselPresentation.ts';
 import { objectPose } from '../src/components/objectMotion.ts';
 import { characterDisplayScale, displayIslandPoint, residentDisplayPose, residentDisplaySlots } from '../src/components/objectPresentation.ts';
@@ -58,6 +59,20 @@ assert.equal(objectSilhouette('generic','TV remote'),null,'Related objects are n
 assert.equal(objectSilhouette('generic','Lord Television'),null,'Creative nicknames cannot invent an accepted identity');
 assert.equal(objectSilhouette('generic','ruler','phone'),null,'Conflicting accepted identities cannot pick a convenient silhouette');
 assert.equal(objectSilhouette('generic',undefined,'wooden-pencil'),'pencil','Known canonical identities can supply a missing display label');
+for (const label of ['table','wooden table','rectangular wooden dining table','wooden table displayed on smartphone screen','a brown wooden table shown on a phone screen','table in a photograph']) {
+  assert.equal(objectSilhouette('generic',label),'table',`${label} keeps the furniture subject rather than its capture context`);
+}
+for (const label of ['chair','wooden chair','dining chair','a white wooden chair pictured in a photo']) {
+  assert.equal(objectSilhouette('generic',label),'chair',`${label} gets a seat, back and four legs`);
+}
+for (const label of ['table football','chair cushion','tablecloth','coffee table book','smartphone displaying a table','person beside a wooden chair','wooden table with a chair','not a chair','possibly a table','Timber Table Hero']) {
+  assert.equal(objectSilhouette('generic',label),null,`${label} cannot invent furniture from an incidental word`);
+}
+assert.equal(objectSilhouette('generic','table lamp'),'lamp','A table lamp stays a lamp');
+assert.equal(objectSilhouette('generic','table lamp','table'),null,'Known noun conflicts are not resolved by the furniture shortcut');
+assert.equal(objectSilhouette('generic','wooden table displayed on smartphone screen','phone'),null,'Contradictory accepted phone identity still prevents a furniture upgrade');
+assert.equal(objectSilhouette('generic','smartphone','table'),null,'An actual phone does not become a table through conflicting canonical data');
+assert.equal(objectSilhouette('book','dining chair','chair'),'chair','Saved furniture upgrades coarse historical templates without record migration');
 const workKinds = [undefined,'forage','carry','water','plan','measure','charge','signal','tend','build','rest','explore'];
 let poses = 0;
 for (const style of ['calm','bouncy','wobbly']) for (const activity of ['idle','rest','wander']) for (const work of workKinds) {
@@ -76,7 +91,7 @@ assert.deepEqual(objectPose('calm','idle',NaN,Infinity),objectPose('calm','idle'
 assert.notDeepEqual(objectPose('calm','idle',1,0,false,'plan'),objectPose('calm','idle',1,0,false,'measure'),'Different jobs produce distinct gestures');
 console.log(`Object presentation checks passed: supported and conservative identity mapping; ${poses} finite bounded limb/blink/work poses; motion-disabled stability.`);
 
-for (const [identity,width,height] of [['tv',1.3,.9],['ruler',1.3,.8],['pencil',.75,1.3],['pitcher',.95,1.2],['microwave',1.3,.9],['mug',1,1.1],['bottle',1,1.25]]) {
+for (const [identity,width,height] of [['tv',1.3,.9],['ruler',1.3,.8],['pencil',.75,1.3],['pitcher',.95,1.2],['microwave',1.3,.9],['mug',1,1.1],['bottle',1,1.25],['table',1.4,.7],['chair',.7,1.4]]) {
   const character = {object_type:identity,canonical_type_id:identity,visual_spec:{template_id:identity==='mug'||identity==='bottle'?identity:'generic',scale:1.1,proportions:{width,height}}};
   const saved = structuredClone(character);
   const scale = characterDisplayScale(character,.7);
@@ -117,7 +132,8 @@ const componentModule = (filename, replacements={}) => {
   return 'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
 };
 const rigUrl = componentModule('../src/components/ObjectRig.tsx');
-const {default: Shapes} = await import(componentModule('../src/components/ObjectShapes.tsx',{'./ObjectRig':rigUrl}));
+const furnitureUrl = componentModule('../src/components/FurnitureShape.tsx',{'./ObjectRig':rigUrl});
+const {default: Shapes} = await import(componentModule('../src/components/ObjectShapes.tsx',{'./ObjectRig':rigUrl,'./FurnitureShape':furnitureUrl}));
 function geometryBounds(node,parent=new THREE.Matrix4(),named=new Map()) {
   if(node==null || typeof node==='boolean') return new THREE.Box3();
   if(Array.isArray(node)) return node.reduce((box,child)=>box.union(geometryBounds(child,parent,named)),new THREE.Box3());
@@ -153,6 +169,53 @@ assert.ok(dimensions.ruler.y/dimensions.ruler.x>1.8,'The actual ruler silhouette
 assert.ok(dimensions.television.x/dimensions.television.y>1,'The actual TV remains a landscape display');
 assert.ok(dimensions.microwave.x/dimensions.microwave.y>1.15,'The actual microwave remains a wide appliance');
 console.log('Actual JSX geometry checks passed: grounded feet/ankles and recognizable pencil, ruler, TV, microwave, pitcher, phone and battery dimensions.');
+
+for (const kind of ['table','chair']) for (const accessories of [false,true]) {
+  const named = new Map();
+  const box = geometryBounds(Shapes({kind,color:'#B68C56',accent:'#E2C69B',feet:accessories,eyes:accessories,arms:accessories}),undefined,named);
+  const size = box.getSize(new THREE.Vector3());
+  const surface = named.get(`sc-${kind}-${kind==='table'?'top':'seat'}`);
+  assert.ok(surface,`${kind} has its defining horizontal surface, not a photo cube`);
+  const surfaceSize = surface.getSize(new THREE.Vector3());
+  assert.ok(surfaceSize.x>surfaceSize.y*6 && surfaceSize.z>surfaceSize.y*6,`${kind} surface is thin and horizontal`);
+  const legs=[...named].filter(([name])=>name.startsWith(`sc-${kind}-leg-`));
+  assert.equal(legs.length,4,`${kind} always has four structural legs, independent of decorative feet`);
+  for (const [name,leg] of legs) {
+    assert.ok(Math.abs(leg.min.y-.025)<1e-6,`${name} is grounded`);
+    assert.ok(Math.abs(leg.max.y-surface.min.y)<1e-6,`${name} connects to the underside of the surface`);
+    assert.ok(Math.abs(leg.getCenter(new THREE.Vector3()).x)>.25 && Math.abs(leg.getCenter(new THREE.Vector3()).z)>.25,`${name} leaves the centre under the furniture open`);
+  }
+  assert.ok(box.min.y>=0 && size.x<2 && size.y<1.85,`${kind} stays bounded and fits the shared preview`);
+  for (const limb of ['left','right','back-left','back-right']) assert.equal(named.has(`sc-foot-${limb}`),accessories,'All four feet bind to the shared motion rig only when requested');
+  if(kind==='table') {
+    assert.ok(size.x>size.y*1.4,'A table remains broader than it is tall');
+    assert.ok(named.get('sc-table-apron').min.y>surface.min.y-.17,'The apron supports the top instead of filling the whole body');
+  } else {
+    const back=named.get('sc-chair-back');
+    assert.ok(back.max.y>surface.max.y+.8 && back.max.z<0,'The chair has a tall back behind the seat');
+    assert.equal([...named.keys()].filter(name=>name.startsWith('sc-chair-back-slat-')).length,3,'The chair back has distinct open slats');
+    assert.ok(size.y>size.x*1.4,'A chair remains a tall seat rather than a table');
+  }
+}
+console.log('Furniture regression checks passed: table/chair subjects, conservative capture context, four grounded structural legs, thin open surfaces, chair back, uniform scale and shared preview/island geometry.');
+
+const chairObservation={canonical_type_id:'chair',label:'wooden outdoor chair',visible_features:['wooden outdoor chair','vertical slat backrest','square cream seat cushion','four wooden legs with horizontal stretchers']};
+const chairObservationBefore=structuredClone(chairObservation);
+const chairFeatures=furniturePresentation('chair',chairObservation);
+assert.deepEqual(chairFeatures,{cushion:true,cushionColor:'#EEE3C8',stretchers:true,taperedLegs:false},'Saved chair evidence adds its cream seat cushion and leg braces');
+assert.deepEqual(chairObservation,chairObservationBefore,'Appearance refinement does not mutate source evidence');
+const featureNames=new Map();
+geometryBounds(Shapes({kind:'chair',color:'#B68C56',accent:'#E2C69B',feet:true,eyes:true,arms:true,furnitureFeatures:chairFeatures}),undefined,featureNames);
+assert.ok(featureNames.has('sc-chair-cushion')&&featureNames.has('sc-chair-stretchers'),'Evidence-backed details exist in actual rendered geometry');
+assert.ok(!featureNames.has('sc-foot-left')&&!featureNames.has('sc-foot-back-left'),'Braced frame stays rigid so independent leg animations cannot tear it apart');
+assert.ok(Math.abs(featureNames.get('sc-chair-cushion').min.y-featureNames.get('sc-chair-seat').max.y)<1e-6,'Cushion sits on the actual seat instead of floating');
+assert.equal(furniturePresentation('chair',{canonical_type_id:'chair',visible_features:['possibly a seat cushion','no horizontal stretchers']}).cushion,false,'Uncertain cushion evidence is not rendered');
+assert.equal(furniturePresentation('chair',{canonical_type_id:'chair',visible_features:['cream seat cushion','no seat cushion']}).cushion,false,'Negative cushion evidence wins over conflicting positive evidence');
+assert.equal(furniturePresentation('chair',{...chairObservation,canonical_type_id:'phone'}).cushion,false,'Conflicting observation identity cannot add furniture details');
+assert.equal(furniturePresentation('chair',{...chairObservation,label:'table'}).stretchers,false,'Conflicting observation label cannot add furniture details');
+assert.equal(furniturePresentation('table',{canonical_type_id:'table',visible_features:['four tapered wooden legs']}).taperedLegs,true,'Observed table leg taper is retained');
+assert.equal(furniturePresentation('chair',undefined).cushion,false,'Missing historical evidence does not invent a cushion');
+console.log('Saved furniture evidence checks passed: cream cushion, rigid leg stretchers, conservative absence/conflict handling and tapered table legs.');
 
 // Reproduce the actual accepted handled-bottle description that previously
 // became a narrow-neck bottle, without its private capture or saved identity.
