@@ -6,7 +6,7 @@ Sketch Clash is a local two-player object battle game with two persistent 3D col
 
 The research question is **“Can human feedback help AI create more reliable and useful digital representations of real-world objects?”** Storing feedback changes neither Gemini’s weights nor the active pipeline automatically. Intended benefits remain things to measure, not demonstrated improvements.
 
-**Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public deployment or public account system.
+**Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public account system. The static frontend alone is deployed to Vercel (see [Vercel](#vercel-frontend-only)); without a hosted backend it runs only the in-browser playground.
 
 ## Start on this computer
 
@@ -24,6 +24,35 @@ Open [http://127.0.0.1:5173/](http://127.0.0.1:5173/). The API listens on port 8
 The MacBook can use the same URL through the existing SSH tunnel over Tailscale. Open it in the **MacBook’s own browser** to use its camera. Atlas connections originate from the home Mac, so the home connection’s public egress IP belongs in the Atlas allowlist; the remote MacBook’s IP and Tailscale address do not replace it.
 
 The default repository is MongoDB and fails clearly if unavailable. `npm run dev:demo` explicitly selects temporary memory for development, labelled in the UI; its island disappears on backend restart. It is not a persistence demonstration.
+
+## Run with Docker
+
+Docker Desktop runs the whole stack without the local `.venv` or vision setup. The `api` image installs CPU-only torch and bakes in the YOLO11n and EasyOCR weights; the `web` image builds the frontend and serves it with nginx, proxying `/api` to the backend.
+
+```sh
+npm run docker:up     # docker compose up --build -d
+```
+
+Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). Only that port is published, bound to `127.0.0.1`, so it does not clash with `npm run dev` on 5173/8000. Secrets are read from `.env.local` when the container starts and never enter an image (`.dockerignore` excludes them).
+
+- `npm run docker:demo` uses temporary in-memory records, like `npm run dev:demo`.
+- `npm run docker:logs` follows both services; `npm run docker:down` stops them.
+- The operator key lives in the `api-data` volume: `npm run docker:operator-token` prints it in your terminal.
+- The first build downloads torch and the vision weights and takes several minutes; later builds reuse the cached layers.
+
+## Vercel (frontend only)
+
+[sketch-clash.vercel.app](https://sketch-clash.vercel.app) serves the static Vite build. `.vercelignore` is an allowlist, so only `src`, `public` and the build config are uploaded: never `.env.local`, the backend or model weights.
+
+```sh
+npx vercel@65.2.0 deploy --prod
+```
+
+Vercel cannot run the backend: its ~1.2 GB of torch/YOLO/EasyOCR dependencies exceed function size limits, and the island and colony loops, observatory SSE stream and operator token file need a long-running process. Until the `api` Docker image runs on a container host, the hosted site shows "Local engine disconnected" and only the in-browser playground works. Once a backend URL exists, add a rewrite to `vercel.json` so `/api` stays same-origin (the operator cookie and origin check rely on that), and set `FRONTEND_ORIGIN=https://sketch-clash.vercel.app` on the backend:
+
+```json
+"rewrites": [{ "source": "/api/:path*", "destination": "https://<backend-host>/api/:path*" }]
+```
 
 ## Build and demonstrate during the Gemini outage
 

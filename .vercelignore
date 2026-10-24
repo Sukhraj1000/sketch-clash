@@ -1,0 +1,11 @@
+# Allowlist: Vercel only builds the static frontend. Secrets, the Python backend,
+# model weights and local captures are never uploaded.
+/*
+!/src
+!/public
+!/index.html
+!/package.json
+!/package-lock.json
+!/tsconfig.json
+!/vite.config.ts
+!/vercel.json
