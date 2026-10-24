@@ -9,14 +9,14 @@ import './CharacterPreview.css'
 
 export type RenderReport = {
   status: 'checking' | 'passed' | 'failed' | 'unavailable'
-  schema_version: 'renderer-v1'
+  schema_version: 'renderer-v2-object-rig'
   checks: { finite: boolean; bounds: boolean; visible: boolean; animations: string[] }
   errors: string[]
   bounds?: { width: number; height: number; depth: number }
   captured_at: string
 }
 type Props = { fighter: CharacterVisual; label?: string; scope?: string; compact?: boolean; presentation?: 'standard' | 'hero'; onReport?: (report: RenderReport) => void }
-const initialReport = (): RenderReport => ({ status: 'checking', schema_version: 'renderer-v1', checks: { finite: false, bounds: false, visible: false, animations: [] }, errors: [], captured_at: new Date().toISOString() })
+const initialReport = (): RenderReport => ({ status: 'checking', schema_version: 'renderer-v2-object-rig', checks: { finite: false, bounds: false, visible: false, animations: [] }, errors: [], captured_at: new Date().toISOString() })
 
 class PreviewBoundary extends Component<{ children: ReactNode; onError: () => void }, { failed: boolean }> {
   state = { failed: false }
@@ -106,7 +106,7 @@ function PreviewRig({ fighter, motion, turning, onReport, onCanvas }: { fighter:
     sampledBounds.current.depth = Math.max(sampledBounds.current.depth, size.z)
     if (frames.current < 12) return
     verified.current = true
-    onReport({ status: sampledErrors.current.length ? 'failed' : 'passed', schema_version: 'renderer-v1', checks: { ...sampledChecks.current, animations: [...animations.current] }, bounds: sampledBounds.current, errors: sampledErrors.current.slice(0, 10), captured_at: new Date().toISOString() })
+    onReport({ status: sampledErrors.current.length ? 'failed' : 'passed', schema_version: 'renderer-v2-object-rig', checks: { ...sampledChecks.current, animations: [...animations.current] }, bounds: sampledBounds.current, errors: sampledErrors.current.slice(0, 10), captured_at: new Date().toISOString() })
   })
   const spec = fighter.visual_spec
   return <>
@@ -133,7 +133,7 @@ export default function CharacterPreview({ fighter, label, scope, compact = fals
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const onReportRef = useRef(onReport)
   onReportRef.current = onReport
-  const identity = JSON.stringify([fighter.visual_spec, fighter.image_ref])
+  const identity = JSON.stringify([fighter.visual_spec, fighter.image_ref, fighter.object_type, fighter.canonical_type_id])
   const valid = validSpec(fighter)
   const publish = useCallback((value: RenderReport) => { setReport(value); onReportRef.current?.(value) }, [])
   const saveCanvas = useCallback((value: HTMLCanvasElement) => { canvas.current = value }, [])

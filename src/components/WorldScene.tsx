@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Line, OrbitControls } from '@react-three/drei'
+import { Html, Line, OrbitControls } from '@react-three/drei'
 import { Group, Mesh, OrthographicCamera, Shape, SRGBColorSpace, Texture, TextureLoader, Vector3 } from 'three'
 import type { MeshBasicMaterial } from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { computeTaskPose, safeIslandPoint } from '../lib/island'
 import type { IslandAgent, IslandSimulation, IslandTaskKind } from '../lib/island'
 import IslandStructure from './IslandStructures'
+import ObjectShapes from './ObjectShapes'
+import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
+import { objectSilhouette } from './objectIdentity'
+import { objectPose } from './objectMotion'
+import type { ObjectActivity, ObjectWork } from './objectMotion'
+import type { Object3D } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { WorldCharacter } from './WorldView'
 
@@ -19,21 +25,6 @@ const clamp = (value: number, min: number, max: number) => Math.max(min, Math.mi
 const seedValue = (seed: number, offset = 0) => Math.abs(Math.sin(seed * .01713 + offset * 13.123) * 43758.5453) % 1
 
 function Material({ color }: { color: string }) { return <meshStandardMaterial color={color} roughness={.82} flatShading /> }
-
-function Face({ y = .93, z = .44, width = .14 }: { y?: number; z?: number; width?: number }) {
-  return <group>
-    {[-1, 1].map(side => <group key={side} position={[side * width, y, z]}><mesh><sphereGeometry args={[.073, 8, 6]} /><meshBasicMaterial color={PAPER} /></mesh><mesh position={[.01, 0, .055]}><sphereGeometry args={[.033, 8, 6]} /><meshBasicMaterial color={INK} /></mesh></group>)}
-    <mesh position={[0, y - .16, z + .01]} rotation={[0, 0, Math.PI]}><torusGeometry args={[.075, .018, 4, 10, Math.PI]} /><meshBasicMaterial color={INK} /></mesh>
-  </group>
-}
-
-function Feet() {
-  return <group>{[-1, 1].map(side => <mesh key={side} position={[side * .22, .105, .11]} scale={[1, .6, 1.5]} castShadow><sphereGeometry args={[.13, 8, 5]} /><Material color={INK} /></mesh>)}</group>
-}
-
-function Arms({ color, width = .52 }: { color: string; width?: number }) {
-  return <group>{[-1, 1].map(side => <mesh key={side} position={[side * width, .66, 0]} rotation={[0, 0, side * .45]} castShadow><capsuleGeometry args={[.055, .31, 3, 6]} /><Material color={color} /></mesh>)}</group>
-}
 
 /** Only a durable, same-origin media reference becomes a texture; it is never executable model output. */
 function PhotoBadge({ image, onAssetState }: { image: string; onAssetState?: (state: 'ready' | 'failed') => void }) {
@@ -62,7 +53,7 @@ function PhotoBadge({ image, onAssetState }: { image: string; onAssetState?: (st
   return <group position={[0, .68, .302]}><mesh><planeGeometry args={[.74, .73]} /><meshBasicMaterial color={PAPER} /></mesh>{texture && <mesh position={[0, 0, .004]}><planeGeometry args={[width, height]} /><meshBasicMaterial map={texture} toneMapped={false} /></mesh>}</group>
 }
 
-export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type'>>
+export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type' | 'canonical_type_id'>>
 
 export function CharacterShape({ character, onAssetState }: { character: CharacterVisual; onAssetState?: (state: 'ready' | 'failed') => void }) {
   const spec = character.visual_spec
@@ -73,9 +64,11 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
   const eyes = spec.accessories.includes('eyes')
   const arms = spec.accessories.includes('arms')
   const template = spec.template_id
-  return <group>
-    {feet && <Feet />}
-    {template === 'mug' ? <group>
+  const silhouette = objectSilhouette(template, character.object_type, character.canonical_type_id)
+  useEffect(() => { if (silhouette || template !== 'generic') onAssetState?.('ready') }, [silhouette, template, onAssetState])
+  return <group name="sc-character" userData={{ rigKey: `${template}:${silhouette ?? 'photo'}:${spec.accessories.join(',')}` }}>
+    {feet && !silhouette && <Feet />}
+    {silhouette ? <ObjectShapes kind={silhouette} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : template === 'mug' ? <group>
       <mesh position={[0, .67, 0]} castShadow><cylinderGeometry args={[.48, .43, .96, 12]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.154, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.37, 12]} /><Material color="#6D5142" /></mesh>
       <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.427, .055, 5, 12]} /><Material color={accent} /></mesh>
@@ -112,16 +105,37 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
   </group>
 }
 
-export type CharacterActivity = 'idle' | 'rest' | 'wander'
-/** Shared, bounded pose code. This only changes the local scene graph, never game records. */
-export function animateCharacterBody(body: Group, style: WorldCharacter['visual_spec']['animation_style'], activity: CharacterActivity, time: number, phase = 0, reducedMotion = false) {
-  const moving = activity === 'wander' && !reducedMotion
-  const breathing = reducedMotion ? 0 : Math.sin(time * 1.4 + phase) * .009
-  const step = Math.sin(time * 5.2 + phase)
-  body.position.y = moving ? (style === 'bouncy' ? Math.abs(step) * .055 : Math.abs(step) * .025) : breathing
-  body.rotation.z = moving ? step * (style === 'wobbly' ? .065 : .022) : 0
-  body.rotation.x = activity === 'rest' ? -.07 : 0
-  body.scale.set(1, activity === 'rest' ? .96 + breathing : 1, 1)
+export type CharacterActivity = ObjectActivity
+
+type RigBindings = { root: Object3D | undefined; key: string; eyes?: Object3D; leftArm?: Object3D; rightArm?: Object3D; leftFoot?: Object3D; rightFoot?: Object3D; tail?: Object3D; detail?: Object3D; detailLeft?: Object3D; detailRight?: Object3D }
+const rigs = new WeakMap<Group, RigBindings>()
+function characterRig(body: Group) {
+  const root = body.getObjectByName('sc-character')
+  const key = String(root?.userData.rigKey ?? '')
+  const previous = rigs.get(body)
+  if (previous && previous.root === root && previous.key === key) return previous
+  const find = (name: string) => root?.getObjectByName(name)
+  const rig = { root, key, eyes: find('sc-eyes'), leftArm: find('sc-arm-left'), rightArm: find('sc-arm-right'), leftFoot: find('sc-foot-left'), rightFoot: find('sc-foot-right'), tail: find('sc-tail'), detail: find('sc-detail'), detailLeft: find('sc-detail-left'), detailRight: find('sc-detail-right') }
+  rigs.set(body, rig)
+  return rig
+}
+
+/** Shared, bounded body/limb pose code. It only changes scene nodes, never game records. */
+export function animateCharacterBody(body: Group, style: WorldCharacter['visual_spec']['animation_style'], activity: CharacterActivity, time: number, phase = 0, reducedMotion = false, work?: ObjectWork) {
+  const pose = objectPose(style, activity, time, phase, reducedMotion, work)
+  body.position.y = pose.y
+  body.rotation.set(pose.pitch, pose.yaw, pose.roll)
+  body.scale.set(1, pose.scaleY, 1)
+  const rig = characterRig(body)
+  if (rig.eyes) rig.eyes.scale.y = pose.blink
+  if (rig.leftArm) { rig.leftArm.rotation.x = pose.leftArmX; rig.leftArm.rotation.z = pose.leftArmZ }
+  if (rig.rightArm) { rig.rightArm.rotation.x = pose.rightArmX; rig.rightArm.rotation.z = pose.rightArmZ }
+  if (rig.leftFoot) { rig.leftFoot.rotation.x = pose.leftFootX; rig.leftFoot.position.y = Number(rig.leftFoot.userData.restY ?? .14) + pose.leftFootY }
+  if (rig.rightFoot) { rig.rightFoot.rotation.x = pose.rightFootX; rig.rightFoot.position.y = Number(rig.rightFoot.userData.restY ?? .14) + pose.rightFootY }
+  if (rig.tail) rig.tail.rotation.y = pose.tail
+  if (rig.detail) rig.detail.rotation.x = pose.detail
+  if (rig.detailLeft) rig.detailLeft.rotation.z = Number(rig.detailLeft.userData.restZ ?? -.2) - Math.abs(pose.detail)
+  if (rig.detailRight) rig.detailRight.rotation.z = Number(rig.detailRight.userData.restZ ?? .2) + Math.abs(pose.detail)
 }
 
 function WorkProp({ kind, active, reducedMotion }: { kind?: IslandTaskKind; active: boolean; reducedMotion: boolean }) {
@@ -168,12 +182,16 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
     const time = elapsed.current
     let moving = character.state.activity === 'wander' && !agent && !clock.paused
     let working = false
+    let taskVisible = false
+    let taskTravelling = false
     let heading = .2
     if (agent) {
       const pose = computeTaskPose(agent.task, agent.position, worldTime(clock))
       root.current.position.set(pose.x, .03, pose.z)
       moving = pose.travelling && !clock.paused
-      working = pose.working && !clock.paused
+      working = pose.working
+      taskTravelling = pose.travelling
+      taskVisible = pose.progress > 0 && pose.progress < 1
       heading = pose.heading
     } else {
       root.current.position.set(home.x + (moving && !reducedMotion ? Math.sin(time * .22 + phase) * .3 : 0), .03, home.z + (moving && !reducedMotion ? Math.cos(time * .19 + phase) * .3 : 0))
@@ -181,13 +199,10 @@ function Resident({ character, agent, clock, positions, selected, onSelect, acti
     }
     const angleDelta = Math.atan2(Math.sin(heading - root.current.rotation.y), Math.cos(heading - root.current.rotation.y))
     root.current.rotation.y += reducedMotion ? angleDelta : angleDelta * Math.min(1, delta * 5)
-    animateCharacterBody(body.current, spec.animation_style, moving ? 'wander' : agent?.task?.kind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused)
-    if (working && !reducedMotion) {
-      body.current.rotation.z = Math.sin(time * (agent?.task?.kind === 'build' ? 5 : 2.4) + phase) * .055
-      body.current.rotation.x = agent?.task?.kind === 'plan' || agent?.task?.kind === 'measure' ? .13 : Math.sin(time * 2) * .04
-      body.current.position.y += Math.max(0, Math.sin(time * 3 + phase)) * .018
-    }
-    if (work.current) work.current.visible = !!agent?.task && (working || moving) && agent.task.kind !== 'rest'
+    const taskKind = agent?.task?.kind
+    const gesture = working || (taskTravelling && (taskKind === 'carry' || taskKind === 'forage')) ? taskKind : undefined
+    animateCharacterBody(body.current, spec.animation_style, moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
+    if (work.current) work.current.visible = !!agent?.task && taskVisible && agent.task.kind !== 'rest'
     const arrival = arriving ? reducedMotion ? 1 : Math.min(1, time / 1.15) : 1
     if (arriving && arrival === 1 && !arrivalReported.current) { arrivalReported.current = true; onArrived(character.id) }
     body.current.position.y += (1 - arrival) * .75
@@ -232,6 +247,29 @@ function Tree({ x, z, size = 1, color = '#4B9D47' }: { x: number; z: number; siz
   </group>
 }
 
+function ChargingDock() {
+  return <group position={[3.65, .02, -.12]}>
+    <mesh position={[0, .065, .2]} receiveShadow castShadow><boxGeometry args={[1.22, .13, 1.08]} /><Material color="#D6AB70" /></mesh>
+    {[-.42, -.14, .14, .42].map(x => <mesh key={x} position={[x, .14, .2]}><boxGeometry args={[.24, .025, 1.03]} /><Material color="#EDC78B" /></mesh>)}
+    <mesh position={[0, .5, -.12]} castShadow><boxGeometry args={[.09, .8, .09]} /><Material color={INK} /></mesh>
+    <group position={[0, .99, -.16]} rotation={[-.55, 0, 0]}>
+      <mesh castShadow><boxGeometry args={[1.04, .67, .07]} /><Material color={INK} /></mesh>
+      <mesh position={[0, 0, .042]}><boxGeometry args={[.92, .55, .025]} /><meshStandardMaterial color="#3678AE" roughness={.28} metalness={.25} /></mesh>
+      {[-.31, 0, .31].map(x => <mesh key={x} position={[x, 0, .06]}><boxGeometry args={[.014, .54, .008]} /><Material color="#9DCEE2" /></mesh>)}
+      {[-.09, .09].map(y => <mesh key={y} position={[0, y, .06]}><boxGeometry args={[.9, .014, .008]} /><Material color="#9DCEE2" /></mesh>)}
+    </group>
+    <group position={[-.34, .4, .18]}>
+      <mesh castShadow><boxGeometry args={[.3, .43, .29]} /><Material color={INK} /></mesh>
+      <mesh position={[0, .235, 0]}><boxGeometry args={[.13, .05, .16]} /><Material color="#FFCF59" /></mesh>
+      {[0, 1, 2].map(i => <mesh key={i} position={[0, -.12 + i * .12, .151]}><boxGeometry args={[.21, .08, .012]} /><Material color={i === 2 ? '#FFCF59' : '#B0D965'} /></mesh>)}
+    </group>
+    <mesh position={[.22, .16, .48]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.27, 12]} /><Material color={INK} /></mesh>
+    <mesh position={[.22, .174, .48]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[.19, .025, 4, 12]} /><Material color="#FFCF59" /></mesh>
+    <Line points={[[-.23, .3, .33], [-.11, .18, .58], [.03, .18, .61], [.16, .18, .5]]} color={INK} lineWidth={3} />
+    <Html position={[0, 1.55, -.18]} center zIndexRange={[1, 0]} style={{ pointerEvents: 'none' }}><span style={{ display: 'block', whiteSpace: 'nowrap', color: INK, background: PAPER, border: `1px solid ${INK}`, borderRadius: 3, padding: '3px 5px', font: '800 8px/1.2 sans-serif', letterSpacing: '.06em' }}>SOLAR CHARGING DOCK</span></Html>
+  </group>
+}
+
 function Island({ seed }: { seed: number }) {
   const shape = useMemo(() => {
     const result = new Shape()
@@ -247,7 +285,7 @@ function Island({ seed }: { seed: number }) {
     {[[0, 0, -3.5], [-2.1, 0, -1.7], [2.1, 0, -1.5], [0, 0, 2.5], [-3.7, 0, .7], [3.8, 0, .1]].map(([x, , z], i) => <Line key={i} points={[[0, .02, 0], [x * .5 + (i % 2 ? -.2 : .2), .02, z * .5], [x, .02, z]]} color="#E7C690" lineWidth={17} />)}
     <Tree x={-3.7} z={.4} size={1.05} /><Tree x={-4.35} z={1.15} size={.8} color="#4A9854" /><Tree x={-3.7} z={1.65} size={.64} />
     <Tree x={-1.4} z={-4.2} size={.8} /><Tree x={-.7} z={-4.65} size={.64} color="#478F57" />
-    <group position={[3.85, 0, .1]}>{[0, 1, 2, 3].map(i => <mesh key={i} position={[Math.cos(i * 2.3) * .32, .17 + i % 2 * .1, Math.sin(i * 2.3) * .33]} scale={[1, .75, .8]} rotation={[0, i, .1]} castShadow><dodecahedronGeometry args={[.3 + i % 2 * .1, 0]} /><Material color={i % 2 ? '#7F9CA9' : '#B7CFCD'} /></mesh>)}</group>
+    <ChargingDock />
     <group position={[-.25, .02, -3.5]}>
       <mesh position={[0, .18, 0]} castShadow><cylinderGeometry args={[.52, .56, .34, 10]} /><Material color="#9FBBB8" /></mesh>
       <mesh position={[0, .36, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.39, 12]} /><meshStandardMaterial color="#46BADD" roughness={.2} /></mesh>
