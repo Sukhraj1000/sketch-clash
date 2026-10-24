@@ -75,7 +75,8 @@ async def test_capabilities_rechecked_after_model_output(fixture):
     run=worker.request('bad','winners'); await worker.run(run['id'])
     assert not colonies.applied
     assert worker.status()['last_status']=='rejected'
-    assert worker.status()['auto_blocked'] and worker.status()['requests_today']==1
+    assert not worker.status()['auto_blocked'] and worker.status()['requests_today']==1
+    assert worker.status()['validation_backoff']['winners']['code']=='capability_denied'
 
 @pytest.mark.asyncio
 async def test_prior_legacy_usage_and_both_islands_share_one_daily_ceiling(fixture):

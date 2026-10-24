@@ -22,7 +22,12 @@ RECOVERABLE_CONFLICTS = {'request_unavailable', 'commitment_busy', 'colony_pause
     'finding_not_found', 'invalid_blueprint', 'experiment_not_found', 'blueprint_actor_missing',
     'blueprint_part_unavailable', 'blueprint_evidence_mismatch', 'blueprint_evidence_stale',
     'blueprint_function_mismatch', 'untested_arrangement', 'assembly_limit',
-    'invalid_construction_position', 'construction_overlap', 'production_benchmark_not_met'}
+    'invalid_construction_position', 'construction_overlap', 'production_benchmark_not_met',
+    'capability_denied', 'action_required', 'self_claim', 'request_not_found',
+    'invalid_report_evidence', 'invalid_proposal_evidence', 'research_scope_mismatch',
+    'research_actor_not_found', 'planner_context_limit'}
+LOCAL_ADMISSION_DEFERRALS = {'local_daily_cap', 'local_queue_full'}
+VALIDATION_BACKOFF_MAX_SECONDS = 1800
 SYSTEM = '''You control exactly ONE object resident in a simulated island council. Make useful
 choices with your own persona and capabilities. Other residents are separately invoked agents;
 you must read and answer their ACTUAL messages in council_session.conversation. Propose a useful
@@ -121,7 +126,8 @@ class ColonyPlanner:
         return {'_id': self.state_id, 'world_id': self.repo.world_id, 'enabled': True,
                 'pending_run_id': None, 'active_session_id': None, 'last_status': 'idle', 'next_due': self.clock(),
                 'last_request_at': None, 'last_colony_id': 'losers', 'actor_turns': {},
-                'population_fingerprints': {}, 'milestone_fingerprints': {}, 'auto_blocked': False, 'error': None, 'version': 3}
+                'population_fingerprints': {}, 'milestone_fingerprints': {}, 'auto_blocked': False,
+                'validation_backoff': {}, 'error': None, 'version': 4}
 
     def _state(self, tx, create=False):
         state = tx.get('colonyPlanner', self.state_id)
@@ -151,7 +157,8 @@ class ColonyPlanner:
         keys = ('id', 'colony_id', 'agent_id', 'agent_name', 'status', 'created_at', 'started_at',
                 'received_at', 'completed_at', 'decision', 'usage', 'receipt', 'error', 'validation_errors',
                 'model', 'model_version', 'observation_summary', 'session_id', 'turn_index',
-                'provider_diagnostic', 'retry_at', 'attempts', 'reply_to_id', 'seen_message_ids', 'trace_id', 'span_id')
+                'provider_diagnostic', 'retry_at', 'attempts', 'queued_at', 'dispatched_at',
+                'validation_code', 'reply_to_id', 'seen_message_ids', 'trace_id', 'span_id')
         safe_runs = [{k: deepcopy(run[k]) for k in keys if k in run} for run in runs]
         return {'enabled': state['enabled'], 'configured': bool(self.settings.gemini_api_key or self.client),
                 'paused': self.settings.ai_paused, 'pause_reason': AI_PAUSE_REASON if self.settings.ai_paused else None,
@@ -163,6 +170,7 @@ class ColonyPlanner:
                 'active_run': next((r for r in safe_runs if r['id'] == state['pending_run_id']), None),
                 'active_session_id': state.get('active_session_id'), 'sessions': self.sessions(limit=8),
                 'runs': safe_runs, 'error': state.get('error'), 'auto_blocked': state['auto_blocked'],
+                'validation_backoff': deepcopy(state['validation_backoff']),
                 'provider_queue': self.queue.status(),
                 'limits': {'requests_per_day': self.daily_limit, 'automatic_interval_seconds': self.interval,
                            'manual_interval_seconds': 2, 'max_output_tokens': 2048, 'max_in_flight': 1,
@@ -183,15 +191,15 @@ class ColonyPlanner:
         self.repo.transaction(op); self.wake.set()
         return self.status()
 
-    @staticmethod
-    def _available_colonies(snapshot):
+    def _available_colonies(self, snapshot, state=None):
         eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
         return [c for c in snapshot['colonies'] if c['island']['enabled'] and not c['island']['paused']
-                and any(eligible(a) for a in c['island']['agents'])]
+                and any(eligible(a) for a in c['island']['agents'])
+                and (state or {}).get('validation_backoff', {}).get(c['id'], {}).get('until', 0) <= self.clock()]
 
-    def _pick(self, snapshot, state, colony_id=None, agent_id=None, *, allow_fallback=False):
+    def _pick(self, snapshot, state, colony_id=None, agent_id=None, *, allow_fallback=False, automatic=False):
         eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
-        choices = self._available_colonies(snapshot)
+        choices = self._available_colonies(snapshot, state if automatic else None)
         if colony_id:
             preferred = [c for c in choices if c['id'] == colony_id]
             # An automatic wake-up preference can become stale after an island
@@ -218,7 +226,8 @@ class ColonyPlanner:
                 'session_id': session['id'], 'turn_index': index, 'colony_id': session['colony_id'],
                 'agent_id': actor['id'], 'character_id': actor.get('character_id'),
                 'agent_name': actor['display_name'], 'created_at': iso(self.clock()), 'status': 'queued',
-                'attempts': 0, 'model': self.settings.colony_proposal_model if index in (0, 3) else self.settings.colony_reply_model}
+                'attempts': 0, 'dispatch_protocol': 2,
+                'model': self.settings.colony_proposal_model if index in (0, 3) else self.settings.colony_reply_model}
 
     def request(self, request_key, colony_id=None, agent_id=None, automatic=False, trigger='manual'):
         require_ai_enabled(self.settings, self.queue)
@@ -242,7 +251,7 @@ class ColonyPlanner:
             budget = self.legacy._state(tx)
             if self.daily_limit and budget['day'] == utc_day(now) and budget['requests_today'] >= self.daily_limit: raise StoreError('The configured daily allowance is used.', 429, 'planner_daily_limit')
             colony, actors = self._pick(snapshot, state, colony_id, agent_id,
-                                        allow_fallback=automatic and not agent_id)
+                                        allow_fallback=automatic and not agent_id, automatic=automatic)
             actual_trigger = 'review_progress' if automatic and colony_id and colony['id'] != colony_id else trigger
             sid = key_for(self.repo.world_id, 'council-session', request_key)
             session = {'_id': sid, 'id': sid, 'world_id': self.repo.world_id, 'request_key': request_key,
@@ -333,7 +342,7 @@ class ColonyPlanner:
             # An island with new abilities outranks a periodic review. Ordinary
             # stock increments and animation ticks do not wake model discussions.
             candidates = []
-            available = self._available_colonies(snapshot)
+            available = self._available_colonies(snapshot, state)
             if state.get('preferred_colony_id') and state['preferred_colony_id'] not in {c['id'] for c in available}:
                 state.pop('preferred_colony_id', None)
                 state.pop('next_trigger', None)
@@ -371,18 +380,52 @@ class ColonyPlanner:
                 'status': 'retrieval_unavailable', 'findings': []}
         return payload
 
+    def _validation_delay(self, state, run, code):
+        """Reject strictly, then cool only the offending island for a bounded time."""
+        colony = run['colony_id']
+        failures = min(8, state['validation_backoff'].get(colony, {}).get('failures', 0) + 1)
+        delay = min(VALIDATION_BACKOFF_MAX_SECONDS, max(30, self.interval) * 2 ** (failures - 1))
+        state['validation_backoff'][colony] = {'failures': failures, 'until': self.clock() + delay,
+                                              'code': code, 'run_id': run['id']}
+        return delay
+
     async def start(self):
         def recover(tx):
             state = self._state(tx, True)
-            # Old builds labelled definite 429 responses as unknown and blocked forever.
-            if state['auto_blocked'] and 'RateLimitError' in (state.get('error') or ''):
-                state.update(auto_blocked=False, error=None, next_due=self.clock(), last_status='retry_ready')
+            # Migrate only a proven local admission or rejected proposal. Unknown
+            # provider outcomes and configuration/billing errors remain blocked.
+            if state['auto_blocked'] and not state['pending_run_id']:
+                latest = tx.find('colonyReasoning', {'world_id': self.repo.world_id}, sort='created_at', limit=1)
+                previous = latest[0] if latest else None
+                if previous and previous.get('error') == state.get('error'):
+                    category = previous.get('provider_diagnostic', {}).get('category')
+                    safe_rejection = previous.get('status') == 'rejected' and (
+                        previous.get('validation_code') in RECOVERABLE_CONFLICTS or previous.get('validation_errors'))
+                    if category in LOCAL_ADMISSION_DEFERRALS:
+                        session = tx.get('colonyCouncilSessions', previous.get('session_id', ''))
+                        if session:
+                            diagnostic = previous['provider_diagnostic']
+                            completed = datetime.fromisoformat(previous.get('completed_at', previous['created_at'])).timestamp()
+                            due = max(self.clock(), completed + (diagnostic.get('retry_after_seconds') or 5))
+                            previous.update(status='retry_wait', retry_at=iso(due), retry_at_epoch=due)
+                            previous.pop('completed_at', None)
+                            session.update(status='running'); session.pop('completed_at', None)
+                            state.update(pending_run_id=previous['id'], active_session_id=session['id'],
+                                         auto_blocked=False, last_status='retry_wait', next_due=due)
+                            tx.put('colonyReasoning', previous); tx.put('colonyCouncilSessions', session)
+                    elif safe_rejection:
+                        self._validation_delay(state, previous, previous.get('validation_code', 'invalid_agent_decision'))
+                        state.update(auto_blocked=False, next_due=self.clock()+self.interval)
             if state['pending_run_id']:
                 run = tx.get('colonyReasoning', state['pending_run_id'])
-                if run and run['status'] == 'retry_wait':
+                if run and run['status'] == 'retry_wait' and run.get('provider_diagnostic', {}).get('category') not in LOCAL_ADMISSION_DEFERRALS:
                     self.queue.cooldown_until = max(self.queue.cooldown_until, run.get('retry_at_epoch', 0))
-                if run and run['status'] == 'running':
-                    if run.get('received_at') and run.get('proposal_text'):
+                if run and run['status'] == 'queue_wait':
+                    run.update(status='queued', error=None)
+                    state.update(last_status='queued', auto_blocked=False, error=None)
+                    tx.put('colonyReasoning', run)
+                if run and run['status'] in ('running', 'dispatching', 'response_received'):
+                    if run.get('received_at') and 'proposal_text' in run:
                         # A crash between response persistence and application can
                         # recover locally, without buying another model response.
                         try:
@@ -390,8 +433,11 @@ class ColonyPlanner:
                             run.update(status='applying', decision=decision)
                             state.update(last_status='applying', auto_blocked=False, error=None)
                         except ValidationError:
-                            run.update(status='rejected', error='The saved provider response did not match the decision schema.')
-                            state.update(last_status='rejected', pending_run_id=None, auto_blocked=False, error=run['error'])
+                            run.update(status='rejected', validation_code='invalid_agent_decision',
+                                       error='The saved provider response did not match the decision schema.')
+                            self._validation_delay(state, run, 'invalid_agent_decision')
+                            state.update(last_status='rejected', pending_run_id=None, auto_blocked=False,
+                                         next_due=self.clock()+self.interval, error=run['error'])
                     else:
                         run.update(status='uncertain', error='Provider outcome unknown after restart; this request will not be replayed.')
                         state.update(last_status='uncertain', pending_run_id=None, auto_blocked=True, error=run['error'])
@@ -442,7 +488,20 @@ class ColonyPlanner:
     async def run(self, run_id):
         if self.settings.ai_paused or self.queue.paused: return
         run = await asyncio.to_thread(self.repo.read, lambda tx: tx.get('colonyReasoning', run_id))
-        if not run or run['status'] not in ('queued', 'applying', 'retry_wait'): return
+        if not run or run['status'] not in ('queued', 'applying', 'response_received', 'retry_wait'): return
+        if run['status'] == 'response_received':
+            try:
+                decision = AgentDecision.model_validate_json(run['proposal_text']).model_dump(exclude_none=True)
+            except ValidationError:
+                await asyncio.to_thread(self._fail, run_id, 'rejected', 'The saved provider response did not match the decision schema.',
+                    terminal=True, block_auto=False, error_code='invalid_agent_decision')
+                return
+            def recover_response(tx):
+                current = tx.get('colonyReasoning', run_id)
+                if current['status'] == 'response_received':
+                    current.update(status='applying', decision=decision); tx.put('colonyReasoning', current)
+                return current
+            run = await asyncio.to_thread(self.repo.transaction, recover_response)
         if run['status'] == 'applying':
             await self._apply(run); return
         if run['status'] == 'retry_wait' and self.clock() < run.get('retry_at_epoch', 0): return
@@ -460,12 +519,11 @@ class ColonyPlanner:
                 budget = self.legacy._state(tx, True)
                 if budget['day'] != utc_day(self.clock()): budget.update(day=utc_day(self.clock()), requests_today=0, reserved_tokens=0, reported_tokens=0)
                 if self.daily_limit and budget['requests_today'] >= self.daily_limit: raise StoreError('Configured daily allowance reached.', 429, 'planner_daily_limit')
-                budget.update(requests_today=budget['requests_today'] + 1, reserved_tokens=budget['reserved_tokens'] + 7000)
-                state.update(last_request_at=self.clock(), next_due=self.clock()+self.interval, last_status='running', last_colony_id=run['colony_id'])
+                state.update(last_request_at=self.clock(), next_due=self.clock()+self.interval, last_status='queue_wait', last_colony_id=run['colony_id'])
                 state.pop('preferred_colony_id', None); state.pop('next_trigger', None)
                 state['actor_turns'][run['agent_id']] = self.clock()
                 conversation = payload.get('council_session', {}).get('conversation', [])
-                current.update(status='running', started_at=iso(self.clock()), attempts=current.get('attempts', 0)+1,
+                current.update(status='queue_wait', queued_at=iso(self.clock()), dispatch_protocol=2,
                     seen_message_ids=[m['id'] for m in conversation], reply_to_id=conversation[-1]['id'] if conversation else None,
                     observation_summary={'allowed_actions': payload['actor']['allowed_actions'],
                         'board_ids': [b['id'] for b in payload.get('board', []) if 'id' in b],
@@ -501,8 +559,20 @@ class ColonyPlanner:
                     context = span.get_span_context() if span else None
                     trace_fields = {'trace_id': format(context.trace_id, '032x'), 'span_id': format(context.span_id, '016x')} if context and context.is_valid else {}
                     def mark_dispatched(tx):
-                        current = tx.get('colonyReasoning', run_id)
-                        current.update(trace_fields)
+                        current = tx.get('colonyReasoning', run_id); state = self._state(tx, True)
+                        if current['status'] != 'queue_wait':
+                            raise StoreError('Decision already claimed.', 409, 'planner_claimed')
+                        if not state['enabled']:
+                            raise StoreError('AI discussions switched off before dispatch.', 409, 'planner_disabled')
+                        budget = self.legacy._state(tx, True)
+                        if budget['day'] != utc_day(self.clock()):
+                            budget.update(day=utc_day(self.clock()), requests_today=0, reserved_tokens=0, reported_tokens=0)
+                        if self.daily_limit and budget['requests_today'] >= self.daily_limit:
+                            raise StoreError('Configured daily allowance reached.', 429, 'planner_daily_limit')
+                        budget.update(requests_today=budget['requests_today']+1, reserved_tokens=budget['reserved_tokens']+7000)
+                        current.update(trace_fields, status='dispatching', dispatched_at=iso(self.clock()),
+                                       started_at=iso(self.clock()), attempts=current.get('attempts', 0)+1)
+                        state['last_status'] = 'dispatching'
                         conversation = payload.get('council_session', {}).get('conversation', [])
                         current.update(seen_message_ids=[m['id'] for m in conversation],
                             reply_to_id=conversation[-1]['id'] if conversation else None,
@@ -512,8 +582,8 @@ class ColonyPlanner:
                                 'full_resources': payload.get('work_options', {}).get('full_resources', []),
                                 'board_ids': [b['id'] for b in payload.get('board', []) if 'id' in b],
                                 'receipt_ids': [r['id'] for r in payload.get('last_receipts', []) if 'id' in r]})
-                        run.update({key: current[key] for key in ('seen_message_ids', 'reply_to_id', 'observation_summary')})
-                        tx.put('colonyReasoning', current)
+                        run.update({key: current[key] for key in ('seen_message_ids', 'reply_to_id', 'observation_summary', 'attempts', 'dispatched_at')})
+                        tx.put('colonyReasoning', current); tx.put('islandPlanner', budget); tx.put('colonyPlanner', state)
                         _event(tx, self.repo.world_id, run_id + ':dispatched:' + str(run['attempts']), 'model.requested', run,
                             'Resident sent its observation and actual council transcript to Gemini.',
                             {'model': run['model'], 'attempt': run['attempts'], **trace_fields})
@@ -534,7 +604,7 @@ class ColonyPlanner:
                 def usage(tx):
                     current = tx.get('colonyReasoning', run_id); budget = self.legacy._state(tx, True)
                     used = metadata.get('usage') or {}
-                    current.update(usage=used, received_at=iso(self.clock()), model_version=metadata.get('model_version'),
+                    current.update(status='response_received', usage=used, received_at=iso(self.clock()), model_version=metadata.get('model_version'),
                         provider_response_id=metadata.get('id'), proposal_text=str(response.output_text or '')[:16000], provider_status=metadata.get('status'))
                     if budget['day'] == utc_day(datetime.fromisoformat(current['started_at']).timestamp()): budget['reported_tokens'] += int(used.get('total_tokens', 0) or 0)
                     tx.put('colonyReasoning', current); tx.put('islandPlanner', budget)
@@ -553,7 +623,9 @@ class ColonyPlanner:
             run = await asyncio.to_thread(self.repo.transaction, store_output)
             await self._apply(run)
         except asyncio.CancelledError:
-            await asyncio.shield(asyncio.to_thread(self._fail, run_id, 'uncertain' if dispatched and not received else 'interrupted', 'Worker stopped. No automatic provider replay.'))
+            # The durable phase, not an in-memory flag, decides recovery. A DB
+            # callback may commit its dispatch marker just as cancellation lands.
+            await asyncio.shield(asyncio.to_thread(self._interrupted, run_id))
             raise
         except ProviderFailure as exc:
             await asyncio.to_thread(self._provider_failed, run_id, exc.diagnostic)
@@ -561,13 +633,44 @@ class ColonyPlanner:
             if isinstance(exc, StoreError) and exc.code == 'planner_claimed': return
             await asyncio.to_thread(self._fail, run_id, 'uncertain' if dispatched and not received else 'rejected',
                 str(exc) if isinstance(exc, StoreError) else f'Agent turn could not complete ({type(exc).__name__}).',
-                block_auto=not (isinstance(exc, StoreError) and exc.code in RECOVERABLE_CONFLICTS))
+                terminal=isinstance(exc, StoreError) and exc.status < 500,
+                block_auto=not (isinstance(exc, StoreError) and (exc.code in RECOVERABLE_CONFLICTS or exc.status in (404, 422))),
+                error_code=exc.code if isinstance(exc, StoreError) else None)
+
+    def _interrupted(self, run_id):
+        def op(tx):
+            state = self._state(tx, True); run = tx.get('colonyReasoning', run_id)
+            if not run or run['status'] == 'completed': return
+            if run['status'] in ('queued', 'queue_wait', 'retry_wait'):
+                if run['status'] == 'queue_wait': run['status'] = 'queued'
+                state.update(last_status=run['status'], auto_blocked=False,
+                             error='Undispatched council turn preserved for restart.')
+            elif run['status'] in ('response_received', 'applying'):
+                state.update(last_status=run['status'], auto_blocked=False,
+                             error='Saved provider response awaits local validation or persistence.')
+            else:
+                run.update(status='uncertain', completed_at=iso(self.clock()),
+                           error='Provider outcome unknown after interruption; this request will not be replayed.')
+                state.update(last_status='uncertain', pending_run_id=None, active_session_id=None,
+                             auto_blocked=True, error=run['error'])
+                session = tx.get('colonyCouncilSessions', run.get('session_id', ''))
+                if session:
+                    session.update(status='uncertain', completed_at=iso(self.clock()), error=run['error'])
+                    tx.put('colonyCouncilSessions', session)
+            tx.put('colonyReasoning', run); tx.put('colonyPlanner', state)
+        self.repo.transaction(op)
 
     def _provider_failed(self, run_id, diagnostic):
         def op(tx):
             state = self._state(tx, True); run = tx.get('colonyReasoning', run_id)
             run['provider_diagnostic'] = diagnostic.public()
-            if diagnostic.retryable and run.get('attempts', 0) < 3:
+            local_admission = diagnostic.category in LOCAL_ADMISSION_DEFERRALS
+            if local_admission:
+                retry_at = self.clock() + max(1., diagnostic.retry_after_seconds or 5.)
+                run.update(status='retry_wait', retry_at=iso(retry_at), retry_at_epoch=retry_at,
+                           error=diagnostic.message, admission_deferrals=run.get('admission_deferrals', 0)+1)
+                state.update(last_status='retry_wait', error=diagnostic.message, auto_blocked=False)
+            elif diagnostic.retryable and run.get('attempts', 0) < 3:
                 retry_at = self.clock() + self.queue.retry_delay(diagnostic, run.get('attempts', 1))
                 run.update(status='retry_wait', retry_at=iso(retry_at), retry_at_epoch=retry_at, error=diagnostic.message)
                 state.update(last_status='retry_wait', error=diagnostic.message, auto_blocked=False)
@@ -580,8 +683,9 @@ class ColonyPlanner:
                 if session:
                     session.update(status=status, error=diagnostic.message, completed_at=iso(self.clock())); tx.put('colonyCouncilSessions', session)
             tx.put('colonyReasoning', run); tx.put('colonyPlanner', state)
-            _event(tx, self.repo.world_id, run_id + ':provider-error:' + str(run.get('attempts', 0)),
-                'model.throttled' if diagnostic.retryable else 'model.failed', run, diagnostic.message, diagnostic.public())
+            _event(tx, self.repo.world_id, run_id + (':admission:' + str(run['admission_deferrals']) if local_admission else ':provider-error:' + str(run.get('attempts', 0))),
+                'model.deferred' if local_admission else ('model.throttled' if diagnostic.retryable else 'model.failed'),
+                run, diagnostic.message, diagnostic.public())
         self.repo.transaction(op)
 
     async def _apply(self, run):
@@ -594,7 +698,8 @@ class ColonyPlanner:
             result = await asyncio.to_thread(self.colonies.apply_decision, *args, **({'provenance': provenance} if supports else {}))
         except StoreError as exc:
             if exc.status < 500:
-                await asyncio.to_thread(self._fail, run['id'], 'rejected', str(exc), terminal=True, block_auto=exc.code not in RECOVERABLE_CONFLICTS, error_code=exc.code); return
+                await asyncio.to_thread(self._fail, run['id'], 'rejected', str(exc), terminal=True,
+                    block_auto=exc.code not in RECOVERABLE_CONFLICTS and exc.status not in (404, 422), error_code=exc.code); return
             raise
         def finish(tx):
             state = self._state(tx, True); current = tx.get('colonyReasoning', run['id'])
@@ -602,6 +707,7 @@ class ColonyPlanner:
             receipt = result.get('decision', result.get('receipt', {})) if isinstance(result, dict) else {}
             current.update(status='completed', completed_at=iso(self.clock()), receipt=receipt)
             state.update(last_status='completed', pending_run_id=None, error=None, auto_blocked=False)
+            state['validation_backoff'].pop(run['colony_id'], None)
             session = tx.get('colonyCouncilSessions', run.get('session_id', ''))
             if session:
                 session['completed_turns'] += 1
@@ -683,13 +789,16 @@ class ColonyPlanner:
         def op(tx):
             state = self._state(tx, True); current = tx.get('colonyReasoning', run_id)
             if not current or current['status'] == 'completed': return
-            if current['status'] == 'applying' and not terminal:
-                state.update(last_status='applying', error='Saved decision awaits local persistence; no new model request.')
+            if current['status'] in ('applying', 'response_received') and not terminal:
+                state.update(last_status=current['status'], error='Saved decision awaits local persistence; no new model request.')
             else:
                 current.update(status=status, error=message, completed_at=iso(self.clock()))
                 if error_code: current['validation_code'] = error_code
                 state.update(last_status=status, pending_run_id=None, active_session_id=None, error=message, auto_blocked=block_auto)
-                if not block_auto: state['next_due'] = self.clock() + (0 if 'New residents' in message else self.interval)
+                if not block_auto:
+                    state['next_due'] = self.clock() + (0 if error_code == 'population_changed' or 'New residents' in message else self.interval)
+                    if status == 'rejected' and (current.get('received_at') or current.get('decision')):
+                        self._validation_delay(state, current, error_code or 'invalid_agent_decision')
                 session = tx.get('colonyCouncilSessions', current.get('session_id', ''))
                 if session:
                     session.update(status='stale' if 'New residents' in message else status, error=message, completed_at=iso(self.clock()))
