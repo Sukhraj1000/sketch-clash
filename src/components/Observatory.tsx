@@ -38,9 +38,13 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   const [evidenceError, setEvidenceError] = useState('')
   const [receiptId, setReceiptId] = useState<string | null>(null)
   const inspectorRef = useRef<HTMLElement>(null)
-  const [metrics, setMetrics] = useState<ObservatoryMetrics | null>(null)
+  const [metricsSnapshot, setMetricsSnapshot] = useState<{island: string; at: string; value: ObservatoryMetrics} | null>(null)
+  const [dataWarnings, setDataWarnings] = useState<string[]>([])
+  const [snapshotAt, setSnapshotAt] = useState('')
+  const [sessionsAt, setSessionsAt] = useState('')
   const [sessions, setSessions] = useState<CouncilSession[]>([])
   const [island, setIsland] = useState('all')
+  const metrics = metricsSnapshot?.island === island ? metricsSnapshot.value : null
   const [session, setSession] = useState('all')
   const [category, setCategory] = useState('all')
   const [connection, setConnection] = useState('connecting')
@@ -123,9 +127,15 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
         observatory.pacing(controller.signal), observatory.contributions(controller.signal),
       ])
       if (!controller.signal.aborted) {
-        if (result[0].status === 'fulfilled') setSnapshot(result[0].value)
-        if (result[1].status === 'fulfilled') setMetrics(result[1].value)
-        if (result[2].status === 'fulfilled') setSessions(result[2].value.sessions)
+        const at = new Date().toISOString()
+        const warnings: string[] = []
+        if (result[0].status === 'fulfilled') {setSnapshot(result[0].value); setSnapshotAt(at)}
+        else {setSnapshot(null); warnings.push('Current island state is unavailable.')}
+        if (result[1].status === 'fulfilled') setMetricsSnapshot({island, at, value:result[1].value})
+        else {setMetricsSnapshot(null); warnings.push('Metrics for the selected island are unavailable.')}
+        if (result[2].status === 'fulfilled') {setSessions(result[2].value.sessions); setSessionsAt(at)}
+        else {setSessions([]); warnings.push('Saved council history is unavailable.')}
+        setDataWarnings(warnings)
         if (revision === paceRevision.current) {
           if (result[3].status === 'fulfilled') {setPacing(result[3].value); setPaceError('')}
           else setPaceError('Request pace is unavailable. The existing backend limits remain in force.')
@@ -267,7 +277,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   return <main className="observatory">
     <header className="obs-heading">
       <div><button className="obs-back" onClick={() => onBack ? onBack() : window.location.assign('/')}><ArrowLeft size={14}/> BACK TO THE ISLANDS</button><div className="obs-eyebrow"><span/> LOCAL ENGINE / LIVE EVIDENCE</div><h1>THE OBSERVATORY<span>Inside the little minds.</span></h1><p>Follow a public plan through a checked action to a saved result. Every pulse comes from a recorded event.</p></div>
-      <div className="obs-engine-status"><span className={`obs-status-dot ${connection === 'connected' ? 'is-on' : ''}`}/><div><strong>{connection === 'connected' ? 'ENGINE CONNECTED' : connection.toUpperCase()}</strong><small>{persistence === 'development_memory' ? 'Development memory · resets on restart' : transport === 'atlas_change_stream' ? 'MongoDB Atlas · Change Stream' : transport === 'atlas_polling' ? 'MongoDB Atlas · committed-event polling' : 'Connecting to persistent events'}</small></div><Database size={23}/></div>
+      <div className="obs-engine-status"><span className={`obs-status-dot ${connection === 'connected' ? 'is-on' : ''}`}/><div><strong>{connection === 'connected' ? 'EVENT STREAM CONNECTED' : connection.toUpperCase()}</strong><small>{persistence === 'development_memory' ? 'Development memory · resets on restart' : transport === 'atlas_change_stream' ? 'MongoDB Atlas · Change Stream' : transport === 'atlas_polling' ? 'MongoDB Atlas · committed-event polling' : 'Connecting to persistent events'}</small></div><Database size={23}/></div>
     </header>
 
     <section className="obs-controls" aria-label="Observatory controls">
@@ -327,6 +337,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
       <div className="obs-machine-caption"><GitBranch size={13}/><span>Gemini proposes when enabled. Local workers validate and execute. Atlas preserves the evidence.</span></div>
     </section>
 
+    <div className="obs-contribution-notice" role="status">{dataWarnings.length > 0 ? dataWarnings.join(' ') : 'Data sources loaded independently of the event stream.'}<br/>Island state: {snapshot && snapshotAt ? time(snapshotAt) : 'unavailable'} · Metrics: {metrics && metricsSnapshot ? time(metricsSnapshot.at) : 'unavailable'} · Council history: {sessions.length && sessionsAt ? time(sessionsAt) : 'no loaded sessions'}</div>
     <section className="obs-metrics" aria-label="Measured activity over the last hour"><div><span><Sparkles size={13}/> MODEL REQUESTS</span><strong>{metrics ? modelRequests : '—'}</strong><small>Recorded in the last hour{metrics?.event_counts_sampled ? ' · sampled' : ''}</small></div><div><span><BrainCircuit size={13}/> MODEL TOKENS</span><strong>{metrics ? totalTokens.toLocaleString() : '—'}</strong><small>Provider-reported token usage</small></div><div><span><FlaskConical size={13}/> EXPERIMENTS</span><strong>{metrics ? experiments : '—'}</strong><small>Completed with recorded evidence</small></div><div><span><Timer size={13}/> TRACE LATENCY</span><strong>{metrics ? `${metrics.totals.mean_duration_ms.toLocaleString()} ms` : '—'}</strong><small>Mean across instrumented operations</small></div><div><span><Database size={13}/> STORED SPANS</span><strong>{metrics ? metrics.totals.count.toLocaleString() : '—'}</strong><small>{metrics?.totals.errors || 0} error spans · {metrics?.dropped_spans || 0} export drops</small></div></section>
 
     <section className="obs-contributions" aria-label="Character contributions from saved receipts">
