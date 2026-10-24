@@ -6,7 +6,7 @@ Sketch Clash is a local two-player object battle game with two persistent 3D col
 
 The research question is **“Can human feedback help AI create more reliable and useful digital representations of real-world objects?”** Storing feedback changes neither Gemini’s weights nor the active pipeline automatically. Intended benefits remain things to measure, not demonstrated improvements.
 
-**Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public account system. The static frontend alone is deployed to Vercel (see [Vercel](#vercel-frontend-only)); without a hosted backend it runs only the in-browser playground.
+**Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public deployment or public account system. Optional Vercel hosting for the static frontend is configured but not deployed (see [Vercel](#vercel-optional-not-deployed)).
 
 ## Start on this computer
 
@@ -43,15 +43,15 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). Only that port is publish
 - While AI is not paused, the island crews call Gemini automatically, bounded by `ISLAND_AI_REQUESTS_PER_DAY` (legacy `GEMINI_REQUESTS_PER_DAY`). Run `npm run docker:down` or set `SKETCH_AI_PAUSED=true` when you are not playing.
 - Hardening: only `127.0.0.1:8080` is published; both containers have read-only filesystems, drop all Linux capabilities (nginx keeps the four it needs to bind port 80 and switch user), cannot gain privileges, and have memory, process and log-size limits. The backend runs as a non-root user and the installer is not shipped in the image. nginx sends a strict Content-Security-Policy and related headers; `vercel.json` sends the same set.
 
-## Vercel (frontend only)
+## Vercel (optional, not deployed)
 
-[sketch-clash.vercel.app](https://sketch-clash.vercel.app) serves the static Vite build. `.vercelignore` is an allowlist, so only `src`, `public` and the build config are uploaded: never `.env.local`, the backend or model weights.
+Hosting is optional and nothing is deployed: the 2026-10-24 Vercel project was removed. `vercel.json` and `.vercelignore` stay so the static frontend can be deployed again with one command. `.vercelignore` is an allowlist, so only `src`, `public` and the build config are uploaded: never `.env.local`, the backend or model weights.
 
 ```sh
 npx vercel@65.2.0 deploy --prod
 ```
 
-Vercel cannot run the backend: its ~1.2 GB of torch/YOLO/EasyOCR dependencies exceed function size limits, and the island and colony loops, observatory SSE stream and operator token file need a long-running process. Until the `api` Docker image runs on a container host, the hosted site shows "Local engine disconnected" and only the in-browser playground works. Once a backend URL exists, add a rewrite to `vercel.json` so `/api` stays same-origin (the operator cookie and origin check rely on that), and set `FRONTEND_ORIGIN=https://sketch-clash.vercel.app` on the backend:
+Vercel cannot run the backend: its ~1.2 GB of torch/YOLO/EasyOCR dependencies exceed function size limits, and the island and colony loops, observatory SSE stream and operator token file need a long-running process. A frontend-only deployment shows "Local engine disconnected", runs only the in-browser playground, and reports "The islands could not be reached (404)". A working hosted copy needs the `api` image on a container host, a login in front of it (otherwise anyone with the link can spend the Gemini key), and Atlas network access for that host. Then add a rewrite to `vercel.json` so `/api` stays same-origin (the operator cookie and origin check rely on that), and set `FRONTEND_ORIGIN` on the backend to the site's URL:
 
 ```json
 "rewrites": [{ "source": "/api/:path*", "destination": "https://<backend-host>/api/:path*" }]

@@ -4,7 +4,7 @@ The user explicitly wants Sketch Clash to run **locally only**, without GPT host
 
 - Develop, test, and preview through localhost. Keep servers bound to `127.0.0.1`.
 - Do not publish, deploy, upload a hosted build, create a hosted preview, or reconnect this project to Sites unless the user explicitly requests it later.
-- On 2026-10-24 the user requested Docker and a Vercel deployment. `compose.yaml` runs the full stack locally (published on `127.0.0.1:8080` only). Vercel hosts only the static frontend (`vercel.json`, allowlist `.vercelignore`, project `sketch-clash`); the Python backend is not hosted anywhere yet. Hosting the backend publicly, or redeploying, still needs the user's explicit request.
+- On 2026-10-24 the user requested Docker and briefly a Vercel deployment, then asked for the deployment to be torn down because hosting is optional. The Vercel project `sketch-clash` was deleted; nothing is hosted. `compose.yaml` runs the full stack locally (published on `127.0.0.1:8080` only). `vercel.json` and the allowlist `.vercelignore` remain for an optional future deploy. Deploying anything, or hosting the backend (Railway, Fly.io, etc.), needs the user's explicit request.
 - Changes to source, local builds, and local previews remain in scope.
 - The retired hosting metadata was moved outside this project. Moving that record does not delete or take any previously hosted site offline; do not claim otherwise.
 - Treat `.env` and `.env.*` (except `.env.example`) as secrets. Never read or print their values in tool outputs, chat, logs, browser code, or archives. Use the hidden `npm run setup:gemini` prompt for user entry. Future Gemini calls must keep the key on a local server; never use a `VITE_` key variable.
