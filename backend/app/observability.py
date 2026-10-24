@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import time
 from threading import RLock
 from typing import Any
 
@@ -123,8 +124,17 @@ class AtlasSpanExporter(SpanExporter):
         self.exported = 0
         self.dropped = 0
         self.failures = 0
+        self.shutdown_deadline: float | None = None
+
+    def begin_shutdown(self, seconds: float = 3):
+        self.shutdown_deadline = time.monotonic() + max(0, seconds)
 
     def export(self, spans):
+        if self.shutdown_deadline is not None and time.monotonic() >= self.shutdown_deadline:
+            # Operational spans may be dropped; transactionally committed domain
+            # events are a separate collection and are never touched here.
+            self.dropped += len(spans)
+            return SpanExportResult.SUCCESS
         repo = self.repository
         if repo is None:
             return SpanExportResult.SUCCESS
@@ -214,7 +224,12 @@ class AtlasSpanExporter(SpanExporter):
                         metric['total_tokens'] = metric.get('total_tokens', 0) + int(attrs.get('gen_ai.usage.total_tokens',
                             int(attrs.get('gen_ai.usage.input_tokens', 0) or 0) + int(attrs.get('gen_ai.usage.output_tokens', 0) or 0)) or 0)
                         tx.put('agentMetrics', metric)
-                repo.transaction(save)
+                from pymongo import timeout
+                budget = 3.0 if self.shutdown_deadline is None else max(0.001, min(3.0, self.shutdown_deadline - time.monotonic()))
+                # pymongo.timeout preserves the smaller outer deadline even when
+                # Repository.transaction creates its normal 20-second context.
+                with timeout(budget):
+                    repo.transaction(save)
             self.exported += len(documents)
             return SpanExportResult.SUCCESS
         except Exception as exc:
@@ -225,6 +240,24 @@ class AtlasSpanExporter(SpanExporter):
 
     def shutdown(self):
         self.repository = None
+
+
+
+class DeadlineExporter(SpanExporter):
+    """Apply the same shutdown boundary to an optional external exporter."""
+    def __init__(self, delegate, deadline):
+        self.delegate, self.deadline = delegate, deadline
+        self.dropped = 0
+
+    def export(self, spans):
+        cutoff = self.deadline()
+        if cutoff is not None and time.monotonic() >= cutoff:
+            self.dropped += len(spans)
+            return SpanExportResult.SUCCESS
+        return self.delegate.export(spans)
+
+    def shutdown(self):
+        self.delegate.shutdown()
 
 
 def _ensure_provider() -> TracerProvider:
@@ -238,7 +271,8 @@ def _ensure_provider() -> TracerProvider:
             # Exporting off-machine is opt-in via the standard server-side OTel variable.
             if os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT'):
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-                _provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+                _provider.add_span_processor(BatchSpanProcessor(DeadlineExporter(OTLPSpanExporter(timeout=3),
+                    lambda: _exporter.shutdown_deadline if _exporter else None)))
         return _provider
 
 
@@ -291,6 +325,7 @@ class Observatory:
             self.stream_error = f'Indexes unavailable ({type(exc).__name__})'
         if _exporter:
             _exporter.repository = self.repository
+            _exporter.shutdown_deadline = None
         # Historic events remain available for replay; only new arrivals fan out live.
         try:
             self.last_sequence = (await asyncio.to_thread(self.events, limit=1))['cursor']
@@ -301,6 +336,8 @@ class Observatory:
 
     async def close(self):
         self.running = False
+        if _exporter and _exporter.repository is self.repository:
+            _exporter.begin_shutdown(3)
         if self.task:
             self.task.cancel()
             try:

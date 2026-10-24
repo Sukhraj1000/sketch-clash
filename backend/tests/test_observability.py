@@ -232,3 +232,45 @@ def test_later_action_links_to_decision_without_faking_parent_context():
         assert 'sketch.link_trace_id' not in span.attributes
     with agent_span('agent.task.complete', link_trace_id='invalid', link_span_id=original_span) as span:
         assert not span.links
+
+
+def test_shutdown_deadline_discards_only_queued_operational_spans():
+    repo = repository()
+    committed = emit(repo, 'must-survive-shutdown')
+    exporter = AtlasSpanExporter()
+    exporter.repository = repo
+    exporter.begin_shutdown(0)
+    def unexpected(_):
+        raise AssertionError('Expired shutdown budget must not start a database operation')
+    repo.transaction = unexpected
+    # Deliberately opaque span placeholders prove we stop before serialization/DB.
+    assert exporter.export([object(), object()]) == SpanExportResult.SUCCESS
+    assert exporter.dropped == 2 and exporter.failures == 0
+    assert next(iter(repo._data['agentEvents'].values()))['id'] == committed['id']
+
+
+def test_export_outer_timeout_is_shorter_than_repository_default(monkeypatch):
+    from types import SimpleNamespace
+    import pymongo
+    observed = []
+    class Timeout:
+        def __init__(self, seconds): observed.append(seconds)
+        def __enter__(self): pass
+        def __exit__(self, *args): pass
+    monkeypatch.setattr(pymongo, 'timeout', Timeout)
+    exporter = AtlasSpanExporter()
+    exporter.repository = SimpleNamespace(world_id='timeout', transaction=lambda operation: None)
+    exporter.export([])
+    assert observed == [3.0]
+
+
+def test_optional_external_export_observes_same_shutdown_boundary():
+    from unittest.mock import MagicMock
+    from app.observability import DeadlineExporter
+    delegate = MagicMock()
+    wrapper = DeadlineExporter(delegate, lambda: 0)
+    assert wrapper.export([object()]) == SpanExportResult.SUCCESS
+    assert wrapper.dropped == 1
+    delegate.export.assert_not_called()
+    wrapper.shutdown()
+    delegate.shutdown.assert_called_once()
