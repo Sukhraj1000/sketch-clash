@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useTransform, type MotionValue } from 'motion/react';
 import type { Fighter } from '../types';
+import type { RoundTheme } from '../lib/api';
 import { BATTLE_DURATION, BATTLE_EVENTS, getCameraOffset, getFighterPose, getHealth, getHitFlash, getImpact, type BattleEvent, type BattlePlayback, type BattleOutcome } from '../game/battle';
 import { useTimeline } from '../game/director';
 import './BattleArena.css';
 
-type Props = { fighters: [Fighter, Fighter]; onComplete: () => void; playback?: BattlePlayback };
+type Props = { fighters: [Fighter, Fighter]; onComplete: () => void; playback?: BattlePlayback; theme?: RoundTheme };
 
 function FighterSprite({ fighter, elapsed, width, reduced, events, winnerSlot, outcome, fixture }: { fighter: Fighter; elapsed: MotionValue<number>; width: number; reduced: boolean; events: readonly BattleEvent[]; winnerSlot: 0 | 1; outcome: BattleOutcome; fixture: boolean }) {
   const x = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).x * width);
@@ -52,7 +53,7 @@ function ImpactEffects({ event, reduced }: { event: BattleEvent; reduced: boolea
   </motion.div>;
 }
 
-export default function BattleArena({ fighters, onComplete, playback }: Props) {
+export default function BattleArena({ fighters, onComplete, playback, theme }: Props) {
   const reduced = !!useReducedMotion();
   const duration = playback?.duration_ms ?? BATTLE_DURATION;
   const winnerSlot = playback?.winner_slot ?? 0;
@@ -66,6 +67,9 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   const elapsed = useTransform(physicalElapsed, value => value * BATTLE_DURATION / duration);
   const finalTime = (events.at(-1)?.at ?? 9900) + 100;
   const photographs = fighters.some(fighter => fighter.kind === 'photo');
+  // A camera round shows its saved brief and rotation; the object lab and demo keep their fixed labels.
+  const round = String((theme?.rotation_index ?? 0) + 1).padStart(2, '0');
+  const brief = theme ? theme.name.toUpperCase() : photographs || fixture ? 'EVERYDAY OBJECTS' : 'OBJECT DEMO';
   const root = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(1000);
   const [frame, setFrame] = useState({ health: [100, 100] as [number, number], impact: undefined as BattleEvent | undefined, intro: 'READY?', ko: false, second: Math.max(0, Math.ceil(finalTime * duration / BATTLE_DURATION / 1000)), hits: 0 });
@@ -96,10 +100,10 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   });
 
   return <section className="battle-screen" aria-label="Sketch Clash battle arena">
-    <div className="battle-topline"><span><i /> {playback?.source_label ?? 'LIVE FROM THE SKETCHBOOK'}</span><span>{photographs || fixture ? 'EVERYDAY OBJECTS' : 'OBJECT DEMO'} · ROUND 01</span></div>
+    <div className="battle-topline"><span><i /> {playback?.source_label ?? 'LIVE FROM THE SKETCHBOOK'}</span><span>{brief} · ROUND {round}</span></div>
     <div className="battle-hud">
       <HealthBar fighter={fighters[0]} health={frame.health[0]} />
-      <div className="battle-round-clock"><span>ROUND 01</span><strong>{frame.ko ? outcome === 'knockout' ? 'KO' : 'FT' : String(frame.second).padStart(2, '0')}</strong><small>{photographs || fixture ? 'OBJECTS IN MOTION' : 'NO ERASERS NOW'}</small></div>
+      <div className="battle-round-clock"><span>ROUND {round}</span><strong>{frame.ko ? outcome === 'knockout' ? 'KO' : 'FT' : String(frame.second).padStart(2, '0')}</strong><small>{photographs || fixture ? 'OBJECTS IN MOTION' : 'NO ERASERS NOW'}</small></div>
       <HealthBar fighter={fighters[1]} health={frame.health[1]} />
     </div>
     <div className="battle-arena-wrap" ref={root}>
