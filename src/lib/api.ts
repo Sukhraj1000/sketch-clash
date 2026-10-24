@@ -52,15 +52,48 @@ export async function api<T>(path:string,init:RequestInit={},options:{timeoutMs?
     throw new ApiError(controller.signal.aborted?'The request took too long. Retry the same photo.':'Could not reach the local API. Check that the backend is running.','connection_failed',0);
   } finally {window.clearTimeout(timeout);init.signal?.removeEventListener('abort',abort);}
 }
-export async function prepareCapture<T>(battleId:string,form:FormData,signal:AbortSignal):Promise<T>{
+export type CaptureProgress = {
+  capture_id:string; status:'processing'|'complete'|'failed'; stage:string; message:string; updated_at:string;
+  model?:string; attempt?:number;
+  queue?:{wait_reason?:string|null;dispatch_wait_seconds?:number;min_dispatch_interval_seconds?:number;foreground_waiting?:number};
+};
+export type CaptureProgressListener = (progress:CaptureProgress|null)=>void;
+
+function watchCaptureProgress(path:string,captureId:string,signal:AbortSignal,onProgress?:CaptureProgressListener){
+  if(!onProgress||signal.aborted)return()=>{};
+  const controller=new AbortController();
+  let busy=false,stopped=false,registered=false;
+  const stop=()=>{if(stopped)return;stopped=true;controller.abort();window.clearInterval(interval);signal.removeEventListener('abort',stop)};
+  const poll=async()=>{
+    if(stopped||busy)return;
+    busy=true;
+    try{
+      const progress=await api<CaptureProgress>(`${path}/${encodeURIComponent(captureId)}/progress`,{signal:controller.signal},{timeoutMs:5000});
+      if(stopped||controller.signal.aborted)return;
+      if(progress.capture_id!==captureId||typeof progress.stage!=='string'||typeof progress.message!=='string'||!['processing','complete','failed'].includes(progress.status))throw new Error('Progress did not match this capture.');
+      registered=true;onProgress(progress);
+    }catch(error){
+      if(stopped||controller.signal.aborted)return;
+      // The upload can still be in transit before the backend registers its ID.
+      // Once registered, losing that record is an unavailable progress read.
+      if(!registered&&error instanceof ApiError&&error.status===404)return;
+      onProgress(null);
+    }finally{busy=false;}
+  };
+  const interval=window.setInterval(()=>void poll(),3000);
+  signal.addEventListener('abort',stop,{once:true});
+  return stop;
+}
+export async function prepareCapture<T>(battleId:string,form:FormData,signal:AbortSignal,onProgress?:CaptureProgressListener):Promise<T>{
   const path=`/battles/${battleId}/captures`;
+  const captureId=form.get('capture_id');
+  const stopProgress=typeof captureId==='string'&&captureId?watchCaptureProgress(path,captureId,signal,onProgress):()=>{};
   try{return await api<T>(path,{method:'POST',body:form,signal});}
   catch(error){
     if(signal.aborted||!(error instanceof ApiError)||error.code!=='connection_failed')throw error;
     // A disconnected browser does not imply failed recognition. Read the saved
     // outcome by the same capture ID before asking the user to retry. Never
     // issue another paid POST automatically.
-    const captureId=form.get('capture_id');
     if(typeof captureId!=='string'||!captureId)throw error;
     try{return await api<T>(`${path}/${encodeURIComponent(captureId)}`,{signal},{timeoutMs:15000});}
     catch(recoveryError){
@@ -71,7 +104,7 @@ export async function prepareCapture<T>(battleId:string,form:FormData,signal:Abo
       if(recoveryError instanceof ApiError&&recoveryError.code==='capture_failed')throw recoveryError;
       throw error;
     }
-  }
+  }finally{stopProgress();}
 }
 export const post=<T,>(path:string,body:unknown={})=>api<T>(path,{method:'POST',body:JSON.stringify(body)});
 export const asFighter=(fighter:PendingFighter):Fighter=>({id: `${fighter.battle_id}-${fighter.player_slot}`,name:fighter.display_name,image:fighter.image_ref,subtitle:`${fighter.object_type.toUpperCase()} · ${fighter.archetype.toUpperCase()}`,side:fighter.player_slot,color:fighter.player_slot===0?'var(--coral)':'var(--mint)',kind:'photo',archetype:fighter.archetype});

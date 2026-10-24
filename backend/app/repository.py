@@ -16,6 +16,7 @@ import json
 from .config import Settings
 from .engine import simulate_match
 from .contracts import FeedbackSubmission
+from .capture_progress import progress_record
 from .pipeline import (BASELINE_VERSION, LEGACY_VERSION, BASELINE_CONFIG, BASE_PROMPT_HASH,
                        BASE_SYSTEM_INSTRUCTION, active_key, version_key)
 
@@ -105,6 +106,34 @@ class Repository:
             raise StoreError('The round’s pinned pipeline is unavailable.', 503, 'pipeline_unavailable')
         return public(version)
 
+    def enable_fast_live_pipeline(self) -> dict:
+        """Explicit code-profile upgrade; never rewrite pinned rounds or replace a reviewed candidate."""
+        from .pipeline import FAST_LIVE_VERSION, FAST_LIVE_CONFIG
+        def operation(tx):
+            pointer = tx.get('qualityState', active_key(self.world_id))
+            if not pointer or pointer['active_version_id'] not in (BASELINE_VERSION, FAST_LIVE_VERSION):
+                raise StoreError('A custom pipeline is active. Preserve it until its operator selects a replacement.', 409, 'pipeline_conflict')
+            version_id = version_key(self.world_id, FAST_LIVE_VERSION)
+            version = tx.get('pipelineVersions', version_id)
+            if version and version['config'] != FAST_LIVE_CONFIG:
+                raise StoreError('The immutable fast profile differs from this build.', 409, 'pipeline_conflict')
+            if not version:
+                tx.put('pipelineVersions', {'_id': version_id, 'id': FAST_LIVE_VERSION, 'world_id': self.world_id,
+                    'config': deepcopy(FAST_LIVE_CONFIG), 'parent_id': BASELINE_VERSION, 'created_at': self.clock(),
+                    'immutable': True, 'system_instruction': BASE_SYSTEM_INSTRUCTION, 'base_prompt_hash': BASE_PROMPT_HASH,
+                    'provenance': 'Code-shipped interactive latency repair: Flash low; exact catalog; unchanged validation and human review.',
+                    'quality_claim': 'Engineering checks only; no comparative recognition evaluation was run.'})
+            if pointer['active_version_id'] != FAST_LIVE_VERSION:
+                previous = pointer['active_version_id']
+                pointer.update(active_version_id=FAST_LIVE_VERSION, revision=pointer['revision'] + 1, updated_at=self.clock())
+                tx.put('qualityState', pointer)
+                tx.put('pipelineChanges', {'_id': key_for(self.world_id, 'interactive-profile', str(pointer['revision'])),
+                    'world_id': self.world_id, 'kind': 'code_profile_upgrade', 'previous_version_id': previous,
+                    'version_id': FAST_LIVE_VERSION, 'created_at': self.clock(), 'scope': 'new_battles_only',
+                    'reason': 'User requested repair of slow interactive fighter recognition.'})
+            return public(pointer)
+        return self.transaction(operation)
+
     def create_battle(self, request_id: str) -> dict:
         battle_id = key_for(self.world_id, request_id)[:32]
         def operation(tx):
@@ -156,7 +185,7 @@ class Repository:
                 if (existing.get('status') == 'failed' and not existing.get('observation')
                         and battle['status'] in ('draft', 'ready')
                         and battle['active_capture_ids'][capture['player_slot']] == capture['capture_id']):
-                    existing.update(status='processing', error=None)
+                    existing.update(status='processing', error=None, progress=progress_record('registered', self.clock()))
                     tx.put('captures', existing)
                 return existing
             if battle['status'] not in ('draft', 'ready'):
@@ -175,7 +204,7 @@ class Repository:
             capture_doc = {'_id': capture_key, **capture, 'battle_id': battle_id, 'world_id': self.world_id,
                            'pipeline_version_id': battle['pipeline_version_id'],
                            'status': 'processing', 'created_at': self.clock(), 'observation': None,
-                           'error': None}
+                           'error': None, 'progress': progress_record('registered', self.clock())}
             slot = capture['player_slot']
             battle['active_capture_ids'][slot] = capture['capture_id']
             battle['pending_fighters'][slot] = None
@@ -197,6 +226,26 @@ class Repository:
             return value
         return self.read(operation)
 
+    def update_capture_progress(self, battle_id: str, capture_id: str, progress: dict) -> None:
+        value = progress_record(progress['stage'], self.clock(), model=progress.get('model'), attempt=progress.get('attempt'))
+        def operation(tx):
+            self._battle(tx, battle_id)
+            capture = tx.get('captures', key_for(battle_id, capture_id))
+            if capture and capture.get('status') == 'processing' and not capture.get('observation'):
+                capture['progress'] = value
+                tx.put('captures', capture)
+        self.transaction(operation)
+
+    def capture_progress(self, battle_id: str, capture_id: str) -> dict:
+        capture = self.get_capture(battle_id, capture_id)
+        status = 'complete' if capture.get('observation') else 'failed' if capture.get('status') == 'failed' else 'processing'
+        progress = capture.get('progress')
+        if status != 'processing':
+            progress = progress_record(status, (progress or {}).get('updated_at', capture['created_at']))
+        elif not progress:
+            progress = {'stage': 'registered', 'message': 'This older capture has no recorded recognition stage.', 'updated_at': capture['created_at']}
+        return {'capture_id': capture_id, 'status': status, **progress}
+
     def finish_capture(self, battle_id: str, capture_id: str, observation: dict) -> dict:
         def operation(tx):
             battle = self._battle(tx, battle_id)
@@ -212,7 +261,8 @@ class Repository:
                 existing = deepcopy(capture['observation'])
                 existing['stale'] = not active
                 return existing
-            capture.update({'status': 'done', 'observation': observation, 'error': None})
+            capture.update({'status': 'done', 'observation': observation, 'error': None,
+                            'progress': progress_record('complete', self.clock())})
             tx.put('captures', capture)
             if active:
                 battle['pending_fighters'][slot] = observation.get('pending_fighter') if observation['status'] == 'recognized' else None
@@ -228,7 +278,7 @@ class Repository:
             self._battle(tx, battle_id)
             capture = tx.get('captures', key_for(battle_id, capture_id))
             if capture and not capture.get('observation'):
-                capture.update({'status': 'failed', 'error': code})
+                capture.update({'status': 'failed', 'error': code, 'progress': progress_record('failed', self.clock())})
                 tx.put('captures', capture)
         self.transaction(operation)
 

@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { Camera, Check, Crop, ImageUp, RotateCcw, ScanLine, X } from 'lucide-react'
 import { cameraFailureMessage, captureVideoFrame, clampImageCrop, normalizeImage } from '../lib/imageInput'
 import type { ImageCrop, NormalizedImage } from '../lib/imageInput'
-import type { FeedbackInput, CorrectionInput } from '../lib/api'
+import type { FeedbackInput, CorrectionInput, CaptureProgress, CaptureProgressListener } from '../lib/api'
 import type { WorldCharacter } from './WorldView'
 import FighterReview from './FighterReview'
 import './SketchCanvas.css'
@@ -31,7 +31,7 @@ export type CaptureInput = { captureId: string; file: File; source: 'camera' | '
 export type CaptureStudioProps = {
   player: 1 | 2
   duration: number
-  onPrepare: (input: CaptureInput, signal: AbortSignal) => Promise<CaptureResponse>
+  onPrepare: (input: CaptureInput, signal: AbortSignal, onProgress?: CaptureProgressListener) => Promise<CaptureResponse>
   onConfirm: (fighter: any) => void | Promise<void>
   onCancel: () => void
   initialResponse?: CaptureResponse | null
@@ -45,6 +45,28 @@ type Point = { x: number; y: number }
 
 function ToolbarButton({ children, label, disabled, selected, onClick }: { children: ReactNode; label: string; disabled?: boolean; selected?: boolean; onClick: () => void }) {
   return <button type="button" className={`sketch-tool capture-tool ${selected ? 'is-selected' : ''}`} disabled={disabled} aria-label={label} aria-pressed={selected} onClick={onClick}>{children}<span>{label}</span></button>
+}
+
+const captureStageTitles: Record<string, string> = {
+  registered: 'PHOTO RECEIVED', local_detection: 'FINDING OBJECTS LOCALLY', local_ocr: 'READING VISIBLE TEXT LOCALLY',
+  queued: 'WAITING FOR GEMINI', gemini_recognition: 'GEMINI IS READING YOUR OBJECT', validation: 'CHECKING THE FIGHTER',
+  repair: 'REFINING THE PROPOSAL', saving: 'SAVING YOUR FIGHTER', complete: 'PREPARATION SAVED', failed: 'PREPARATION STOPPED',
+}
+
+export function CaptureProgressPanel({ normalizing, progress, unavailable, seconds }: { normalizing: boolean; progress: CaptureProgress | null; unavailable: boolean; seconds: number }) {
+  const queued = !unavailable && progress?.stage === 'queued'
+  const wait = progress?.queue?.dispatch_wait_seconds
+  const spacing = progress?.queue?.min_dispatch_interval_seconds
+  return <div className="capture-processing" role="status">
+    <span className="capture-loading-mark" aria-hidden="true">✳</span>
+    <strong>{normalizing ? 'DEVELOPING YOUR PHOTO…' : unavailable ? 'PROGRESS UNAVAILABLE' : progress ? captureStageTitles[progress.stage] || 'PREPARING YOUR FIGHTER' : 'SENDING YOUR PHOTOGRAPH…'}</strong>
+    <span>{normalizing ? 'Making a clean, correctly oriented image.' : unavailable ? 'The original request is still pending. Your photograph is kept for recovery.' : progress?.message || 'Waiting for the backend to register this capture. No preparation stage has been reported yet.'}</span>
+    {queued && typeof wait === 'number' && wait > 0 && <small>Next admission check in about {Math.ceil(wait)} seconds. This is not a completion estimate.</small>}
+    {queued && typeof spacing === 'number' && spacing > 0 && <small>Gemini requests are spaced at least {Math.ceil(spacing)} seconds apart. Local checks do not use a Gemini request.</small>}
+    {!normalizing && progress?.model && !unavailable && <small>Model: {progress.model}{progress.attempt && progress.attempt > 1 ? ` · attempt ${progress.attempt}` : ''}</small>}
+    <small>Your capture timer is paused.</small>
+    {!normalizing && <small>Elapsed {Math.floor(seconds / 60)}m {String(seconds % 60).padStart(2, '0')}s · this photograph is kept for recovery.</small>}
+  </div>
 }
 
 function EvidenceDetails({ response }: { response: CaptureResponse }) {
@@ -68,6 +90,8 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
   const [stage, setStage] = useState<Stage>('handoff')
   const [remaining, setRemaining] = useState(duration)
   const [processingSeconds, setProcessingSeconds] = useState(0)
+  const [progress, setProgress] = useState<CaptureProgress | null>(null)
+  const [progressUnavailable, setProgressUnavailable] = useState(false)
   const remainingMs = useRef(duration * 1000)
   const [response, setResponse] = useState<CaptureResponse | null>(null)
   const [preview, setPreview] = useState('')
@@ -94,7 +118,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
   useEffect(() => {
     if(stage!=='processing'){setProcessingSeconds(0);return}
     const began=Date.now()
-    const interval=window.setInterval(()=>setProcessingSeconds(Math.floor((Date.now()-began)/1000)),10000)
+    const interval=window.setInterval(()=>setProcessingSeconds(Math.floor((Date.now()-began)/1000)),1000)
     return()=>window.clearInterval(interval)
   },[stage])
 
@@ -122,6 +146,8 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
     dragRef.current = null
     setPreview('')
     setResponse(null)
+    setProgress(null)
+    setProgressUnavailable(false)
     setMessage('')
     setFrameReady(false)
     setCrop(null)
@@ -188,10 +214,19 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
     captureRef.current = capture
     setResponse(null)
     setCropMode(false)
-    setMessage('Reading your object and checking its fighter…')
+    setProgress(null)
+    setProgressUnavailable(false)
+    setProcessingSeconds(0)
+    setMessage('Sending your photograph. Waiting for the backend to register this capture…')
     setStage('processing')
     try {
-      const result = await onPrepare({ captureId: capture.captureId, file: capture.file, source: capture.source, crop: capture.crop }, controller.signal)
+      const result = await onPrepare({ captureId: capture.captureId, file: capture.file, source: capture.source, crop: capture.crop }, controller.signal, next => {
+        if (!isCurrent(request) || controller.signal.aborted) return
+        if (next && next.capture_id !== capture.captureId) return
+        setProgress(next)
+        setProgressUnavailable(!next)
+        setMessage(next?.message || 'Preparation progress is unavailable. The original capture request is still pending; your photograph is kept for recovery.')
+      })
       if (!isCurrent(request) || controller.signal.aborted) return
       if (result.capture_id !== capture.captureId) throw new Error('The returned capture did not match this photograph. Please retry.')
       if (result.status === 'recognized' && !result.fighter) throw new Error('The photograph was recognised, but its fighter was not ready. Please retry.')
@@ -388,7 +423,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
           </div>}
           {stage === 'idle' && !preview && <div className="capture-empty"><Camera size={48} strokeWidth={1.2} aria-hidden="true" /><h2>REAL OBJECT. REAL ATTITUDE.</h2><p>Put a mug, bottle or any clear object in the spotlight.</p><button type="button" className="sketch-start-button" onClick={() => void startCamera()}>OPEN CAMERA <span aria-hidden="true">↗</span></button><button className="capture-text-button" onClick={() => inputRef.current?.click()}>or upload a photograph</button></div>}
           {stage === 'permission' && <div className="capture-processing"><Camera size={32} /><strong>CAMERA PERMISSION</strong><span>Choose Allow in your browser. Your timer is paused.</span><button type="button" className="capture-text-button" onClick={() => { discard(); setStage('idle'); inputRef.current?.click() }}>Use an uploaded photo instead</button></div>}
-          {busy && <div className="capture-processing" role="status"><span className="capture-loading-mark" aria-hidden="true">✳</span><strong>{stage === 'normalizing' ? 'DEVELOPING YOUR PHOTO…' : 'MEET YOUR NEW FIGHTER…'}</strong><span>{stage === 'normalizing' ? 'Making a clean, correctly oriented image.' : 'Local YOLO + OCR, then Gemini checks the selected photograph.'}</span><small>{stage==='processing'?'Paced AI requests may take several minutes. Your timer is paused.':'Your timer is paused.'}</small>{processingSeconds>=30&&<small>Waiting or checking · {Math.floor(processingSeconds/60)}m {String(processingSeconds%60).padStart(2,'0')}s. Your capture is kept for recovery.</small>}</div>}
+          {busy && <CaptureProgressPanel normalizing={stage === 'normalizing'} progress={progress} unavailable={progressUnavailable} seconds={processingSeconds} />}
           {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> READY TO BATTLE</span>}
           {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : 'Find one object. Take its photo. Give the ordinary a fighting chance.'}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>Your timer runs only while framing or selecting.</small></div>}
         </div>

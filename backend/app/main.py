@@ -300,7 +300,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         except (StoreError, ImageError):
             raise
         except Exception as exc:
-            logger.warning('recognition_failed battle_id=%s capture_id=%s category=%s model=%s', battle_id, capture_id, type(exc).__name__, settings.gemini_model)
+            logger.warning('recognition_failed battle_id=%s capture_id=%s category=%s', battle_id, capture_id, type(exc).__name__)
             raise StoreError('Object recognition could not finish. Retry the same photograph or choose another one.', 502, 'recognition_failed') from exc
 
     @app.post('/api/battles/{battle_id}/captures/{capture_id}/select', response_model=Observation)
@@ -322,6 +322,16 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 raise StoreError('Recognition stopped without a saved result. You can retry this same photograph; it is not still queued.', 409, 'capture_failed')
             raise StoreError('This capture is still being prepared.', 409, 'capture_processing')
         return await app.state.service._recover_observation(battle_id, capture)
+
+    @app.get('/api/battles/{battle_id}/captures/{capture_id}/progress')
+    async def capture_progress(battle_id: str, capture_id: str):
+        value = await asyncio.to_thread(repo().capture_progress, battle_id, capture_id)
+        if value['status'] == 'processing' and value['stage'] == 'queued':
+            queue = await asyncio.to_thread(app.state.provider_queue.status)
+            value['queue'] = {key: queue.get(key) for key in ('wait_reason', 'dispatch_wait_seconds', 'foreground_waiting')}
+            value['queue']['foreground_waiting'] = queue.get('scheduling', {}).get('waiting_foreground')
+            value['queue']['min_dispatch_interval_seconds'] = queue.get('local_limits', {}).get('min_dispatch_interval_seconds')
+        return value
 
     @app.post('/api/battles/{battle_id}/captures/{capture_id}/feedback')
     async def feedback(battle_id: str, capture_id: str, body: FeedbackSubmission):

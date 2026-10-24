@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import re
+import logging
 from copy import deepcopy
 from uuid import uuid4
 from contextlib import asynccontextmanager
@@ -15,6 +16,8 @@ from .engine import validate_fighter_config, validate_visual_spec
 from .images import ProcessedImage, normalize_image, crop_image
 from .repository import Repository, StoreError
 from .provider_queue import require_ai_enabled
+
+logger = logging.getLogger('sketch.capture')
 
 class BattleService:
     def __init__(self, settings: Settings, repository: Repository, recognizer: Any):
@@ -120,16 +123,24 @@ class BattleService:
                 if selected.image_hash != canonical.image_hash:
                     await asyncio.to_thread(self.repository.save_media, selected)
                 pipeline = await asyncio.to_thread(self.repository.get_pipeline, battle['pipeline_version_id'])
+                async def on_progress(progress):
+                    try:
+                        await asyncio.to_thread(self.repository.update_capture_progress, battle_id, capture_id, progress)
+                    except Exception as exc:
+                        # Optional stage reporting must not repeat or discard a paid result.
+                        logger.warning('capture_progress_unavailable category=%s', type(exc).__name__)
                 kwargs = dict(battle_id=battle_id, player_slot=slot, capture_id=capture_id,
                     image_hash=selected.image_hash, image_ref=selected.image_ref,
                     width=canonical.width, height=canonical.height, source=source, crop=crop,
                     pipeline_config=pipeline['config'], pipeline_version_id=battle['pipeline_version_id'],
-                    correction_context=capture.get('correction'), reference_provider=self.reference_provider)
+                    correction_context=capture.get('correction'), reference_provider=self.reference_provider,
+                    on_progress=on_progress)
                 # Keep the existing injected engineering fixtures compatible with the richer live API.
                 signature = inspect.signature(self.recognizer.recognize_capture)
                 if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()):
                     kwargs = {key: value for key, value in kwargs.items() if key in signature.parameters}
                 result = await self.recognizer.recognize_capture(canonical.data, **kwargs)
+                await on_progress({'stage': 'saving'})
                 observation = Observation.model_validate(result).model_dump()
                 observation['output_id'] = observation.get('output_id') or uuid4().hex
                 observation['pipeline_version_id'] = battle['pipeline_version_id']

@@ -17,6 +17,7 @@
     "dev:demo": "node scripts/dev.mjs --demo",
     "dev:frontend": "vite --host 127.0.0.1",
     "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 5",
+    "enable:recognition-fast": ".venv/bin/python backend/scripts/enable_interactive_recognition.py",
     "setup:vision": ".venv/bin/python backend/scripts/setup_vision.py",
     "test:backend": ".venv/bin/python -m pytest backend/tests -q",
     "setup:retrieval": ".venv/bin/python backend/scripts/setup_retrieval.py",
@@ -25,7 +26,7 @@
     "dev:offline": "node scripts/dev.mjs --offline",
     "test:combat-v2": ".venv/bin/python -m pytest backend/tests/test_combat_v2.py backend/tests/test_arena_api.py -q",
     "check:combat-balance": ".venv/bin/python backend/scripts/check_combat_balance.py",
-    "test:polish": "node scripts/verify-board-presentation.mjs && node scripts/verify-capture-recovery.mjs && node scripts/verify-review-loading.mjs && node scripts/verify-independent-polling.mjs && node scripts/verify-colony-activity.mjs && node scripts/verify-colony-conversation.mjs && node scripts/verify-observatory-feed.mjs"
+    "test:polish": "node scripts/verify-board-presentation.mjs && node scripts/verify-capture-recovery.mjs && node scripts/verify-review-loading.mjs && node scripts/verify-independent-polling.mjs && node scripts/verify-colony-activity.mjs && node scripts/verify-colony-conversation.mjs && node scripts/verify-observatory-feed.mjs && node scripts/verify-capture-progress.mjs"
   },
   "dependencies": {
     "@fontsource/bangers": "latest",

@@ -5,7 +5,7 @@ import type { Fighter, Phase } from './types';
 import { PRESET_FIGHTERS } from './game/fixtures';
 import { useTimeline } from './game/director';
 import { CaptureStudio, type CaptureInput, type CaptureResponse } from './components/CaptureStudio';
-import { api, post, prepareCapture, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
+import { api, post, prepareCapture, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput, type CaptureProgressListener } from './lib/api';
 import './LiveFlow.css';
 import { routePhase } from './lib/navigation';
 const WorldView = lazy(()=>import('./components/WorldView'));
@@ -179,11 +179,11 @@ export default function App() {
   }
   const demo=()=>{if(actionBusy.current)return;epoch.current++;setError('');setIsDemo(true);currentBattle.current=null;setBattle(null);setFighters(PRESET_FIGHTERS);setRoundKey(k=>k+1);setPhase('REVEAL')};
   const themeComplete=useCallback(()=>setPhase(current=>current==='THEME'?'DRAW_P1':current),[]);
-  const prepare=useCallback(async(input:CaptureInput,signal:AbortSignal):Promise<CaptureResponse>=>{
+  const prepare=useCallback(async(input:CaptureInput,signal:AbortSignal,onProgress?:CaptureProgressListener):Promise<CaptureResponse>=>{
     const record=currentBattle.current;if(!record)throw new Error('Create a round before capturing a fighter.');
     const slot=phase==='DRAW_P1'?0:1;
     const form=new FormData();form.append('image',input.file);form.append('capture_id',input.captureId);form.append('slot',String(slot));form.append('source',input.source);if(input.crop)form.append('crop',JSON.stringify(input.crop));
-    const result=await prepareCapture<any>(record.id,form,signal);
+    const result=await prepareCapture<any>(record.id,form,signal,onProgress);
     if(result.stale)throw new Error('This photograph was replaced. Please use the latest capture.');
     return captureResponse(result);
   },[phase]);
