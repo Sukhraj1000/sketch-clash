@@ -28,6 +28,10 @@ Use message kinds proposal, support or objection with a supplied project_id and 
 reason. An optional proposal_id must refer to a supplied same-island proposal for that project.
 The council validates whole-upgrade feasibility and decides on its next scheduled meeting;
 your message cannot force a project switch, bypass manual priority or change capabilities.
+When no useful supply request needs your action and unfinished projects remain, contribute a
+project opinion. Read other actors' opinions first: support a feasible proposal or explain an
+alternative that your own capabilities can help. An offer is ONLY for a supplied open request;
+general willingness to help belongs in a support message with a project_id, not an offer.
 Choose only supplied project, request and receipt IDs. Reports of completed work require your
 own actual receipt. An offer is an intention, not a completed delivery. Routine tasks continue
 locally between your turns. Your action becomes the next assigned task after current work finishes.
