@@ -1,0 +1,176 @@
+{
+  "version": "uk-retail-starters-2026-10-24-v1",
+  "checked_at": "2026-10-24T21:03:50Z",
+  "currency": "GBP",
+  "basis": "Category-level starter retail references for new single items, excluding delivery. These are not valuations of the photographed item or sold-market prices.",
+  "review_note": "Checked_at records when these publicly indexed primary retailer pages were reviewed. The browsing provider can return cached pages; it is not the retailer's publication time or a guarantee of today's stock or checkout price. Each listing keeps its observed crawl age. No multipack discounts, shipping, used prices or exact-brand identification are inferred.",
+  "entries": [
+    {
+      "category": "mug",
+      "query": "ceramic mug",
+      "scope": "Plain everyday ceramic or stoneware drinking mug; no exact brand or model match.",
+      "listings": [
+        {
+          "item_id": "ikea-60143992",
+          "title": "FÄRGRIK Mug, stoneware white, 25 cl",
+          "amount_gbp": 1.0,
+          "currency": "GBP",
+          "url": "https://www.ikea.com/gb/en/p/faergrik-mug-stoneware-white-60143992/",
+          "retailer": "IKEA UK",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "FÄRGRIK Mug, stoneware white, 25 cl — £1",
+          "source_crawl_note": "Browsing provider reported crawled today."
+        },
+        {
+          "item_id": "ikea-40478189",
+          "title": "FÄRGKLAR Mug, matt green, 37 cl",
+          "amount_gbp": 2.0,
+          "currency": "GBP",
+          "url": "https://www.ikea.com/gb/en/p/faergklar-mug-matt-green-40478189/",
+          "retailer": "IKEA UK",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "FÄRGKLAR Mug, matt green, 37 cl — £2",
+          "source_crawl_note": "Product page crawl reported two days ago; same price in today's retailer category page."
+        },
+        {
+          "item_id": "ikea-70457152",
+          "title": "GLADELIG Mug, grey, 37 cl",
+          "amount_gbp": 4.0,
+          "currency": "GBP",
+          "url": "https://www.ikea.com/gb/en/p/gladelig-mug-grey-70457152/",
+          "retailer": "IKEA UK",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "GLADELIG Mug, grey, 37 cl — £4",
+          "source_crawl_note": "Browsing provider reported crawled today."
+        }
+      ]
+    },
+    {
+      "category": "water_bottle",
+      "query": "reusable water bottle",
+      "scope": "Basic reusable 500 ml water bottle. Excludes insulated tumblers, premium brands, disposable filled drinks and flasks.",
+      "listings": [
+        {
+          "item_id": "ikea-20480013",
+          "title": "IKEA 365+ Water bottle, dark grey, 0.5 l",
+          "amount_gbp": 2.0,
+          "currency": "GBP",
+          "url": "https://www.ikea.com/gb/en/p/ikea-365-water-bottle-dark-grey-20480013/",
+          "retailer": "IKEA UK",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "IKEA 365+ Water bottle, dark grey, 0.5 l — £2",
+          "source_crawl_note": "Browsing provider reported crawled today. Current displayed price used, not previous £2.50."
+        },
+        {
+          "item_id": "ikea-00497222",
+          "title": "ENKELSPÅRIG Water bottle, stainless steel/beige, 0.5 l",
+          "amount_gbp": 4.0,
+          "currency": "GBP",
+          "url": "https://www.ikea.com/gb/en/p/enkelsparig-water-bottle-stainless-steel-beige-00497222/",
+          "retailer": "IKEA UK",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "ENKELSPÅRIG Water bottle, stainless steel/beige, 0.5 l — £4",
+          "source_crawl_note": "Browsing provider reported crawled today."
+        }
+      ]
+    },
+    {
+      "category": "notebook",
+      "query": "A5 lined notebook",
+      "scope": "Ordinary A5 paper notebook. Excludes computers, premium leather journals and multipacks.",
+      "listings": [
+        {
+          "item_id": "wilko-8168657",
+          "title": "Poly Prop Wire Notebook - A5",
+          "amount_gbp": 1.79,
+          "currency": "GBP",
+          "url": "https://www.wilko.com/en-uk/poly-prop-wire-notebook---a5/p/8168657",
+          "retailer": "Wilko",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Poly Prop Wire Notebook - A5 — £1.79",
+          "source_crawl_note": "Product page crawl reported last month; same price in today's retailer brand page. Stock messaging is mixed."
+        },
+        {
+          "item_id": "ryman-0302351605",
+          "title": "Silvine Perfecto Bound Notebook A5 Plus Ruled 160 Pages Assorted",
+          "amount_gbp": 3.99,
+          "currency": "GBP",
+          "url": "https://www.ryman.co.uk/silvine-perfecto-bound-notebook-a5-plus-ruled-160-pages-1",
+          "retailer": "Ryman",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Silvine Perfecto Bound Notebook A5 Plus Ruled 160 Pages Assorted — £3.99",
+          "source_crawl_note": "Product page indexed three months ago; same price in retailer category page crawled yesterday."
+        }
+      ]
+    },
+    {
+      "category": "ruler",
+      "query": "30cm plastic ruler",
+      "scope": "Ordinary 30 cm plastic ruler. Excludes measuring electronics, metal cutting guides and geometry sets.",
+      "listings": [
+        {
+          "item_id": "wilko-0349443",
+          "title": "Helix Oxford Folding Ruler 30cm",
+          "amount_gbp": 1.49,
+          "currency": "GBP",
+          "url": "https://www.wilko.com/en-uk/helix-oxford-folding-ruler-30cm/p/0349443",
+          "retailer": "Wilko",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Helix Oxford Folding Ruler 30cm — £1.49",
+          "source_crawl_note": "Browsing provider reported crawled today. Stock messaging is mixed."
+        },
+        {
+          "item_id": "wilko-8007996",
+          "title": "Maped 30cm Twist N Flex Decor Ruler",
+          "amount_gbp": 1.49,
+          "currency": "GBP",
+          "url": "https://www.wilko.com/en-uk/maped-30cm-twist-n-flex-decor-ruler/p/8007996",
+          "retailer": "Wilko",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Maped 30cm Twist N Flex Decor Ruler — £1.49",
+          "source_crawl_note": "Browsing provider reported crawled today. Stock messaging is mixed."
+        }
+      ]
+    },
+    {
+      "category": "scissors",
+      "query": "office scissors",
+      "scope": "Standard single pair of adult office scissors, 17–21 cm. Excludes surgical, heavy-duty and child-safe specialist scissors.",
+      "listings": [
+        {
+          "item_id": "ryman-0730012993",
+          "title": "Maped Advanced 17cm Scissors",
+          "amount_gbp": 6.99,
+          "currency": "GBP",
+          "url": "https://www.ryman.co.uk/maped-advanced-17cm-scissors-1",
+          "retailer": "Ryman",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Maped Advanced 17cm Scissors — £6.99",
+          "source_crawl_note": "Product page indexed four months ago; same price in retailer scissors category crawled today."
+        },
+        {
+          "item_id": "ryman-0730012994",
+          "title": "Maped Advanced 21cm Scissors",
+          "amount_gbp": 7.99,
+          "currency": "GBP",
+          "url": "https://www.ryman.co.uk/maped-advanced-21cm-scissors-1",
+          "retailer": "Ryman",
+          "condition": "New",
+          "checked_at": "2026-10-24T21:03:50Z",
+          "price_evidence": "Maped Advanced 21cm Scissors — £7.99",
+          "source_crawl_note": "Product page indexed three weeks ago; same price in retailer scissors category crawled today."
+        }
+      ]
+    }
+  ]
+}

@@ -89,3 +89,68 @@ def test_real_mongo_first_insert_wins_and_world_reads_never_mutate(mongo_state):
         assert restored.get_battle(origin['id'])['events'] == repo.get_battle(origin['id'])['events']
     finally:
         restored.close()
+
+
+def test_real_mongo_price_cache_restart_competing_leases_and_immutable_receipts(mongo_state):
+    """Two API repositories share one lease and preserve each published receipt."""
+    from threading import Barrier
+
+    from backend.app.price_cache import PriceCache, POLICY, COLLECTION, SNAPSHOT_COLLECTION
+
+    settings, repo, clock = mongo_state
+    second = MongoRepository(settings, clock)
+    try:
+        first_cache, second_cache = PriceCache(repo), PriceCache(second)
+        first_cache.ensure_indexes()
+        second_cache.ensure_indexes()
+        barrier = Barrier(2)
+        def claim(item):
+            cache, owner = item
+            barrier.wait(timeout=5)
+            return owner, cache.claim('ceramic mug', owner)
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(claim, [(first_cache, 'worker-a'), (second_cache, 'worker-b')]))
+        assert sum(claimed for _, claimed in results) == 1
+        owner = next(owner for owner, claimed in results if claimed)
+        winner = first_cache if owner == 'worker-a' else second_cache
+        receipt = {'amount_gbp': 8.0, 'currency': 'GBP', 'source': 'curated_retail',
+                   'status': 'available', 'policy_version': POLICY, 'confidence': 'category_reference',
+                   'label': 'Independent retail reference fixture', 'observed_at': clock(),
+                   'listings': [{'title': 'Ceramic mug', 'amount_gbp': 8.0,
+                                 'url': 'https://retailer.example/mug'}]}
+        saved = winner.store('ceramic mug', owner, receipt, ttl_seconds=1)
+        assert saved['cache']['persistence'] == 'mongodb'
+        assert repo.db[COLLECTION].count_documents({}) == 1
+        before = list(repo.db[SNAPSHOT_COLLECTION].find({}))
+        assert len(before) == 1 and before[0]['id'] == saved['cache']['snapshot_id']
+
+        # A genuinely new repository/client must recover the same quote receipt.
+        second.close()
+        second = MongoRepository(settings, clock)
+        restarted = PriceCache(second)
+        cached = restarted.get('CERAMIC_MUG')
+        assert cached['amount_gbp'] == 8.0
+        assert cached['cache']['hit'] is True
+        assert cached['cache']['snapshot_id'] == saved['cache']['snapshot_id']
+        assert not restarted.claim('ceramic mug', 'redundant-call')
+
+        # Expired cache/leases must not let a late worker publish or clear the
+        # second process's active refresh. Both old and new receipts are retained.
+        clock.advance(1000)
+        assert restarted.get('ceramic mug') is None
+        assert first_cache.claim('ceramic mug', 'expired-worker', lease_seconds=1)
+        clock.advance(1000)
+        assert restarted.claim('ceramic mug', 'fresh-worker')
+        assert first_cache.store('ceramic mug', 'expired-worker', receipt) is None
+        assert not first_cache.fail('ceramic mug', 'expired-worker', 'provider_unavailable')
+        changed = deepcopy(receipt)
+        changed['amount_gbp'] = changed['listings'][0]['amount_gbp'] = 9.0
+        changed['observed_at'] = clock()
+        updated = restarted.store('ceramic mug', 'fresh-worker', changed)
+        assert updated['cache']['snapshot_id'] != saved['cache']['snapshot_id']
+        assert first_cache.get('ceramic mug')['amount_gbp'] == 9.0
+        assert repo.db[SNAPSHOT_COLLECTION].count_documents({}) == 2
+        assert repo.db[SNAPSHOT_COLLECTION].find_one({'_id': before[0]['_id']}) == before[0]
+        assert not any('expireAfterSeconds' in item for item in repo.db[COLLECTION].list_indexes())
+    finally:
+        second.close()

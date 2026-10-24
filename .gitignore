@@ -11,5 +11,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 backend/models/
-backend/data/
+backend/data/*
+!backend/data/starter_prices.json
 work/
