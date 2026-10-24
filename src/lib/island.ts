@@ -14,6 +14,10 @@ export type IslandTask = {
   project_id?: string | null
   gain: Partial<Record<'materials' | 'water' | 'ideas' | 'energy', number>>
   progress_gain: number
+  scheduling_reason?: string
+  requested_action?: string | null
+  requested_decision_id?: string | null
+  action_switched?: boolean
 }
 export type IslandProject = {
   id: string
@@ -66,7 +70,14 @@ export type IslandAgent = {
   persona_provenance: Record<string, unknown>
 }
 export type IslandResources = Record<'materials' | 'water' | 'ideas' | 'energy', number>
-export type IslandEvent = { id: string; at: string; kind: string; character_id?: string; title: string; description: string; resource_delta: Partial<IslandResources>; project_id?: string; progress_delta?: number }
+export type IslandEvent = {
+  id: string; at: string; kind: string; character_id?: string; title: string; description: string
+  resource_delta: Partial<IslandResources>; project_id?: string; progress_delta?: number
+  receipt_version?: string; action_id?: string; actor_id?: string; actor_name?: string
+  decision_origin?: string; decision_id?: string | null; decision_run_id?: string | null; decision_evidence?: string
+  reserved_cost?: Partial<IslandResources>; execution_origin?: string
+  scheduling_reason?: string; requested_action?: string | null; requested_decision_id?: string | null; action_switched?: boolean
+}
 export type IslandSimulation = {
   enabled: boolean
   world_id: string
@@ -82,7 +93,7 @@ export type IslandSimulation = {
   projects: IslandProject[]
   agents: IslandAgent[]
   events: IslandEvent[]
-  limits: { max_active_agents: number; offline_catchup_seconds: number }
+  limits: { max_active_agents: number; offline_catchup_seconds: number; resource_capacity?: number }
   catch_up: { simulated_seconds: number; discarded_seconds: number }
   expeditions: number
   discoveries: { id: string; at: string; title: string; character_id: string }[]

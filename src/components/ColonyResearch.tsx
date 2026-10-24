@@ -1,28 +1,41 @@
 import { useState } from 'react'
-import { ArrowRight, FlaskConical, Lightbulb, MessageCircle, Sparkles } from 'lucide-react'
-import type { Colony } from '../lib/colonies'
+import { ArrowRight, FlaskConical, Lightbulb, MessageCircle, Sparkles, Timer } from 'lucide-react'
+import type { Colony, ColonyPlanner } from '../lib/colonies'
 import './ColonyResearch.css'
+import { ReceiptResult, recentActionReceipts } from './ColonyReceipts'
 
 const label = (value: string) => value.replaceAll('_', ' ')
 
-export function LiveConversation({ colony, paused = false, canThink = true }: { colony: Colony; paused?: boolean; canThink?: boolean }) {
+export function LiveConversation({ colony, planner, paused = false, canThink = true }: { colony: Colony; planner?: ColonyPlanner; paused?: boolean; canThink?: boolean }) {
   const [chosen, setChosen] = useState('')
-  const messages = colony.board.filter(m => m.origin === 'model' && m.session_id)
+  const messages = colony.board.filter(m => m.origin === 'model' && m.session_id).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
   const sessions = [...new Set(messages.slice().reverse().map(m => m.session_id!))]
   const session = sessions.includes(chosen) ? chosen : sessions[0]
-  const conversation = messages.filter(m => m.session_id === session).sort((a, b) => (a.turn_index ?? 0) - (b.turn_index ?? 0))
+  const conversation = messages.filter(m => m.session_id === session).sort((a, b) => (a.turn_index ?? 0) - (b.turn_index ?? 0) || Date.parse(a.created_at) - Date.parse(b.created_at))
+  const receipts = recentActionReceipts(colony)
+  const queue = planner?.provider_queue
+  const interval = queue?.local_limits?.min_dispatch_interval_seconds
+  const queueStatus = paused ? 'Gemini is paused. Saved messages remain here.' : !planner?.enabled ? 'Automatic councils are off.' : queue?.active ? 'A Gemini request is in progress in the shared queue.' : queue?.waiting ? `Shared queue: ${queue.waiting} request${queue.waiting === 1 ? '' : 's'} waiting${queue.dispatch_wait_seconds ? ` · next admission in about ${Math.ceil(queue.dispatch_wait_seconds)}s` : ''}.` : 'The crew reviews changes between conversations.'
   return <section className="research-conversation" aria-label="Actual agent conversation">
     <div className="research-heading"><div><span><MessageCircle size={14}/> SEPARATE AGENTS. ONE SHARED BOARD.</span><h2>The crew’s conversation.</h2></div><a href="#/observatory">WATCH UNDER THE HOOD <ArrowRight size={15}/></a></div>
-    <p>Saved Gemini messages appear here. Each reply comes from a separate model turn that reads the earlier conversation. Completed work has its own receipt.</p>
+    <p>These are saved Gemini responses from separate resident turns. Each speaker reads the earlier discussion. Accepted plans run through the local executor; their completed work appears below.</p>
+    <div className="research-live-status" role="status"><Timer size={15}/><span>{queueStatus}{!paused && interval ? ` Requests are spaced at least ${Math.ceil(interval)} seconds apart.` : ''}</span></div>
     {sessions.length > 1 && <label className="research-select">CONVERSATION <select value={session} onChange={e => setChosen(e.target.value)}>{sessions.map((s, i) => <option key={s} value={s}>{i === 0 ? 'Latest discussion' : `Earlier discussion ${i}`}</option>)}</select></label>}
-    {!conversation.length ? <div className="research-empty"><MessageCircle/><h3>{paused ? 'No Gemini discussion to show yet.' : 'Waiting for the first council.'}</h3><p>{paused ? 'New model turns are paused during the provider issue. Try gathering and building with fixed object roles in the playground.' : canThink ? 'Use “Gather the crew” to start a discussion. This board shows saved model responses only.' : 'Start the islands and enable available AI councils to request a discussion. No model response has been saved for this crew.'}</p><a className="research-playground-link" href="#/playground">Try the playground <ArrowRight size={14}/></a></div> : <div className="research-transcript">{conversation.map((m, index) => {
+    {!conversation.length ? <div className="research-empty"><MessageCircle/><h3>{paused ? 'No Gemini discussion to show yet.' : 'Waiting for the first council.'}</h3><p>{paused ? 'New model turns are paused by the operator. No conversation is generated for display.' : canThink ? 'Use “Gather the crew” to request a discussion. Automatic councils also react to island changes; the board shows responses only after they are saved.' : 'The next accepted model response will appear here. A slow request pace can leave time between speakers.'}</p></div> : <div className="research-transcript">{conversation.map((m, index) => {
       const resident = colony.characters.find(c => c.id === m.character_id)
       const parent = colony.board.find(p => p.id === m.reply_to_id)
+      const outcomes = m.run_id ? receipts.filter(receipt => receipt.decision_run_id === m.run_id && receipt.decision_evidence === 'accepted_decision') : []
+      const run = planner?.runs?.find(item => item.id === m.run_id && item.status === 'completed' && item.colony_id === colony.id)
+      const learningResults = run?.receipt?.learning_results as { experiment?: { id?: string } } | undefined
+      const experiment = learningResults?.experiment?.id ? colony.learning?.experiments.find(item => item.id === learningResults.experiment!.id) : undefined
       return <article key={m.id} className={index % 2 ? 'reply-right' : ''}>
-        <div className="research-speaker">{resident && <img src={resident.image_ref} alt=""/>}<div><b>{m.actor_name}</b><small>{m.model ?? 'Gemini'} · {label(m.kind)}</small></div><span>{String(index + 1).padStart(2, '0')}</span></div>
+        <div className="research-speaker">{resident && <img src={resident.image_ref} alt=""/>}<div><b>{m.actor_name}</b><small>{m.model ?? 'Gemini'} · {label(m.kind)} · <time dateTime={m.created_at}>{new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</time></small></div><span>{String(index + 1).padStart(2, '0')}</span></div>
         {parent && <blockquote>Replying to {parent.actor_name}: “{(parent.interpretation || parent.text).slice(0, 100)}{(parent.interpretation || parent.text).length > 100 ? '…' : ''}”</blockquote>}
         <p>{m.interpretation || m.text}</p>
-        <footer>{m.project_id ? colony.island.projects.find(p => p.id === m.project_id)?.name ?? 'Construction proposal' : 'Crew discussion'}<a href={`#/observatory`}>Inspect turn <ArrowRight size={12}/></a></footer>
+        <footer><span>{m.project_id ? colony.island.projects.find(p => p.id === m.project_id)?.name ?? 'Construction proposal' : 'Crew discussion'} · {label(m.status)}</span><a href="#/observatory">Inspect activity <ArrowRight size={12}/></a></footer>
+        {experiment && <aside className={`research-turn-experiment ${experiment.status === 'blocked' ? 'is-blocked' : ''}`} aria-label="Recorded experiment contribution"><b><FlaskConical size={14}/>{experiment.status === 'completed' ? 'SIMULATION TEST COMPLETED' : 'TEST BLOCKED'}</b><p>{experiment.result?.summary || experiment.reason || 'Inspect the laboratory record for the saved outcome.'}</p>{experiment.status === 'completed' && <small>{experiment.result?.success ? 'Supported in these conditions' : 'A tested limit: the arrangement did not work'} · {Object.entries(experiment.cost ?? {}).map(([key, value]) => `${String(value)} ${key} spent`).join(' · ') || 'Cost not recorded'}</small>}<details><summary>Experiment evidence</summary><p>{experiment.hypothesis}</p><dl>{Object.entries(experiment.result?.measurements ?? {}).map(([key, value]) => <div key={key}><dt>{label(key)}</dt><dd>{typeof value === 'number' ? value.toFixed(2) : String(value)}</dd></div>)}</dl><code>{experiment.id}</code><small>Evidence applies inside this simulation and the saved test conditions.</small></details></aside>}
+        {outcomes.length ? <details className="research-turn-outcome"><summary>{outcomes.length} completed task{outcomes.length === 1 ? '' : 's'} linked to this accepted turn</summary>{outcomes.slice(0, 3).map(receipt => <ReceiptResult key={receipt.id} receipt={receipt} colony={colony}/>)}</details> : <p className="research-turn-pending">{experiment?.status === 'completed' ? 'This turn contributed experimental evidence. No stock or construction gain is claimed.' : 'No stock or construction gain linked to this turn in the recent receipts. Experimental findings, when recorded, appear in the laboratory below.'}</p>}
+        <details className="research-message-proof"><summary>Saved message reference</summary><code>Message: {m.id}<br/>Session: {m.session_id}{m.run_id && <><br/>Run: {m.run_id}</>}</code></details>
       </article>
     })}</div>}
   </section>
