@@ -4,7 +4,7 @@ The frontend polish is implemented and pushed. The cat and dinosaur have been re
 
 The next priority is trustworthy agent evidence and reliable recovery. This audit identifies **13 actionable findings: six P1 and seven P2**. No P0 issue was confirmed within the reviewed scope. The existing tests pass, but some tests explicitly accept behavior that produces misleading UI or permanently stops automatic councils. Passing tests alone do not establish that the whole experience is reliable.
 
-This is a repair plan for review. The broader repairs below have **not** been implemented. No new semantic-analysis service, agents or paid evaluation runs were added.
+This document preserves the **pre-repair audit baseline** and its approved plan. The [repair record](2026-10-24-repair-record.md) describes the subsequent implementation and verification. The findings below intentionally retain their original trigger and source evidence. No new semantic-analysis service, agents or paid evaluation runs were added.
 
 ## Baseline and operating state
 
