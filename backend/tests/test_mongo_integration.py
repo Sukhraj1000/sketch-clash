@@ -3,6 +3,8 @@
 SKETCH_RUN_MONGO_TESTS=1 .venv/bin/python -m pytest backend/tests/test_mongo_integration.py -q
 Uses configured .env.local MONGODB_URI, or SKETCH_TEST_MONGODB_URI for an isolated local replica set.
 This suite does not exercise Atlas Vector Search, which requires its own ready Atlas index.
+Cleanup falls back to dropping this fixture's collections when the app role
+does not allow dropDatabase; no broader permissions are required.
 """
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -15,6 +17,7 @@ import pytest
 from backend.app.config import Settings
 from backend.app.repository import MongoRepository, StoreError
 from backend.tests.test_lifecycle import Clock, ready
+from backend.tests.mongo_fixture_cleanup import cleanup_owned_mongo_fixture
 
 pytestmark = pytest.mark.skipif(os.getenv('SKETCH_RUN_MONGO_TESTS') != '1', reason='Real MongoDB test requires explicit SKETCH_RUN_MONGO_TESTS=1.')
 
@@ -33,8 +36,7 @@ def mongo_state():
         yield settings, repo, clock
     finally:
         # This exact random database was created by this fixture, never an application database.
-        repo.client.drop_database(database)
-        repo.close()
+        cleanup_owned_mongo_fixture(repo, database)
 
 
 def test_real_mongo_concurrent_creation_finalization_and_saved_media(mongo_state):
