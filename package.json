@@ -10,6 +10,7 @@
     "test:combat": "node scripts/verify-battle.mjs",
     "test:camera-combat": "node scripts/verify-camera-combat.mjs",
     "test:island-scene": "node scripts/verify-island-scene.mjs",
+    "test:assembly-scene": "node scripts/verify-assembly-scene.mjs",
     "test:preview": "node scripts/verify-preview-framing.mjs",
     "test:factory-scene": "node scripts/verify-factory-scene.mjs",
     "test:robot-tasks": "node scripts/verify-robot-tasks.mjs",
@@ -42,27 +43,27 @@
     "docker:operator-token": "docker compose exec api cat backend/data/operator-token"
   },
   "dependencies": {
-    "@fontsource/bangers": "latest",
-    "@fontsource/dm-sans": "latest",
-    "@google/genai": "2.31.0",
+    "@fontsource/bangers": "^5.3.0",
+    "@fontsource/dm-sans": "^5.3.0",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
-    "lucide-react": "latest",
-    "motion": "latest",
-    "perfect-freehand": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "three": "^0.186.1"
+    "lucide-react": "^1.61.0",
+    "motion": "^14.6.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.186.1",
+    "three-stdlib": "^2.36.1"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "latest",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
-    "@vitejs/plugin-react": "latest",
-    "tailwindcss": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@vitejs/plugin-react": "^6.1.2",
+    "rolldown": "~1.2.15",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
   }
 }

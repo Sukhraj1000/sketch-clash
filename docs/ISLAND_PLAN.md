@@ -1,6 +1,6 @@
 # Sketch Clash — an island worth collecting for
 
-Implemented locally on 24 October 2026. Verification and operating limits are recorded in HANDOVER.md.
+Implemented locally on 24 October 2026. Verification and operating limits are recorded in [HANDOVER.md](../HANDOVER.md).
 
 ## Direction
 
@@ -50,4 +50,4 @@ This is a simulated colony of object-inspired agents, not physical robotics or s
 4. Change a building priority or assign a useful job. Follow the resident to its work site. Show a genuinely built stage and the production benefit; do not call saved progress a fresh instant achievement.
 5. Reload to show persistence. Explain that Atlas stores durable agents/tasks/history and the local worker executes their simulation. Show the bounded AI counter and toggle; no model is called per movement frame.
 
-The implementation and live/test evidence are recorded in HANDOVER.md. This is an operating prototype, with limited procedural structures and validated object-family actions, not an open-ended physical-world learning system.
+The implementation and live/test evidence are recorded in [HANDOVER.md](../HANDOVER.md). This is an operating prototype, with limited procedural structures and validated object-family actions, not an open-ended physical-world learning system.

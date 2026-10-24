@@ -3,7 +3,7 @@ import { WORLD_MAP_SURFACE_SCALE, WORLD_PATHS, WORLD_STATIONS, WORLD_STATION_BAC
 import type { WorldMapVertex } from './worldMap'
 
 /** These are the existing resource destinations, not a second factory simulation. */
-export const FACTORY_STATIONS = WORLD_STATIONS
+const FACTORY_STATIONS = WORLD_STATIONS
 
 /** Fittings and framing use real thicknesses; the racks do not invent stored stock. */
 function SupplyRack() {

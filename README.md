@@ -153,7 +153,7 @@ Open **[Observatory](http://127.0.0.1:5173/#/observatory)** for live committed a
 
 Starting the two-island mode switches off the original island’s persona-only reflection to avoid competing planners. Its existing residents, saved appearance and history stay intact. The legacy view retains its own 12-request limit within the same usage counter.
 
-See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for the implemented architecture, SDK and validation boundaries. [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md) remains the earlier audit/design draft; the bounded analytical testbed is implemented as described in the current runtime architecture. [ISLAND_PLAN.md](ISLAND_PLAN.md) describes the preserved original island.
+See [COLONIES_IMPLEMENTATION.md](docs/COLONIES_IMPLEMENTATION.md) for the implemented architecture, SDK and validation boundaries. [AGENT_ARCHITECTURE.md](docs/AGENT_ARCHITECTURE.md) remains the earlier audit/design draft; the bounded analytical testbed is implemented as described in the current runtime architecture. [ISLAND_PLAN.md](docs/ISLAND_PLAN.md) describes the preserved original island.
 
 ## Recognition & World Quality
 
@@ -173,7 +173,7 @@ The lab contains:
 - **Comparison:** independent factual counts, technical checks and blinded A/B creative review. Ties, neither acceptable and pending review are valid outcomes. Load the actual scene to record render checks; fallback images are not a pass.
 - **Active version and rollback:** inspect the configuration diff and gate reasons. Only the operator can activate a passing candidate. Rollback selects the baseline or a previously active version. Existing rounds keep their pinned version; saved residents are not redesigned.
 
-Current baseline: `baseline-v1`. Its visual-reference limit starts at zero to preserve the inspected configuration. **There are currently no approved evaluation/reference cases and no supported improvement claim.** The 21 catalogue descriptions used for type search are not a human-reviewed photo dataset. The full policy, scoring and implementation limits are in [Design.md](Design.md); actual evidence and pending checks are in [HANDOVER.md](HANDOVER.md).
+Current baseline: `baseline-v1`. Its visual-reference limit starts at zero to preserve the inspected configuration. **There are currently no approved evaluation/reference cases and no supported improvement claim.** The 21 catalogue descriptions used for type search are not a human-reviewed photo dataset. The full policy, scoring and implementation limits are in [Design.md](docs/Design.md); actual evidence and pending checks are in [HANDOVER.md](HANDOVER.md).
 
 ## Budgets and human authority
 

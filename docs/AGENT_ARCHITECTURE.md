@@ -10,15 +10,15 @@ The proposed research question is: **Does bounded communication between persiste
 
 This document contains the current system, proposed architecture, a concrete cooperative episode, message and action validation, persistent state, and the experiment needed to support a claim. Only documentation and diagrams were created for this design review. The proposed runtime has not been implemented or activated.
 
-[Open the one-page comparison](docs/architecture/00-architecture-overview.svg) · [Editable Mermaid source](docs/architecture/00-architecture-overview.mmd)
+[Open the one-page comparison](architecture/00-architecture-overview.svg) · [Editable Mermaid source](architecture/00-architecture-overview.mmd)
 
-![Current and proposed architecture at a glance](docs/architecture/00-architecture-overview.png)
+![Current and proposed architecture at a glance](architecture/00-architecture-overview.png)
 
 ## 1 Current system
 
-[Open the full current architecture](docs/architecture/01-current-system.svg) · [Editable Mermaid source](docs/architecture/01-current-system.mmd)
+[Open the full current architecture](architecture/01-current-system.svg) · [Editable Mermaid source](architecture/01-current-system.mmd)
 
-![Current application architecture](docs/architecture/01-current-system.png)
+![Current application architecture](architecture/01-current-system.png)
 
 The application runs on the home Mac. The MacBook accesses its localhost frontend through the existing SSH/Tailscale arrangement. React/Vite serves the interface on port 5173 and proxies `/api` to FastAPI on port 8000. Credentials stay on the backend. MongoDB Atlas and Gemini are external services; MongoDB does not execute resident agents.
 
@@ -35,9 +35,9 @@ The application runs on the home Mac. The MacBook accesses its localhost fronten
 
 ### What the current island loop actually does
 
-[Open the island loop](docs/architecture/02-current-island-loop.svg) · [Editable source](docs/architecture/02-current-island-loop.mmd)
+[Open the island loop](architecture/02-current-island-loop.svg) · [Editable source](architecture/02-current-island-loop.mmd)
 
-![Current island loop](docs/architecture/02-current-island-loop.png)
+![Current island loop](architecture/02-current-island-loop.png)
 
 Current contribution is an accounting effect: a resident adds resources or construction work when its scheduled task finishes. This is real application state, but it is not yet a physical supply chain or negotiated teamwork.
 
@@ -55,9 +55,9 @@ The useful foundation is already present: authoritative state, durable action ID
 
 ## 2 Proposed agent environment
 
-[Open the proposed architecture](docs/architecture/03-proposed-agent-system.svg) · [Editable source](docs/architecture/03-proposed-agent-system.mmd)
+[Open the proposed architecture](architecture/03-proposed-agent-system.svg) · [Editable source](architecture/03-proposed-agent-system.mmd)
 
-![Proposed agent architecture](docs/architecture/03-proposed-agent-system.png)
+![Proposed agent architecture](architecture/03-proposed-agent-system.png)
 
 An agent is a persistent logical actor with its own observations, inbox, memory, current goal and decision context. Four agents can share one model gateway and one worker pool without sharing their entire private context. Each receives only the observations and messages permitted by the scenario. Its output is a bounded message or proposed action, and its recipient decides how to respond. A single model call that authors everyone's dialogue and plan remains a **centralized director**, useful as a baseline but not evidence of peer coordination.
 
@@ -94,9 +94,9 @@ A player can select a goal, alter priorities, pause, inspect evidence and introd
 
 ### Example conversation and execution
 
-[Open the complete sequence](docs/architecture/04-coordination-sequence.svg) · [Editable source](docs/architecture/04-coordination-sequence.mmd)
+[Open the complete sequence](architecture/04-coordination-sequence.svg) · [Editable source](architecture/04-coordination-sequence.mmd)
 
-![Proposed cooperation sequence](docs/architecture/04-coordination-sequence.png)
+![Proposed cooperation sequence](architecture/04-coordination-sequence.png)
 
 This is an illustrative trace, not a transcript of a run:
 
@@ -122,9 +122,9 @@ This ledger establishes provenance. To claim that a resident or message *caused 
 
 ## 4 Validate messages and actions before effects
 
-[Open the validation diagram](docs/architecture/05-validation-and-evidence.svg) · [Editable source](docs/architecture/05-validation-and-evidence.mmd)
+[Open the validation diagram](architecture/05-validation-and-evidence.svg) · [Editable source](architecture/05-validation-and-evidence.mmd)
 
-![Message and action validation](docs/architecture/05-validation-and-evidence.png)
+![Message and action validation](architecture/05-validation-and-evidence.png)
 
 A proposed message envelope contains `id`, `world_id`, `episode_id`, `sender_id`, recipients, kind, `goal_id`, `reply_to`, `observed_revision`, expiry tick, evidence IDs and a bounded typed payload. The application binds the sender from the executing actor context; a model cannot impersonate another resident by inventing a sender ID.
 
@@ -142,9 +142,9 @@ Quantity-bearing factual speech can be rendered from receipt fields to avoid emb
 
 ## 5 State and MongoDB responsibilities
 
-[Open the proposed state model](docs/architecture/06-proposed-state-model.svg) · [Editable source](docs/architecture/06-proposed-state-model.mmd)
+[Open the proposed state model](architecture/06-proposed-state-model.svg) · [Editable source](architecture/06-proposed-state-model.mmd)
 
-![Proposed state relationships](docs/architecture/06-proposed-state-model.png)
+![Proposed state relationships](architecture/06-proposed-state-model.png)
 
 Keep the existing `worldCharacters` identity/appearance and battle history intact. Add a versioned episode model beside the existing free-play colony, rather than rewriting its saved economy in place.
 

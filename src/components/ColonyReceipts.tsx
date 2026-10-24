@@ -10,7 +10,7 @@ import './ColonyReceipts.css'
 const amount = (value: number) => Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'
 const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 const changes = (values: unknown = {}) => Object.entries(receiptResources(values) ?? {}).filter(([, value]) => typeof value === 'number' && value > 0).map(([key, value]) => `${amount(value!)} ${key}`)
-export const receiptOutput = (receipt: IslandEvent) => [...changes(receipt.resource_delta), ...(receipt.progress_delta ? [`${amount(receipt.progress_delta)} build work`] : [])]
+const receiptOutput = (receipt: IslandEvent) => [...changes(receipt.resource_delta), ...(receipt.progress_delta ? [`${amount(receipt.progress_delta)} build work`] : [])]
 export const recentActionReceipts = (colony: Colony) => colony.island.events.filter(event => Boolean(event.action_id)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
 
 /** Resolve the stored receipt before calling its provenance verified. Never infer it from a model's text. */

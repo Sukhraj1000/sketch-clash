@@ -58,7 +58,7 @@ The final live Gemini check returned **RateLimitError**. No decision/output was 
 
 ## Earlier increment — two islands and useful cooperation
 
-The default island view now compares Winner Island and Loser Island. Immutable completed battle slots route to distinct per-side residents; the original collection and original island are preserved. Each side has its own resources, tasks, projects, capability-limited agents and shared work board. A typed internal SDK accepts requests, offers, actions and evidence-backed reports; transactions enforce ownership, accepted capability, exclusive commitments and exactly-once effects. See [COLONIES_IMPLEMENTATION.md](COLONIES_IMPLEMENTATION.md) for architecture, diagrams, limits and demo steps.
+The default island view now compares Winner Island and Loser Island. Immutable completed battle slots route to distinct per-side residents; the original collection and original island are preserved. Each side has its own resources, tasks, projects, capability-limited agents and shared work board. A typed internal SDK accepts requests, offers, actions and evidence-backed reports; transactions enforce ownership, accepted capability, exclusive commitments and exactly-once effects. See [COLONIES_IMPLEMENTATION.md](docs/COLONIES_IMPLEMENTATION.md) for architecture, diagrams, limits and demo steps.
 
 The original paper arcade theme remains. Eighteen procedural object identities now improve coarse saved templates while retaining identity, palette, accessories and scale. Limbs, blinking, working poses, follow controls and a visible charging dock make the existing task state legible. The in-app **HOW THE ISLAND THINKS** diagram links actual public proposals, checks, tasks, receipts and same-island replies. Both explicit AI entries and deterministic coordination are labelled honestly.
 
@@ -76,7 +76,7 @@ The two-island planner uses a default 24 calls per UTC day shared with original-
 
 ## Earlier increment — the purposeful island
 
-The original bold **paper arcade UI is restored**. The island is now a small persistent colony: object-based residents travel, gather, build, level up and remember actual contributions. The user requested this expansion; earlier statements that autonomous island behaviour was out of scope are superseded by [ISLAND_PLAN.md](ISLAND_PLAN.md). Everything remains local, with server-side Gemini and Atlas.
+The original bold **paper arcade UI is restored**. The island is now a small persistent colony: object-based residents travel, gather, build, level up and remember actual contributions. The user requested this expansion; earlier statements that autonomous island behaviour was out of scope are superseded by [ISLAND_PLAN.md](docs/ISLAND_PLAN.md). Everything remains local, with server-side Gemini and Atlas.
 
 Four staged structures—garden, workshop, beacon and boardwalk—each have three upgrade levels and a real production benefit. After all 12 upgrades, expeditions consume supplies and add discoveries. Residents have object-based capabilities, automatic useful-job selection, manual assignments, XP, levels, a bounded personal journal and optional AI-refined personas/plans. Use a 3D site or blueprint to set construction priority. Select a resident for task/personality/memory details, job assignment and original photo/history. Orbit, zoom, follow, reset, pause/resume and the accessible roster are available.
 
