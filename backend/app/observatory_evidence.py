@@ -97,7 +97,8 @@ class ReceiptEvidence:
                     'project_before', 'project_after', 'source', 'source_snapshot', 'capability_evidence',
                     'resource_net_delta', 'xp_gain', 'sequence', 'description', 'started_at', 'duration_seconds',
                     'agent_before', 'agent_after', 'capability_basis', 'effect_scope', 'effect_note',
-                    'decision_run_id', 'decision_evidence', 'action_id') if key in row}
+                    'decision_run_id', 'decision_evidence', 'action_id', 'scheduling_reason',
+                    'requested_action', 'requested_decision_id', 'action_switched') if key in row}
         result.update(id=row.get('id', row['_id']), action=row.get('kind', 'unknown'),
                       at=row['at'], actor_id=expected_actor,
                       actor_name=row.get('actor_name') or (actor or {}).get('display_name') or 'Unknown historical resident',

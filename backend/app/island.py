@@ -418,6 +418,8 @@ class IslandStore:
                            if gains else f"{agent['display_name']} completed {title.lower()}; full storage prevented a resource gain.")
         if task['kind'] == 'rest':
             description = f"{agent['display_name']} rested; no resources or construction work were added."
+            if task.get('scheduling_reason'):
+                description += ' ' + task['scheduling_reason']
         old_level = agent['level']
         agent['xp'] = min(1000000, agent['xp'] + task['xp_gain'])
         agent['level'] = min(MAX_LEVEL, 1 + math.isqrt(agent['xp'] // 24))
@@ -444,6 +446,10 @@ class IslandStore:
                  'agent_before': agent_before,
                  'agent_after': {'xp': agent['xp'], 'level': agent['level'], 'position': deepcopy(agent['position'])},
                  'capability_basis': deepcopy(task.get('capability_basis')),
+                 'scheduling_reason': task.get('scheduling_reason'),
+                 'requested_action': task.get('requested_action'),
+                 'requested_decision_id': task.get('requested_decision_id'),
+                 'action_switched': task.get('action_switched', False),
                  'effect_scope': 'abstract_island_ledger',
                  'effect_note': 'The local executor applies declared action yields and project work; this is not an observed real-world discovery.'}
         tx.put('islandEvents', event)

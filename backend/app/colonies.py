@@ -29,6 +29,8 @@ BOARD_LIMIT = 80
 BACKFILL_LIMIT = 1000
 COUNCIL_SECONDS = 45
 COUNCIL_HISTORY_LIMIT = 8
+AUTOMATIC_RESERVE = 40
+IDLE_CHECK_SECONDS = 60
 
 
 def colony_world_id(world_id: str, colony_id: str) -> str:
@@ -413,44 +415,108 @@ class _ColonyIsland(IslandStore):
                     text=reason, verified=True, origin='deterministic', participants=[p['agent_id'] for p in participants])
         tx.put('islandState', state)
 
+    def _production_yield(self, state, agent, action):
+        resource = action_resource(agent, action)
+        if resource is None:
+            return {}, False
+        earned_bonus = any(p.get('kind') == 'assembly' and p['level'] >= p['max_level']
+                           and action in p.get('benefit', {}).get('eligible_actions', [])
+                           and p['benefit'].get('resource') == resource for p in state['projects'])
+        amount = (agent['action_yields'][action][resource] + self._resource_bonus(state, resource)
+                  + (agent['level'] - 1) // 5 + int(earned_bonus))
+        return {resource: min(amount, max(0, MAX_RESOURCE - state['resources'][resource]))}, earned_bonus
+
+    def _work_options(self, state, agent, project):
+        """Explain executable actions using current stock and declared powers only."""
+        available, blocked, yields = [], [], {}
+        costs = self._cost(project) if project else {}
+        for action in agent['allowed_actions']:
+            reason, resource = None, action_resource(agent, action)
+            if action == 'build':
+                if project is None:
+                    reason = 'No unfinished project has been agreed by the crew.'
+                elif any(state['resources'][key] < cost for key, cost in costs.items()):
+                    missing = ', '.join(f"{key} ({cost - state['resources'][key]} short)"
+                                        for key, cost in costs.items() if state['resources'][key] < cost)
+                    reason = 'Construction needs ' + missing + '.'
+                elif not self._can_build(state, project):
+                    reason = 'The available construction places or remaining work are already reserved.'
+            elif action != 'rest':
+                gain, _ = self._production_yield(state, agent, action)
+                yields[action] = gain
+                if resource is None:
+                    reason = 'This action has no declared resource yield.'
+                elif not gain.get(resource):
+                    reason = f'Shared {resource} storage is full ({MAX_RESOURCE}/{MAX_RESOURCE}); this action cannot add stock.'
+            if reason:
+                blocked.append({'action': action, 'reason': reason, 'resource': resource})
+            else:
+                available.append(action)
+        useful = [action for action in available if action == 'build' or
+                  (action_resource(agent, action) is not None and
+                   state['resources'][action_resource(agent, action)] <
+                   max(AUTOMATIC_RESERVE, costs.get(action_resource(agent, action), 0) * 3))]
+        build_block = next((row['reason'] for row in blocked if row['action'] == 'build'), '')
+        idle_reason = ('' if useful else
+                       'Supported supplies are already stocked to the automatic reserve or full. ' + build_block)
+        return {'available_actions': available, 'useful_actions': useful, 'blocked_actions': blocked,
+                'action_yields': yields, 'resource_capacity': MAX_RESOURCE,
+                'full_resources': [key for key in RESOURCE_KEYS if state['resources'][key] >= MAX_RESOURCE],
+                'automatic_buffer_target': AUTOMATIC_RESERVE,
+                'selected_project_id': project['id'] if project else None, 'idle_reason': idle_reason,
+                'authority': 'Current executor admission facts, not model reasoning. Explicit gathering may use remaining capacity; automatic work stops at its reserve.'}
+
     def _choose_action(self, state, agent, project):
+        options = self._work_options(state, agent, project)
         assigned = agent['assignment']
         if assigned != 'auto':
             if assigned not in agent['allowed_actions']:
                 raise StoreError('Saved assignment exceeds accepted capabilities.', 503, 'capability_invariant')
-            if assigned != 'build' or self._can_build(state, project):
+            if assigned in options['available_actions']:
                 return assigned
+        if 'build' in options['useful_actions']:
+            return 'build'
         costs = self._cost(project) if project else {}
         shortages = sorted(costs, key=lambda resource: state['resources'][resource] / costs[resource])
         for resource in shortages:
-            actions = resource_actions(agent, resource)
+            actions = [action for action in resource_actions(agent, resource) if action in options['useful_actions']]
             if actions and state['resources'][resource] < costs[resource] * 3:
                 return max(actions, key=lambda action: agent['action_yields'][action][resource])
-        if self._can_build(state, project):
-            return 'build'
-        if project and any(state['resources'][resource] < cost for resource, cost in costs.items()):
-            return 'rest'  # A missing capability is a visible dependency, never a new power.
         preferred = agent['persona']['preferred_action']
-        resource = action_resource(agent, preferred)
-        if resource and state['resources'][resource] < 40:
+        if preferred in options['useful_actions']:
             return preferred
-        return 'explore'
+        production = [action for action in options['useful_actions'] if action_resource(agent, action)]
+        if production:
+            return min(production, key=lambda action: (state['resources'][action_resource(agent, action)],
+                                                       -next(iter(options['action_yields'][action].values())), action))
+        return 'rest'  # A missing capability or full reserve never creates a new power.
 
     def _schedule(self, state, agent, start):
         resources_before_reservation = deepcopy(state['resources'])
         project = self._choose_project(state)
+        options = self._work_options(state, agent, project)
+        requested = agent['assignment'] if agent['assignment'] != 'auto' else None
         action = self._choose_action(state, agent, project)
         if action not in agent['allowed_actions']:
             raise StoreError('Scheduler proposed an unsupported capability.', 503, 'capability_invariant')
         sequence = agent['completed_actions'] + 1
         task_id = key_for(self.world_id, 'action', agent['character_id'], str(sequence))
         seed = int(task_id[:8], 16)
-        duration = 14 + seed % 5
+        duration = IDLE_CHECK_SECONDS if action == 'rest' else 14 + seed % 5
+        switched = requested is not None and requested != action
+        blocked_reason = next((row['reason'] for row in options['blocked_actions'] if row['action'] == requested), '')
+        reason = (f'{requested} was not useful now: {blocked_reason} Switched to {action}.' if switched else
+                  options['idle_reason'] if action == 'rest' and options['idle_reason'] else
+                  f'Executing the accepted {action} assignment.' if requested else
+                  'Construction is funded and an agreed work place is available.' if action == 'build' else
+                  f'Replenish {action_resource(agent, action)} within the project need or automatic reserve.')
         task = {'id': task_id, 'kind': action, 'title': ACTION_LABELS[action], 'started_at': _iso(start),
                 'ends_at': _iso(start + timedelta(seconds=duration)), 'duration_seconds': duration,
                 'from': deepcopy(agent['position']), 'to': deepcopy(agent['position']), 'gain': {},
                 'progress_gain': 0, 'project_id': None, 'resource': None, 'xp_gain': 3,
                 'sdk_version': SDK_VERSION,
+                'scheduling_reason': reason, 'requested_action': requested, 'action_switched': switched,
+                'requested_decision_id': agent.get('pending_decision_id') or (agent.get('active_commitment') or {}).get('decision_id'),
                 'decision_origin': 'player' if agent.get('assignment_origin') == 'player' and agent['assignment'] == action else 'deterministic',
                 'decision_id': None}
         if action == 'build' and project:
@@ -467,19 +533,15 @@ class _ColonyIsland(IslandStore):
                         to=_position({'x': project['position']['x'] + (seed % 3 - 1) * .25,
                                       'z': project['position']['z'] + (.8 if project['kind'] == 'beacon' else 1)}))
         elif action == 'rest':
-            task.update(title='Wait for a useful contribution' if project else 'Take a quiet breather',
+            task.update(title='Wait for useful work',
                         to={'x': -.7, 'z': 1.1}, xp_gain=0)
         else:
             resource = action_resource(agent, action)
             if resource is None:
                 raise StoreError('A production action has no accepted yield.', 503, 'capability_invariant')
-            amount = agent['action_yields'][action][resource] + self._resource_bonus(state, resource) + (agent['level'] - 1) // 5
-            earned_bonus = any(p.get('kind') == 'assembly' and p['level'] >= p['max_level']
-                               and action in p.get('benefit', {}).get('eligible_actions', [])
-                               and p['benefit'].get('resource') == resource for p in state['projects'])
-            amount += int(earned_bonus)
+            gain, earned_bonus = self._production_yield(state, agent, action)
             task['tested_structure_bonus'] = int(earned_bonus)
-            task['gain'] = {resource: min(amount, max(0, MAX_RESOURCE - state['resources'][resource]))}
+            task['gain'] = gain
             task['resource'] = resource
             destination = deepcopy(RESOURCE_LOCATIONS[resource])
             if action == 'explore':
@@ -502,6 +564,13 @@ class _ColonyIsland(IslandStore):
             task['decision_id'] = commitment.get('decision_id')
         elif agent.get('pending_decision_action') == action:
             task.update(decision_id=agent.get('pending_decision_id'), decision_origin=agent.get('assignment_origin', 'model'))
+            agent.pop('pending_decision_action', None)
+            agent.pop('pending_decision_id', None)
+            agent['assignment'] = 'auto'
+            agent['assignment_origin'] = 'deterministic'
+        elif switched and agent.get('pending_decision_action') == requested:
+            # Retain the rejected request as evidence on this task, without
+            # attributing the fallback to Gemini or retrying a stale choice forever.
             agent.pop('pending_decision_action', None)
             agent.pop('pending_decision_id', None)
             agent['assignment'] = 'auto'
@@ -531,7 +600,8 @@ class _ColonyIsland(IslandStore):
         tx.put('colonyBoard', value)
         record_event(tx, self.repo.root_world_id, event_id=key_for(identifier, 'published'), kind='board.message',
                      island_id=self.repo.colony_id, actor_id=value['actor_id'], actor_name=value['actor_name'],
-                     session_id=value.get('session_id'), message=value.get('interpretation') or value.get('text', ''),
+                     session_id=value.get('session_id'),
+                     message=(value.get('interpretation') or value.get('text', '')) if value['origin'] == 'model' else value.get('text', ''),
                      data={'message_id': identifier, 'message_kind': kind, 'origin': value['origin'],
                            'reply_to_id': value.get('reply_to_id'), 'project_id': value.get('project_id'),
                            'receipt_ids': deepcopy(value.get('receipt_ids', [])),
@@ -578,6 +648,26 @@ class _ColonyIsland(IslandStore):
 
     def _coordinate(self, tx, state, agents, now):
         board = self._requests(tx)
+        for row in board:
+            if row['status'] not in ('open', 'claimed') or state['resources'][row['resource']] < MAX_RESOURCE:
+                continue
+            # Other real production can satisfy the storage need while a model
+            # offer waits. Cancel the obsolete obligation, never fabricate delivery.
+            reason = f"Shared {row['resource']} storage is full; this request can no longer add stock."
+            row.update(status='superseded', resolution_reason=reason)
+            tx.put('colonyBoard', row)
+            if row.get('commitment_id'):
+                commitment = tx.get('colonyCommitments', row['commitment_id'])
+                if commitment:
+                    commitment.update(status='cancelled', reason='storage_full')
+                    tx.put('colonyCommitments', commitment)
+                for agent in agents:
+                    if (agent.get('active_commitment') or {}).get('id') == row['commitment_id']:
+                        agent.update(active_commitment=None, assignment='auto', assignment_origin='deterministic')
+                        tx.put('islandAgents', agent)
+                        self._new_board(tx, agent, 'reflection', now, key_for(row['id'], 'storage-full'),
+                                actor_id='executor', actor_name='Island executor', text=reason,
+                                request_id=row['id'], origin='executor', verified=True)
         for row in board:
             if row['kind'] != 'request' or row['status'] not in ('open', 'claimed') or _time(row['expires_at']) > now:
                 continue
@@ -717,7 +807,18 @@ class _ColonyIsland(IslandStore):
                          'decision_origin': receipt['decision_origin'], 'execution_origin': receipt['execution_origin'],
                          'receipt_version': receipt['receipt_version'], 'reserved_cost': receipt['reserved_cost'],
                          'resource_net_delta': receipt['resource_net_delta'],
+                         'scheduling_reason': receipt.get('scheduling_reason'), 'action_switched': receipt.get('action_switched', False),
                          'progress_delta': receipt.get('progress_delta', 0)}, at=_iso(at))
+        notice = {'kind': task['kind'], 'reason': task.get('scheduling_reason', '')}
+        if (task.get('decision_origin') == 'model' or task.get('action_switched') or
+                (task['kind'] == 'rest' and agent.get('last_executor_notice') != notice)):
+            self._new_board(tx, agent, 'report', at, key_for(receipt['id'], 'execution-report'),
+                    text=receipt['description'], interpretation=task.get('scheduling_reason', ''),
+                    receipt_ids=[receipt['id']], origin='executor', verified=True,
+                    decision_id=task.get('decision_id'), requested_decision_id=task.get('requested_decision_id'),
+                    session_id=decision.get('session_id') if accepted_decision else None,
+                    resource_delta=deepcopy(receipt['resource_delta']), progress_delta=receipt.get('progress_delta', 0))
+        agent['last_executor_notice'] = notice
         contributions = agent['contributions']
         for resource, quantity in receipt['resource_delta'].items():
             contributions['resources'][resource] += quantity
@@ -885,6 +986,7 @@ class ColoniesStore(DeliberationMixin):
                     'actor': {key: deepcopy(agent.get(key)) for key in ('id', 'character_id', 'display_name', 'object_type', 'allowed_actions',
                               'capabilities', 'action_yields', 'resource_sources', 'persona', 'assignment', 'task', 'memory', 'active_commitment', 'contributions')},
                     'resources': deepcopy(state['resources']), 'projects': deepcopy(state['projects']), 'active_project_id': state['active_project_id'],
+                    'work_options': island._work_options(state, agent, island._choose_project(deepcopy(state))),
                     'board': [public(row) for row in board], 'last_receipts': [public(row) for row in receipts if 'sequence' in row][:4],
                     'planning': island._planning_view(tx, state, all_agents, island._now()),
                     'council': [{key: deepcopy(row[key]) for key in ('id', 'at', 'chosen_project_id', 'reason', 'origin', 'votes', 'model_message_ids')} for row in state.get('council', [])[-1:]],
