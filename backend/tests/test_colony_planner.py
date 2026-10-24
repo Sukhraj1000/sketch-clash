@@ -476,3 +476,69 @@ def test_manual_council_does_not_silently_switch_away_from_a_paused_island(fixtu
         worker.request('manual-winner-only', colony_id='winners')
     assert exc.value.code == 'colony_not_ready'
     assert worker.sessions() == [] and provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_resumed_winner_waits_for_current_six_turn_council_then_gets_next_slow_council(fixture):
+    """Resuming an island changes eligibility without interrupting its neighbour."""
+    from datetime import datetime
+    repo, colonies, provider, clock, worker = fixture
+    original_snapshot, original_observation = colonies.snapshot, colonies.observation
+    winner_paused = True
+
+    def snapshot():
+        value = original_snapshot()
+        for colony in value['colonies']:
+            side = colony['id']
+            colony['island']['paused'] = side == 'winners' and winner_paused
+            colony['island']['agents'] = [
+                {'id': f'{side}-agent-{i}', 'character_id': f'{side}-character-{i}',
+                 'display_name': f'{side} resident {i}'} for i in range(3)]
+        return value
+
+    def observation(side, actor):
+        value = original_observation(side, side + '-agent')
+        value['actor']['id'] = actor
+        return value
+
+    colonies.snapshot, colonies.observation = snapshot, observation
+    worker.queue.set_pacing('slow')
+    first = worker.request('loser-council-before-winner-resume', automatic=True)
+    assert first['colony_id'] == 'losers'
+    session_id = first['session_id']
+    assert worker.sessions()[0]['max_turns'] == 6
+    await worker.run(first['id'])
+
+    # Mirror the observable state transition produced by the island resume API.
+    # The scheduler fixture deliberately has no runtime or live provider client.
+    winner_paused = False
+    worker._check_population()
+    state = repo.read(worker._state)
+    assert state['preferred_colony_id'] == 'winners'
+    assert state['active_session_id'] == session_id
+    completed = [first['id']]
+    for _ in range(5):
+        turn = worker.status()['active_run']
+        assert turn['colony_id'] == 'losers' and turn['session_id'] == session_id
+        completed.append(turn['id'])
+        await worker.run(turn['id'])
+        clock.add(6)
+        worker._check_population()
+
+    assert worker.status()['active_run'] is None
+    assert worker.status()['active_session_id'] is None
+    assert len(provider.calls) == 6
+    starts = sorted(datetime.fromisoformat(repo._data['colonyReasoning'][run_id]['dispatched_at']).timestamp()
+                    for run_id in completed)
+    assert all(right - left >= 60 for left, right in zip(starts, starts[1:]))
+
+    clock.add(6)
+    worker._check_population()
+    state = repo.read(worker._state)
+    following = worker.request('winner-council-after-resume', automatic=True,
+        colony_id=state.get('preferred_colony_id'), trigger=state.get('next_trigger', 'review_progress'))
+    assert following['colony_id'] == 'winners'
+    assert worker.sessions()[0]['trigger'] == 'population_changed'
+    assert worker.queue.pacing_mode == 'slow' and not worker.queue.paused
+    assert worker.queue.min_dispatch_interval_seconds == 60
+    assert len(provider.calls) == 6  # Scheduling the next council does not invoke the SDK.
