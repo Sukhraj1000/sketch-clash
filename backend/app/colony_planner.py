@@ -70,6 +70,14 @@ whose costs use the available materials and ideas. Never claim it supplies missi
 Bonus coverage is capped: another structure with an already covered benefit adds no operational
 yield. Do not manufacture duplicate buildings or repeat tests just to spend surplus resources.
 When research is needed, test an uncovered useful function supported by current object evidence.
+Read research_options for an untested useful benchmark; this is a hypothesis, not promised success.
+An unknown apparent_cavity is missing camera evidence, not an observed solid object. A
+cavity_model with declared_simulation_cavity is an explicit game assumption based on declared
+capabilities; you may test it in this simulation but must not call it a visual observation.
+If the crew's behavior says waiting_for_change, explain the missing capability or evidence once.
+An unchanged failed test is not useful research. Wait for a new capability, arrangement or evidence
+instead of repeatedly testing the same conditions. Electronics cannot supply energy unless charge
+is an allowed action; a new energy courier would change that constraint.
 Read work_options before proposing an action. Its useful_actions fit current storage, reserves and
 the agreed project; allowed_actions only describes your capabilities, not whether that work helps now.
 If a resource is full, stop collecting it and explain the switch. Do not repeat a zero-gain receipt
@@ -86,7 +94,12 @@ An offer is intention, not completion. Choose only supplied IDs; newly proposed 
 are assigned by the server. The simulator validates costs, capabilities and measurable outcomes.
 Include a concise public message in this council turn. A reply must actually address the prior
 message when one exists. Prefer one or two short sentences; public reason and message text must
-each be at most 600 characters. For experiments, include only that family's context fields, using
+each be at most 600 characters. experiment.hypothesis must be one concise testable prediction,
+ideally under 240 characters and never over 400. Blueprint name is at most 80 characters and
+purpose at most 300. Keep IDs in structured reference fields rather than repeating full IDs in prose.
+If response_repair is present, the previous response was rejected before any effect. Use its field
+errors to return a fresh concise valid decision for this same conversation; no prior action happened.
+For experiments, include only that family's context fields, using
 the positive production benchmark values supplied in learning.tools. Do not fill unrelated fields
 with zero. Project proposal/support/objection messages require a real unfinished project_id.
 Return structured AgentDecision; null for unused optional fields. No private reasoning transcript,
@@ -145,7 +158,7 @@ class ColonyPlanner:
                 'pending_run_id': None, 'active_session_id': None, 'last_status': 'idle', 'next_due': self.clock(),
                 'last_request_at': None, 'last_colony_id': 'losers', 'actor_turns': {},
                 'population_fingerprints': {}, 'milestone_fingerprints': {}, 'auto_blocked': False,
-                'validation_backoff': {}, 'error': None, 'version': 4}
+                'validation_backoff': {}, 'reviewed_work_fingerprints': {}, 'error': None, 'version': 5}
 
     def _state(self, tx, create=False):
         state = tx.get('colonyPlanner', self.state_id)
@@ -189,6 +202,7 @@ class ColonyPlanner:
                 'active_session_id': state.get('active_session_id'), 'sessions': self.sessions(limit=8),
                 'runs': safe_runs, 'error': state.get('error'), 'auto_blocked': state['auto_blocked'],
                 'validation_backoff': deepcopy(state['validation_backoff']),
+                'reviewed_work_fingerprints': deepcopy(state['reviewed_work_fingerprints']),
                 'provider_queue': self.queue.status(),
                 'limits': {'requests_per_day': self.daily_limit, 'automatic_interval_seconds': self.interval,
                            'manual_interval_seconds': 2, 'max_output_tokens': 2048, 'max_in_flight': 1,
@@ -213,8 +227,14 @@ class ColonyPlanner:
 
     def _available_colonies(self, snapshot, state=None):
         eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
+        def changed_work(colony):
+            behavior = colony.get('behavior') or {}
+            return not (state is not None and behavior.get('status') == 'waiting_for_change'
+                        and behavior.get('fingerprint')
+                        and state.get('reviewed_work_fingerprints', {}).get(colony['id']) == behavior['fingerprint'])
         return [c for c in snapshot['colonies'] if c['island']['enabled'] and not c['island']['paused']
                 and any(eligible(a) for a in c['island']['agents'])
+                and changed_work(c)
                 and (state or {}).get('validation_backoff', {}).get(c['id'], {}).get('until', 0) <= self.clock()]
 
     def _pick(self, snapshot, state, colony_id=None, agent_id=None, *, allow_fallback=False, automatic=False):
@@ -277,6 +297,7 @@ class ColonyPlanner:
             if self.daily_limit and budget['day'] == utc_day(now) and budget['requests_today'] >= self.daily_limit: raise StoreError('The configured daily allowance is used.', 429, 'planner_daily_limit')
             colony, actors = self._pick(snapshot, state, colony_id, agent_id,
                                         allow_fallback=automatic and not agent_id, automatic=automatic)
+            state['reviewed_work_fingerprints'].pop(colony['id'], None)
             actual_trigger = 'review_progress' if automatic and colony_id and colony['id'] != colony_id else trigger
             sid = key_for(self.repo.world_id, 'council-session', request_key)
             session = {'_id': sid, 'id': sid, 'world_id': self.repo.world_id, 'request_key': request_key,
@@ -310,6 +331,8 @@ class ColonyPlanner:
             'world_id': self.repo.world_id, 'colony_id': run['colony_id'],
             'agent_id': run['agent_id'], 'status': 'rejected'}, sort='created_at', limit=3))
         payload['recent_validation_feedback'] = []
+        if run.get('response_repair'):
+            payload['response_repair'] = deepcopy(run['response_repair'])
         for row in rejected:
             attempt = deepcopy(row.get('decision', {}))
             blueprint = attempt.get('blueprint')
@@ -335,6 +358,7 @@ class ColonyPlanner:
         # Build concise options from the full current evidence before trimming old
         # history. This does not choose a plan; each resident still decides publicly.
         payload['work_opportunities'] = work_opportunities(payload)
+        payload['behavior'] = deepcopy(colony.get('behavior', {}))
         learning = payload.get('learning')
         if isinstance(learning, dict):
             own = payload.get('actor', {}).get('character_id')
@@ -342,9 +366,7 @@ class ColonyPlanner:
             # complete; context trimming never changes or promotes a finding.
             dossiers = learning.get('dossiers', [])
             if isinstance(dossiers, list):
-                learning['dossiers'] = sorted(dossiers, key=lambda d: d.get('resident_id', d.get('id')) != own)[:12]
-            for field, limit in (('findings', 8), ('experiments', 6), ('blueprints', 8), ('research', 8)):
-                if isinstance(learning.get(field), list): learning[field] = learning[field][:limit]
+                learning['dossiers'] = sorted(dossiers, key=lambda d: d.get('resident_id', d.get('id')) != own)
         actor = payload.get('actor', {})
         for key in ('memory', 'memories'):
             if key in actor: actor[key] = actor[key][-4:]
@@ -375,9 +397,11 @@ class ColonyPlanner:
             for colony in available:
                 changed = state['population_fingerprints'].get(colony['id']) != population_fingerprint(colony)
                 milestone = state['milestone_fingerprints'].get(colony['id']) != self._milestone_fingerprint(colony)
-                if changed or milestone:
+                reviewed = state['reviewed_work_fingerprints'].get(colony['id'])
+                work_changed = bool(reviewed and reviewed != (colony.get('behavior') or {}).get('fingerprint'))
+                if changed or milestone or work_changed:
                     candidates.append((not changed, colony['id'] == state['last_colony_id'], colony['id'],
-                                       'population_changed' if changed else 'project_or_experiment_completed'))
+                                       'population_changed' if changed else 'work_conditions_changed' if work_changed else 'project_or_experiment_completed'))
             if candidates:
                 _, _, colony_id, trigger = sorted(candidates)[0]
                 if colony_id == state['last_colony_id']:
@@ -466,15 +490,15 @@ class ColonyPlanner:
                             run.update(status='applying', decision=decision)
                             state.update(last_status='applying', auto_blocked=False, error=None)
                         except ValidationError:
-                            run.update(status='rejected', validation_code='invalid_agent_decision',
-                                       error='The saved provider response did not match the decision schema.')
-                            self._validation_delay(state, run, 'invalid_agent_decision')
-                            state.update(last_status='rejected', pending_run_id=None, auto_blocked=False,
-                                         next_due=self.clock()+self.interval, error=run['error'])
+                            # Let the normal response handler either queue the
+                            # single paced text correction or reject strictly.
+                            # A restart must not discard a recoverable council.
+                            run.update(status='response_received')
+                            state.update(last_status='response_received', auto_blocked=False, error=None)
                     else:
                         run.update(status='uncertain', error='Provider outcome unknown after restart; this request will not be replayed.')
                         state.update(last_status='uncertain', pending_run_id=None, auto_blocked=True, error=run['error'])
-                    if run['status'] != 'applying':
+                    if run['status'] not in ('applying', 'response_received'):
                         session = tx.get('colonyCouncilSessions', run.get('session_id', ''))
                         if session:
                             session.update(status=run['status'], completed_at=iso(self.clock())); tx.put('colonyCouncilSessions', session)
@@ -525,7 +549,8 @@ class ColonyPlanner:
         if run['status'] == 'response_received':
             try:
                 decision = AgentDecision.model_validate_json(run['proposal_text']).model_dump(exclude_none=True)
-            except ValidationError:
+            except ValidationError as exc:
+                if await asyncio.to_thread(self._queue_text_repair, run_id, exc): return
                 await asyncio.to_thread(self._fail, run_id, 'rejected', 'The saved provider response did not match the decision schema.',
                     terminal=True, block_auto=False, error_code='invalid_agent_decision')
                 return
@@ -637,10 +662,11 @@ class ColonyPlanner:
                         provider_response_id=metadata.get('id'), proposal_text=str(response.output_text or '')[:16000], provider_status=metadata.get('status'))
                     if budget['day'] == utc_day(datetime.fromisoformat(current['started_at']).timestamp()): budget['reported_tokens'] += int(used.get('total_tokens', 0) or 0)
                     tx.put('colonyReasoning', current); tx.put('islandPlanner', budget)
-                    _event(tx, self.repo.world_id, run_id + ':received', 'model.completed', current, 'Gemini returned a public proposal.', {'model': current['model'], 'total_tokens': int(used.get('total_tokens', 0) or 0)})
+                    _event(tx, self.repo.world_id, run_id + ':received:' + str(current.get('attempts', 1)), 'model.completed', current, 'Gemini returned a public proposal.', {'model': current['model'], 'total_tokens': int(used.get('total_tokens', 0) or 0)})
                 await asyncio.to_thread(self.repo.transaction, usage)
             try: decision = AgentDecision.model_validate_json(response.output_text).model_dump(exclude_none=True)
             except ValidationError as exc:
+                if await asyncio.to_thread(self._queue_text_repair, run_id, exc): return
                 errors = [{'field': '.'.join(str(p) for p in e['loc']) or 'decision', 'type': e['type'], 'message': e['msg'][:240]} for e in exc.errors(include_input=False, include_url=False)[:6]]
                 def invalid(tx):
                     current = tx.get('colonyReasoning', run_id); current['validation_errors'] = errors; tx.put('colonyReasoning', current)
@@ -665,6 +691,37 @@ class ColonyPlanner:
                 terminal=isinstance(exc, StoreError) and exc.status < 500,
                 block_auto=not (isinstance(exc, StoreError) and (exc.code in RECOVERABLE_CONFLICTS or exc.status in (404, 422))),
                 error_code=exc.code if isinstance(exc, StoreError) else None)
+
+    def _queue_text_repair(self, run_id, error):
+        """One paced correction of overlong prose, before any world effect.
+
+        Archive the exact rejected response. Never shorten model text ourselves
+        or retry uncertain requests/invalid capabilities under this mechanism.
+        """
+        errors = [{'field': '.'.join(str(p) for p in e['loc']), 'type': e['type'], 'message': e['msg'][:240]}
+                  for e in error.errors(include_input=False, include_url=False)]
+        fields = {'reason', 'message.text', 'experiment.hypothesis', 'blueprint.name', 'blueprint.purpose'}
+        if not errors or any(e['type'] != 'string_too_long' or e['field'] not in fields for e in errors):
+            return False
+        def op(tx):
+            current = tx.get('colonyReasoning', run_id)
+            if (not current or current.get('status') != 'response_received'
+                    or current.get('text_repair_count', 0) >= 1 or current.get('decision') or current.get('receipt')):
+                return False
+            current.setdefault('rejected_responses', []).append({key: deepcopy(current[key]) for key in
+                ('proposal_text', 'usage', 'provider_response_id', 'received_at', 'model_version', 'attempts') if key in current})
+            current['rejected_responses'][-1]['validation_errors'] = errors
+            current.update(status='queued', text_repair_count=1, response_repair={'status': 'rejected_before_effect', 'errors': errors},
+                           error='The public response exceeded a text limit; one correction is queued at the normal island pace.')
+            for key in ('proposal_text', 'received_at', 'provider_response_id', 'provider_status'):
+                current.pop(key, None)
+            state = self._state(tx, True)
+            state.update(last_status='queued', error=current['error'])
+            tx.put('colonyReasoning', current); tx.put('colonyPlanner', state)
+            _event(tx, self.repo.world_id, run_id + ':text-repair', 'model.deferred', current,
+                   current['error'], {'validation_errors': errors, 'effect_applied': False})
+            return True
+        return self.repo.transaction(op)
 
     def _interrupted(self, run_id):
         def op(tx):
@@ -813,11 +870,20 @@ class ColonyPlanner:
                     # never call Gemini again after an uncertain database commit.
                     log.warning('council_resolution_pending category=%s', type(exc).__name__)
                     return
+        # A real completed council may acknowledge a fully constrained world.
+        # Save its evidence fingerprint so idle ticks do not repeatedly buy the
+        # same discussion. Manual requests and meaningful world changes bypass it.
+        after = await asyncio.to_thread(self.colonies.snapshot)
+        behavior = next((c.get('behavior', {}) for c in after.get('colonies', []) if c['id'] == session['colony_id']), {})
         def op(tx):
             current = tx.get('colonyCouncilSessions', session['id']); state = self._state(tx, True)
             current.update({key: outcome[key] for key in ('status', 'project_id', 'reason') if key in outcome},
                            completed_at=iso(self.clock()), outcome_id=outcome.get('id'))
             state.update(active_session_id=None, next_due=self.clock()+self.interval)
+            if behavior.get('status') == 'waiting_for_change' and behavior.get('fingerprint'):
+                state['reviewed_work_fingerprints'][session['colony_id']] = behavior['fingerprint']
+            else:
+                state['reviewed_work_fingerprints'].pop(session['colony_id'], None)
             tx.put('colonyCouncilSessions', current); tx.put('colonyPlanner', state)
             _event(tx, self.repo.world_id, session['id'] + ':resolved', 'council.' + outcome['status'],
                 {'session_id': session['id'], 'colony_id': session['colony_id']}, outcome.get('reason', ''), outcome)

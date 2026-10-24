@@ -994,6 +994,7 @@ class ColoniesStore(DeliberationMixin):
                 'valued_residents': len(values), 'unknown_value_residents': len(characters) - len(values)}
 
     def snapshot(self):
+        from .colony_behavior import behavior_summary
         mode = self.repo.read(lambda tx: tx.get('colonyModes', self.state_id))
         colonies = []
         for colony_id, island in self.islands.items():
@@ -1008,6 +1009,7 @@ class ColoniesStore(DeliberationMixin):
                              'planning': planning, 'council': deepcopy(snapshot.get('council', [])),
                              'learning': self.learning.snapshot(island.world_id),
                              'world': {'id': island.world_id, 'name': COLONY_NAMES[colony_id], 'layout_seed': 4127}})
+            colonies[-1]['behavior'] = behavior_summary(colonies[-1])
         left, right = (colony['metrics']['project_levels'] for colony in colonies)
         return {'enabled': bool(mode), 'server_time': self.repo.clock(), 'persistence': self.repo.persistence, 'colonies': colonies,
                 'placement_policy': 'one_resident_per_side_and_canonical_type', 'sdk_version': SDK_VERSION,

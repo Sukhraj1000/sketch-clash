@@ -9,7 +9,7 @@ from __future__ import annotations
 from copy import deepcopy
 import math
 
-from .colony_experiments import BENEFITS, validate_blueprint
+from .colony_experiments import BENEFITS, PRODUCTION_BENCHMARKS, RULE_VERSION, context_for, validate_blueprint
 from .repository import StoreError
 
 PRIMARY_KINDS = {'hold': ['panel', 'connector'], 'contain': ['vessel'], 'support': ['beam', 'panel']}
@@ -65,6 +65,52 @@ def _free_sites(projects):
     return [{'x': x, 'y': 0, 'z': z} for x, z in points
             if all(math.hypot(x - _number(position.get('x')), z - _number(position.get('z'))) >= .65
                    for position in existing)][:6]
+
+
+def _research_options(actor, dossiers, experiments, coverage, sites, slots, resources):
+    """Uncovered functions worth testing, never a prediction of success.
+
+    An unchanged failed production test is not a new opportunity. Different
+    arrangements remain model proposals; this small list covers grounded solo
+    tests and marks its scope explicitly instead of claiming exhaustive search.
+    """
+    identifier = actor.get('character_id')
+    dossier = dossiers.get(identifier)
+    if not dossier or not sites or not slots or _number(resources.get('ideas')) < 1:
+        return []
+    props = dossier.get('simulation_properties') or {}
+    output = []
+    for row in coverage:
+        family = row['family']
+        if not set(row['eligible_crew_actions']) - set(row['already_provided_actions']) - set(row['planned_actions']):
+            continue
+        cavity = props.get('cavity_model') or {}
+        if family == 'contain' and cavity.get('status') not in ('observed_cavity', 'declared_simulation_cavity'):
+            continue
+        current_tests = [test for test in experiments if test.get('family') == family
+                         and test.get('rule_version') == RULE_VERSION
+                         and test.get('subject_ids') == [identifier]
+                         and test.get('property_fingerprints') == [dossier.get('property_fingerprint')]
+                         and test.get('status') != 'blocked' and isinstance(test.get('result'), dict)]
+        # A failed normal-workload test needs a changed arrangement/evidence,
+        # not another identical paid probe. Successful tests go to tested_designs.
+        normal_context = context_for(family, PRODUCTION_BENCHMARKS[family])
+        def already_tested(test):
+            context = test.get('context') or {}
+            if test['result'].get('success'):
+                return all(_number(context.get(k), -1) >= v for k, v in PRODUCTION_BENCHMARKS[family].items())
+            # Failure at another tilt, support count or heavier load does not
+            # establish failure of the proposed normal arrangement.
+            return all(_number(context.get(k), v) == v for k, v in normal_context.items())
+        if any(already_tested(test) for test in current_tests):
+            continue
+        output.append({'family': family, 'resident_id': identifier, 'dossier_id': dossier.get('id'),
+                       'evidence_basis': cavity.get('authority', 'declared_simulation_geometry') if family == 'contain' else 'declared_simulation_geometry',
+                       'property_fingerprint': dossier.get('property_fingerprint'),
+                       'context': deepcopy(PRODUCTION_BENCHMARKS[family]),
+                       'benefits_actions': row['eligible_crew_actions'],
+                       'reason': 'An uncovered useful function has current simulation evidence and no matching completed benchmark test. Test before claiming a benefit.'})
+    return output
 
 
 def work_opportunities(payload):
@@ -158,16 +204,19 @@ def work_opportunities(payload):
             'missing_stock': {resource: amount - _number(resources.get(resource)) for resource, amount in cost.items()
                               if amount > _number(resources.get(resource))}})
     designs.sort(key=lambda row: not row['funded_from_current_stock'])
+    research = _research_options(actor, dossiers, _rows(learning.get('experiments')), coverage, sites, assembly_slots, resources)
     return {'authority': 'Current observation facts and independently validated options; the model chooses and peers must explicitly agree. Revalidate at execution.',
         'funded_projects': funded[:8], 'projects_needing_supplies': gathering[:4], 'blocked_projects': blocked[:4],
         'no_additional_benefit_projects': redundant[:6], 'bonus_coverage': coverage,
         'tested_designs': designs[:6], 'omitted_design_counts': excluded,
+        'research_options': research[:3],
         'free_sites': sites, 'remaining_assembly_slots': assembly_slots,
         'next_steps': [
             'Existing funded projects can receive a proposal or support with their exact project_id; agreement permits actual build work.',
             'A tested_design can reuse its experiment_id and ordered tested_parts in a named, purposeful blueprint at a free_site. It does not need an identical retest.',
             'After a blueprint is accepted, use its actual returned project_id for proposal/support; a blueprint alone is not agreement or completed work.',
             'Completed matching task bonuses are capped at one. Another matching structure adds no bonus; full storage is not a reason to collect more or invent demand.',
-            'If no useful funded option exists, discuss a different evidence-backed arrangement or state the actual capability/resource constraint.'],
+            'Research options are untested, evidence-backed solo benchmark hypotheses for uncovered benefits; success is not promised. Do not repeat an unchanged completed test.',
+            'If no useful funded option exists, discuss a different evidence-backed arrangement or state the actual capability/resource constraint. Waiting for changed evidence or a new capability is valid.'],
         'limits': {'funded_projects': 8, 'tested_designs': 6, 'free_sites': 6,
                    'site_scope': 'Independent grounded alternatives, checked against current projects; recheck after any new construction.'}}

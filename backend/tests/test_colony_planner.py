@@ -176,11 +176,15 @@ async def test_invalid_provider_proposal_keeps_bounded_diagnostic_without_fake_r
             model_dump=lambda **kw:{'usage':{'total_tokens':100},'status':'completed'})
     provider.aio.interactions.create=invalid
     run=worker.request('invalid-schema','winners'); await worker.run(run['id'])
+    first=repo._data['colonyReasoning'][run['id']]
+    assert first['status']=='queued' and first['text_repair_count']==1 and not colonies.applied
+    assert json.loads(first['rejected_responses'][0]['proposal_text'])['reason']=='x'*601
+    await worker.run(run['id'])
     saved=repo._data['colonyReasoning'][run['id']]
     assert saved['status']=='rejected' and not colonies.applied
     assert saved['validation_errors'][0]['field']=='reason'
     assert saved['proposal_text'] and saved['provider_status']=='completed'
-    assert 'receipt' not in saved and worker.status()['requests_today']==1
+    assert 'receipt' not in saved and worker.status()['requests_today']==2
     assert 'reason' in worker.status()['error']
 
 
