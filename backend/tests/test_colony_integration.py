@@ -229,10 +229,19 @@ def route_fixture():
     return settings, repo
 
 
+def domain_state(repo):
+    # Each HTTP attempt produces telemetry, including idempotent replays. The
+    # batch exporter may flush at any point, so compare a lock-consistent snapshot
+    # of every domain collection. Keep agentEvents: committed events, receipts,
+    # boards, commands, councils, stock and provider admissions must stay exact.
+    return repo.read(lambda tx: {name: rows for name, rows in tx.data.items()
+                                if name not in {'agentSpans', 'agentMetrics'}})
+
+
 def test_colony_http_reads_do_not_enroll_start_tick_or_spend():
     settings, repo = route_fixture()
     with TestClient(create_app(settings, repo, object())) as client:
-        before = deepcopy(repo._data)
+        before = domain_state(repo)
         for _ in range(3):
             response = client.get('/api/colonies')
             assert response.status_code == 200
@@ -241,11 +250,11 @@ def test_colony_http_reads_do_not_enroll_start_tick_or_spend():
             assert result['planner']['requests_today'] == 0
             assert result['runtime']['worker_active'] is True
             assert all(not item['island']['enabled'] and not item['characters'] for item in result['colonies'])
-        assert repo._data == before
+        assert domain_state(repo) == before
         denied = client.post('/api/colonies/think', json={
             'idempotency_key': 'no-key-no-call', 'colony_id': 'winners'})
         assert denied.status_code == 503
-        assert repo._data == before
+        assert domain_state(repo) == before
 
 
 def test_colony_http_start_pause_replay_restart_and_input_authority():
@@ -258,16 +267,16 @@ def test_colony_http_start_pause_replay_restart_and_input_authority():
         assert state['enabled'] and state['planner']['requests_today'] == 0
         assert [len(item['characters']) for item in state['colonies']] == [1, 1]
         assert client.get('/api/island').json()['planner']['enabled'] is False
-        before_repeat = deepcopy(repo._data)
+        before_repeat = domain_state(repo)
         assert client.post('/api/colonies/start', json={}).status_code == 200
-        assert repo._data == before_repeat
+        assert domain_state(repo) == before_repeat
         command = {'idempotency_key': 'pause-winners-fixture', 'colony_id': 'winners', 'kind': 'pause'}
         paused = client.post('/api/colonies/command', json=command)
         assert paused.status_code == 200
         assert [item['island']['paused'] for item in paused.json()['colonies']] == [True, False]
-        before_replay = deepcopy(repo._data)
+        before_replay = domain_state(repo)
         assert client.post('/api/colonies/command', json=command).status_code == 200
-        assert repo._data == before_replay
+        assert domain_state(repo) == before_replay
         assert client.post('/api/colonies/command', json={**command, 'kind': 'resume'}).status_code == 409
         for extra in ({'resources': {'water': 9999}}, {'world_id': 'different'}, {'persona': {'role': 'Unrestricted'}}):
             assert client.post('/api/colonies/command', json={**command, **extra}).status_code == 422
@@ -316,9 +325,15 @@ def test_api_manual_priority_can_return_to_autonomous_crew_without_changing_othe
         assert winner['planning']['mode']=='crew'
         assert winner['planning']['selected_project_id']!='beacon'
         assert next(c for c in result.json()['colonies'] if c['id']=='losers')==other
-        data=deepcopy(repo._data)
+        data=domain_state(repo)
         assert client.post('/api/colonies/command',json=command).status_code==200
-        assert data==repo._data
+        # Exercise the former race deterministically: exported request attempts
+        # are allowed; another command/council/work effect is not.
+        from app import observability
+        assert observability._provider.force_flush(5000)
+        assert repo.read(lambda tx: tx.find('agentSpans', {'world_id': repo.world_id}))
+        assert repo.read(lambda tx: tx.find('agentMetrics', {'world_id': repo.world_id}))
+        assert data==domain_state(repo)
         assert client.post('/api/colonies/command',json={**command,'mode':'anything'}).status_code==422
 
 
