@@ -54,11 +54,19 @@ def behavior_summary(colony):
         if missing:
             reason += ' Remaining projects need a capability to supply ' + ', '.join(sorted(missing)) + '.'
         reason += ' A changed arrangement can still be proposed manually; repeated idle actions add no output.'
-    # Ignore time, XP, idle receipts and animation positions. Changes which can
-    # make new work possible wake the automatic council after an honest review.
+    # Ignore time, XP, idle receipts and animation positions. A model's one-shot
+    # assignment is consumed back to auto by the scheduler; that bookkeeping
+    # cannot reopen an otherwise unchanged waiting council. Only an explicit
+    # player assignment constrains automatic participation beyond that task.
+    def player_constraint(agent):
+        assignment = agent.get('assignment')
+        return assignment if agent.get('assignment_origin') == 'player' and assignment != 'auto' else None
+
+    # Changes which can make new work possible wake the automatic council after
+    # an honest review, including adding, changing or releasing a player override.
     fingerprint = canonical_digest({
         'agents': sorted((a['id'], sorted(a.get('allowed_actions', [])), a.get('action_yields', {}),
-                          a.get('assignment'), a.get('assignment_origin')) for a in agents),
+                          player_constraint(a)) for a in agents),
         'resources': resources,
         'projects': sorted((p['id'], p.get('level'), p.get('progress'), p.get('status'), p.get('benefit')) for p in projects),
         'dossiers': sorted((d.get('resident_id', ''), d.get('property_fingerprint', ''), d.get('evidence_version', '')) for d in learning.get('dossiers', [])),
