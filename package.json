@@ -24,7 +24,8 @@
     "verify:retrieval": ".venv/bin/python backend/scripts/verify_retrieval.py",
     "dev:offline": "node scripts/dev.mjs --offline",
     "test:combat-v2": ".venv/bin/python -m pytest backend/tests/test_combat_v2.py backend/tests/test_arena_api.py -q",
-    "check:combat-balance": ".venv/bin/python backend/scripts/check_combat_balance.py"
+    "check:combat-balance": ".venv/bin/python backend/scripts/check_combat_balance.py",
+    "test:polish": "node scripts/verify-board-presentation.mjs && node scripts/verify-capture-recovery.mjs && node scripts/verify-review-loading.mjs && node scripts/verify-independent-polling.mjs"
   },
   "dependencies": {
     "@fontsource/bangers": "latest",
