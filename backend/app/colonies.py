@@ -21,6 +21,7 @@ from .repository import StoreError, key_for, public
 COLONY_IDS = ('winners', 'losers')
 COLONY_NAMES = {'winners': 'Winner Island', 'losers': 'Loser Island'}
 BOARD_SECONDS = 300
+PROJECT_OPINION_SECONDS = 6 * 60 * 60
 BOARD_LIMIT = 80
 BACKFILL_LIMIT = 1000
 COUNCIL_SECONDS = 45
@@ -239,8 +240,14 @@ class _ColonyIsland(IslandStore):
         return candidates
 
     def _project_opinions(self, tx, now):
-        return [row for row in tx.find('colonyProjectOpinions', {'world_id': self.world_id}, limit=MAX_AGENTS)
-                if _time(row['expires_at']) > now]
+        state = tx.get('islandState', self.state_id)
+        unfinished = {project['id'] for project in (state or {}).get('projects', []) if project['level'] < project['max_level']}
+        # Peers on the same shore normally take turns thirty minutes apart.
+        # Project preferences outlive a supply claim, survive individual upgrades,
+        # and stop voting when superseded, six hours old, or fully completed.
+        return sorted((row for row in tx.find('colonyProjectOpinions', {'world_id': self.world_id}, limit=MAX_AGENTS)
+                       if _time(row['expires_at']) > now and row['project_id'] in unfinished),
+                      key=lambda row: (row['created_at'], row['actor_id']), reverse=True)
 
     def _project_discussion(self, tx, now):
         discussion = []
@@ -802,7 +809,8 @@ class ColoniesStore:
                     'council': [{key: deepcopy(row[key]) for key in ('id', 'at', 'chosen_project_id', 'reason', 'origin', 'votes', 'model_message_ids')} for row in state.get('council', [])[-1:]],
                     'project_discussion': island._project_discussion(tx, island._now()),
                     'known_capability_gaps': [resource for resource in RESOURCE_KEYS if not any(resource_actions(other, resource) for other in all_agents)],
-                    'limits': {'message_characters': 240, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS},
+                    'limits': {'message_characters': 240, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS,
+                               'project_opinion_expiry_seconds': PROJECT_OPINION_SECONDS},
                     'authority': 'Propose only accepted actions; requests and offers do not create resources. Shared stock is abstract, not physical cargo. Sentience, walking, loose-material gathering and basic construction are shared game attributes.'}
         return island.repo.read(read)
 
@@ -873,8 +881,9 @@ class ColoniesStore:
                         raise StoreError('The proposal is outside this colony or project.', 422, 'invalid_proposal_evidence')
                 candidate = next(row for row in island._assess_projects(state, island._agents(tx)) if row['project_id'] == project['id'])
                 record_id = key_for(decision_id, 'project-opinion')
+                opinion_expiry = _iso(now + timedelta(seconds=PROJECT_OPINION_SECONDS))
                 row = island._new_board(tx, agent, message.kind, now, record_id,
-                        project_id=project['id'], proposal_id=message.proposal_id,
+                        project_id=project['id'], proposal_id=message.proposal_id, expires_at=opinion_expiry,
                         text=f"{agent['display_name']} submitted a project {message.kind} for {project['name'].lower()}. " + candidate['reason'],
                         interpretation=message.text, origin='model', feasibility=candidate, verified=False,
                         effect='One actor opinion for the next due crew council; it is not a direct project command.')
@@ -882,7 +891,7 @@ class ColoniesStore:
                 tx.put('colonyProjectOpinions', {'_id': key_for(island.world_id, 'project-opinion', agent['id']),
                         'world_id': island.world_id, 'actor_id': agent['id'], 'character_id': agent['character_id'],
                         'project_id': project['id'], 'kind': message.kind, 'message_id': record_id, 'decision_id': decision_id,
-                        'created_at': _iso(now), 'expires_at': _iso(now + timedelta(seconds=BOARD_SECONDS)), 'origin': 'model'})
+                        'created_at': _iso(now), 'expires_at': opinion_expiry, 'origin': 'model'})
             agent.update(last_decision_at=_iso(now), decision_origin='model', decision_reason=value.reason)
             tx.put('islandAgents', agent)
             state['revision'] += 1

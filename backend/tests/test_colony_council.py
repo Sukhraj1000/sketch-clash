@@ -1,7 +1,7 @@
 """Crew council facts and scheduling are deterministic fixtures, never paid model calls."""
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -253,3 +253,95 @@ def test_legacy_blocked_project_migrates_without_losing_partial_progress():
     assert side(store)['planning']['selected_project_id'] != 'beacon'
     beacon = next(p for p in side(store)['island']['projects'] if p['id'] == 'beacon')
     assert beacon['progress'] == 6 and beacon['level'] == 0
+
+
+@pytest.mark.asyncio
+async def test_automatic_zero_fifteen_thirty_minute_turns_can_read_and_support_peer_opinions():
+    import json
+    from app.colony_planner import ColonyPlanner
+    from test_colony_integration import Provider
+    repo, store, clock = create(('bottle', 'pencil'))
+    store.initialize()
+    provider = Provider()
+    worker = ColonyPlanner(repo, store, repo.settings, client=provider, clock=lambda: clock.value.timestamp())
+    provider.decision = {'message': {'kind': 'proposal', 'project_id': 'workshop', 'text': 'A workshop would improve our material supply.'}}
+    first = worker.request('automatic-opinion-0', automatic=True)
+    assert first['colony_id'] == 'winners'
+    await worker.run(first['id'])
+    assert worker.status()['last_status'] == 'completed'
+    proposal = next(row for row in repo._data['colonyBoard'].values() if row['origin'] == 'model')
+    clock.advance(900)
+    provider.decision = {'action': 'forage'}
+    second = worker.request('automatic-opinion-15', automatic=True)
+    assert second['colony_id'] == 'losers'
+    await worker.run(second['id'])
+    clock.advance(900)
+    provider.decision = {'message': {'kind': 'support', 'project_id': 'workshop', 'proposal_id': proposal['id'], 'text': 'I can help supply the workshop.'}}
+    third = worker.request('automatic-opinion-30', automatic=True)
+    assert third['colony_id'] == 'winners' and third['agent_id'] != first['agent_id']
+    await worker.run(third['id'])
+    assert worker.status()['last_status'] == 'completed'
+    sent = json.loads(provider.calls[2]['input'])
+    peer = next(row for row in sent['project_discussion'] if row['id'] == proposal['id'])
+    assert peer['text'] == proposal['interpretation'] and peer['actor_id'] == first['agent_id']
+    assert len(provider.calls) == worker.status()['requests_today'] == 3
+    assert len(store.observation('winners', third['agent_id'])['project_discussion']) == 2
+
+
+def test_project_stance_survives_upgrade_but_full_completion_retires_it():
+    repo, store, clock = create(('bottle', 'pencil'))
+    store.initialize()
+    bottle = actor(store, 'bottle')
+    accepted = store.apply_decision('winners', bottle['id'], {'message': {'kind': 'proposal', 'project_id': 'workshop'}}, 'longer-project-stance')['decision']
+    island = store.islands['winners']
+    def level(value):
+        def apply(tx):
+            state = tx.get('islandState', island.state_id)
+            next(p for p in state['projects'] if p['id'] == 'workshop')['level'] = value
+            tx.put('islandState', state)
+        repo.transaction(apply)
+    level(1); clock.advance(1800)
+    assert store.observation('winners', bottle['id'])['project_discussion'][0]['id'] == accepted['board_ids'][0]
+    level(3)
+    assert store.observation('winners', bottle['id'])['project_discussion'] == []
+    assert accepted['board_ids'][0] in repo._data['colonyBoard']  # History remains evidence.
+
+
+def test_six_hour_stance_expiry_replay_and_independent_five_minute_supply_lifetime():
+    from app.colonies import BOARD_SECONDS, PROJECT_OPINION_SECONDS
+    from app.repository import key_for
+    repo, store, clock = create(('bottle', 'pencil'))
+    store.initialize()
+    bottle, pencil = actor(store, 'bottle'), actor(store, 'pencil')
+    decision = {'message': {'kind': 'proposal', 'project_id': 'workshop', 'text': 'Plan supplies together.'}}
+    accepted = store.apply_decision('winners', bottle['id'], decision, 'fixed-expiry')['decision']
+    request = store.apply_decision('winners', pencil['id'], {'message': {'kind': 'request', 'resource': 'energy', 'quantity': 2}}, 'short-supply')['decision']
+    stance_key = key_for(store.islands['winners'].world_id, 'project-opinion', bottle['id'])
+    stance = deepcopy(repo._data['colonyProjectOpinions'][stance_key])
+    board = repo._data['colonyBoard'][accepted['board_ids'][0]]
+    assert board['expires_at'] == stance['expires_at']
+    assert (datetime.fromisoformat(stance['expires_at']) - clock.value).total_seconds() == PROJECT_OPINION_SECONDS == 21600
+    supply = repo._data['colonyBoard'][request['board_ids'][0]]
+    assert (datetime.fromisoformat(supply['expires_at']) - clock.value).total_seconds() == BOARD_SECONDS == 300
+    clock.advance(301); store.advance()
+    assert repo._data['colonyBoard'][supply['id']]['status'] == 'expired'
+    assert store.observation('winners', bottle['id'])['project_discussion']
+    clock.advance(PROJECT_OPINION_SECONDS - 301)
+    assert store.observation('winners', bottle['id'])['project_discussion'] == []
+    before = deepcopy(repo._data)
+    assert store.apply_decision('winners', bottle['id'], decision, 'fixed-expiry')['decision']['id'] == accepted['id']
+    assert repo._data == before and repo._data['colonyProjectOpinions'][stance_key] == stance
+
+
+def test_project_discussion_is_newest_first_and_supersession_does_not_amplify_votes():
+    repo, store, clock = create(('bottle', 'pencil'))
+    store.initialize()
+    bottle, pencil = actor(store, 'bottle'), actor(store, 'pencil')
+    first = store.apply_decision('winners', bottle['id'], {'message': {'kind': 'proposal', 'project_id': 'garden'}}, 'old-preference')['decision']
+    clock.advance(3)
+    second = store.apply_decision('winners', pencil['id'], {'message': {'kind': 'proposal', 'project_id': 'workshop'}}, 'new-preference')['decision']
+    assert [row['id'] for row in store.observation('winners', bottle['id'])['project_discussion']] == [second['board_ids'][0], first['board_ids'][0]]
+    clock.advance(3)
+    third = store.apply_decision('winners', bottle['id'], {'message': {'kind': 'support', 'project_id': 'workshop'}}, 'changed-preference')['decision']
+    assert [row['id'] for row in store.observation('winners', bottle['id'])['project_discussion']] == [third['board_ids'][0], second['board_ids'][0]]
+    assert len(repo._data['colonyProjectOpinions']) == 2
