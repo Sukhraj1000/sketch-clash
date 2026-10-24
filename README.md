@@ -29,11 +29,23 @@ The default repository is MongoDB and fails clearly if unavailable. `npm run dev
 npm run dev:offline
 ```
 
-This starts the normal local services with `SKETCH_AI_PAUSED=true`. Atlas still saves the real islands and the local executor still completes valid work. New Gemini recognition, councils, reflections and embeddings are blocked before provider dispatch. Camera battles stay visible with a pause explanation, and **PLAY DEMO BATTLE** still runs the preset showdown. The interface shows **Gemini paused**; the separately saved evaluation pause stays in place. This command does not change billing, credentials or model selection.
+This starts the normal local services with `SKETCH_AI_PAUSED=true`. Atlas still saves the real islands and the local executor still completes valid work. New Gemini recognition, councils, reflections and embeddings are blocked before provider dispatch. Camera battles stay visible with a pause explanation, and **ORIGINAL DEMO** still runs the preset showdown; **PLAY OBJECT BATTLE** opens the new attribute-based fixture arena. The interface shows **Gemini paused**; the separately saved evaluation pause stays in place. This command does not change billing, credentials or model selection.
 
 Open **[Island Playground](http://127.0.0.1:5173/#/playground)** for a separate practice simulation. Add a useful object, inspect its job, watch supplies become construction and compare the two example crews. The board explains rule-based choices and completed contributions. Pause, speed up or reset the practice world. Its state lives only in browser memory: these are example residents, not actual battle outcomes, Gemini discussions or saved Atlas records. The playground also works with the API server stopped while Vite is running.
 
 The live islands now show shared supply shortages, productive tasks and the gains expected when each job completes. The Observatory distinguishes a public plan, a validated action and the saved receipt proving its effect. After the provider recovers, restart without `--offline` to remove the startup pause; the evaluation pause and existing provider-failure records are not automatically cleared. Resume and validate those deliberately before claiming new model-authored conversations.
+
+## Object battles while Gemini is paused
+
+Choose **PLAY OBJECT BATTLE** on the home page or open [the object arena](http://127.0.0.1:5173/#/battles). Choose two of twelve illustrated fixtures, inspect their attributes, limitations and conditional matchup effects, then start a battle. These are authored game profiles and **illustrative GBP prices**, not recognized photos or live market appraisals. The new arena requires the local API and configured storage, but no Gemini calls.
+
+All objects start at 100 HP with a 20-point budget across impact, resilience, agility and control. Reusable interactions cover brittle surfaces, cushioning, reach, close grip, rolling, traction, limited water, flexible recovery, precise placement, redirecting a roll, bracing and hooking. Only the strongest positive and strongest negative applicable rules count on a hit, with a combined ±20% bound. Price has one logarithmic damage bonus capped at 1%; it does not increase health or grant abilities. Missing prices disable price bonuses for both fighters.
+
+Both objects commit an action each round, so being animated first cannot steal a turn. Results distinguish knockouts, points decisions and tiebreaks. Equal health compares total impact before the remaining-health cap; only equal impact points use the saved random seed. Each hit carries its stat calculation, applicable rules, price contribution, randomness, rounding and health receipt. **Why this won** shows the recorded result and same-seed comparisons with price or interaction modifiers removed; it does not invent a model explanation.
+
+Atlas saves these immutable practice matches in `arenaBattles`, including complete profiles, rules, price snapshots, seed, receipts and a snapshot digest. The match URL contains its saved ID for refresh/replay. Repeating a request returns the same result, and changing fighters under that request ID is rejected. Fixture battles never enter the real camera-battle collection or unlock island residents. Existing camera battles keep their original v1 rules, saved outcomes and island placements. Recognition integration and live comparable-price retrieval remain future work after the provider outage.
+
+The checked-in [balance audit](docs/combat-balance-v2.json) covers 342,000 local simulations with 1,000 seeds per pairing or price comparison. Against a uniform mix of the other eleven fixtures, win rates range from 40.04% to 56.75%. Raising only an object’s sample price from £0 to the full £250 cap increased its win rate by at most 4.80 percentage points. These measurements apply to this authored roster, not every possible object. Run `npm run test:combat-v2` for integrity checks or `npm run check:combat-balance` to repeat the longer audit.
 
 ## Play and give feedback
 
@@ -47,7 +59,7 @@ The live islands now show shared supply shortages, productive tasks and the gain
 
 Normal capture time is 60 seconds per player; Quick Clash uses 20. Permission, normalization, recognition and saving pause active timing. Expiry never submits automatically. The camera stops when leaving capture. Refresh recovery includes a private handoff before showing the recovered photograph.
 
-Quick, Power and Guard still have fixed presets and 100 HP. The server owns attacks, damage and winner; replay shows the same recorded outcome without extra unlocks. Normal/reduced battles last 12.8 seconds; Quick Clash lasts 6.4 seconds. **WATCH THE SHOWDOWN** is the original scripted cinematic, with no recognition or island progression.
+Quick, Power and Guard still have fixed presets and 100 HP. The server owns attacks, damage and winner; replay shows the same recorded outcome without extra unlocks. Normal/reduced battles last 12.8 seconds; Quick Clash lasts 6.4 seconds. **ORIGINAL DEMO** is the original scripted cinematic, with no recognition or island progression.
 
 ## Two islands, one rivalry
 

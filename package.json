@@ -21,7 +21,9 @@
     "setup:retrieval": ".venv/bin/python backend/scripts/setup_retrieval.py",
     "test:images": "node scripts/verify-image-input.mjs",
     "verify:retrieval": ".venv/bin/python backend/scripts/verify_retrieval.py",
-    "dev:offline": "node scripts/dev.mjs --offline"
+    "dev:offline": "node scripts/dev.mjs --offline",
+    "test:combat-v2": ".venv/bin/python -m pytest backend/tests/test_combat_v2.py backend/tests/test_arena_api.py -q",
+    "check:combat-balance": ".venv/bin/python backend/scripts/check_combat_balance.py"
   },
   "dependencies": {
     "@fontsource/bangers": "latest",
