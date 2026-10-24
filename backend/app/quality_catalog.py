@@ -93,6 +93,9 @@ class BudgetedEmbeddingClient:
         self.client, self.budget = client, budget
         self.aio = SimpleNamespace(models=SimpleNamespace(embed_content=self.embed_content))
 
+    async def check_admission(self):
+        await self.budget.check()
+
     async def embed_content(self, **kwargs):
         # Contents are bounded by the existing embedding preprocessing (1,200 characters).
         reservation = await self.budget.reserve(input_tokens=len(str(kwargs.get('contents', '')))//2+256,

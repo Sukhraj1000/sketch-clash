@@ -63,7 +63,8 @@ class AtlasRetriever:
             async def invoke():
                 return await asyncio.wait_for(self.client.aio.models.embed_content(model=self.config.model, contents=prepared,
                     config={"output_dimensionality": self.config.dimensions, **options}), timeout=self.config.timeout_seconds)
-            response = await self.provider_queue.run(self.config.model, invoke, category='embedding') if self.provider_queue else await invoke()
+            response = await self.provider_queue.run(self.config.model, invoke, category='embedding',
+                prepare=getattr(self.client, 'check_admission', None)) if self.provider_queue else await invoke()
         vector = [float(x) for x in response.embeddings[0].values]
         if len(vector) != self.config.dimensions or not all(math.isfinite(x) for x in vector):
             raise ValueError("Embedding output dimensions or values did not match the index contract.")

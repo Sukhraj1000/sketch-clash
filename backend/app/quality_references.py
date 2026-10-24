@@ -138,14 +138,17 @@ class ApprovedReferences:
         if self.client is None:
             raise StoreError('Gemini embedding access is unavailable.', 503, 'embedding_unavailable')
         # The maximum embedding input context is reserved, rather than guessed from a label.
-        reservation = await budget.reserve(input_tokens=8192, output_tokens=0, kind='visual_reference_embedding') if budget else None
+        reservation = None
         async with self._lock:
             async def invoke():
+                nonlocal reservation
+                reservation = await budget.reserve(input_tokens=8192, output_tokens=0, kind='visual_reference_embedding') if budget else None
                 return await asyncio.wait_for(self.client.aio.models.embed_content(
                     model=MODEL,
                     contents=[types.Part.from_bytes(data=media['data'], mime_type=media['mime_type'])],
                     config=types.EmbedContentConfig(output_dimensionality=DIMENSIONS)), TIMEOUT)
-            response = await self.provider_queue.run(MODEL, invoke, category='embedding') if self.provider_queue else await invoke()
+            response = await self.provider_queue.run(MODEL, invoke, category='embedding',
+                prepare=getattr(budget, 'check', None)) if self.provider_queue else await invoke()
         if budget:
             # Unknown/failed provider outcomes deliberately keep the reservation pending.
             await budget.complete(reservation, response)

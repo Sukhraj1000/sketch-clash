@@ -95,16 +95,20 @@ class RecognitionService:
         # One bounded transport retry, separate from model specification repairs.
         for attempt in range(1 + min(1, max(0, self.settings.transport_retries))):
             reservation = None
-            if request_budget is not None:
-                reservation = await request_budget.reserve(input_tokens=input_tokens, output_tokens=4096, kind='recognition')
             try:
                 async def invoke():
+                    nonlocal reservation
+                    # Admission must happen after any Slow queue wait, immediately
+                    # before the paid call. A paused batch must not leak a queued request.
+                    if request_budget is not None:
+                        reservation = await request_budget.reserve(input_tokens=input_tokens, output_tokens=4096, kind='recognition')
                     return await asyncio.wait_for(self.client.aio.interactions.create(
                     model=config['model'], store=False, input=history,
                     system_instruction=system_instruction(config), tools=[PROPOSAL_TOOL],
                     generation_config={"thinking_level": config['thinking_level'], "max_output_tokens": 4096},
                     timeout=self.settings.api_timeout_seconds), timeout=self.settings.api_timeout_seconds + 2)
-                response = await self.provider_queue.run(config['model'], invoke, category='recognition') if self.provider_queue else await invoke()
+                response = await self.provider_queue.run(config['model'], invoke, category='recognition',
+                    prepare=request_budget.check if request_budget is not None else None) if self.provider_queue else await invoke()
                 if request_budget is not None:
                     await request_budget.complete(reservation, response)
                 return response
