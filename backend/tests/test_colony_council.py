@@ -275,15 +275,15 @@ async def test_automatic_council_reads_and_answers_peers_without_fifteen_minute_
     provider.decision = {'message': {'kind': 'support', 'project_id': 'workshop', 'proposal_id': proposal['id'], 'text': 'I can help supply the workshop.'}}
     second = worker.status()['active_run']
     assert second['colony_id'] == 'winners' and second['agent_id'] != first['agent_id']
-    for _ in range(3):
-        clock.advance(3)
-        await worker.run(worker.status()['active_run']['id'])
+    clock.advance(3)
+    await worker.run(worker.status()['active_run']['id'])
     session = worker.sessions('winners')[0]
-    assert session['status'] == 'agreed' and session['completed_turns'] == 4
+    assert session['status'] == 'agreed' and session['completed_turns'] == 2
+    assert session['max_turns'] == 4
     sent = json.loads(provider.calls[1]['input'])
     peer = next(row for row in sent['council_session']['conversation'] if row['id'] == proposal['id'])
     assert peer['text'] == proposal['interpretation'] and peer['actor_id'] == first['agent_id']
-    assert len(provider.calls) == worker.status()['requests_today'] == 4
+    assert len(provider.calls) == worker.status()['requests_today'] == 2
     assert not worker.status()['active_run']
     clock.advance(worker.interval)
     other = worker.request('next-island-review', automatic=True)

@@ -2,7 +2,7 @@
 from copy import deepcopy
 from datetime import timedelta
 
-from .island import _iso
+from .island import MAX_AGENTS, _iso
 from .repository import StoreError, key_for
 
 
@@ -30,9 +30,63 @@ def review_model_plan(island, tx, state, agents, now):
     tx.put('islandState', state)
 
 
+def _council_evidence(island, tx, state, agents, session):
+    """Count each participant's latest committed stance, never generated transcript claims."""
+    cohort = {actor['id'] for actor in session.get('participants', [])}
+    allowed = {a['id'] for a in agents} & cohort
+    messages = tx.find('colonyBoard', {'world_id': island.world_id, 'session_id': session['id'], 'origin': 'model'}, sort='created_at', limit=64)
+    latest = {}
+    for row in sorted(messages, key=lambda r: (r.get('turn_index', 0), r['created_at'])):
+        if row['actor_id'] in allowed and row['kind'] in ('proposal', 'support', 'objection'):
+            latest[row['actor_id']] = row
+    candidates = island._assess_projects(state, agents)
+    votes = {}
+    for row in latest.values():
+        if row['kind'] in ('proposal', 'support'):
+            votes.setdefault(row.get('project_id'), []).append(row)
+    quorum = 1 if len(agents) == 1 else 2
+    eligible = [c for c in candidates if c['feasible'] and len(votes.get(c['project_id'], [])) >= quorum]
+    selected = sorted(eligible, key=lambda c: (-len(votes[c['project_id']]), c['project_id']))[0] if eligible else None
+    heard = {row['actor_id'] for row in messages if row['actor_id'] in allowed}
+    return messages, latest, candidates, votes, selected, bool(cohort) and cohort <= heard
+
+
+def _council_population_current(island, tx, agents, session):
+    from .colony_planner import population_fingerprint
+    if population_fingerprint({'island': {'agents': agents}}) != session.get('population_fingerprint'):
+        return False
+    # Battles route residents before the island worker enrolls their agents.
+    # Reading only islandAgents would miss arrivals during that interval.
+    residents = tx.find('colonyResidents', {'world_id': island.world_id}, limit=501)
+    routed_ids = {resident['id'] for resident in residents}
+    active_ids = {agent['character_id'] for agent in agents}
+    recorded_ids = set(session.get('resident_ids', active_ids))
+    if routed_ids != recorded_ids or not active_ids <= routed_ids:
+        return False
+    # A new session may itself have observed a routed but unenrolled resident.
+    # Wait for enrollment rather than discussing the old active crew again.
+    return len(agents) >= MAX_AGENTS or routed_ids == active_ids
+
+
 class DeliberationMixin:
+    def council_has_early_agreement(self, tx, session):
+        """Check inside the planner commit; the final resolver repeats these checks."""
+        if session.get('world_id') != self.world_id:
+            return False
+        cohort = {actor['id'] for actor in session.get('participants', [])}
+        if not cohort or session.get('completed_turns', 0) < len(cohort):
+            return False
+        island = self._side(session['colony_id'])
+        state = tx.get('islandState', island.state_id)
+        if state is None or state['paused'] or state.get('planning', {}).get('mode') == 'manual':
+            return False
+        agents = island._agents(tx)
+        if not _council_population_current(island, tx, agents, session):
+            return False
+        *_, selected, all_heard = _council_evidence(island, tx, state, agents, session)
+        return all_heard and selected is not None
+
     def resolve_council(self, session_id, colony_id, participant_ids, population_fingerprint):
-        from .colony_planner import population_fingerprint as fingerprint
         from .observability import record_event
         island = self._side(colony_id)
         now = island._now()
@@ -47,7 +101,7 @@ class DeliberationMixin:
             cohort = {actor['id'] for actor in session.get('participants', [])}
             if set(participant_ids) != cohort or session.get('population_fingerprint') != population_fingerprint:
                 raise StoreError('Council participants or population evidence do not match the durable session.', 409, 'invalid_council_session')
-            if session.get('status') != 'resolving' or session.get('completed_turns', 0) < session.get('max_turns', 1):
+            if session.get('status') != 'resolving':
                 raise StoreError('The council has not finished its discussion.', 409, 'council_incomplete')
             state = tx.get('islandState', island.state_id)
             if state is None or state['paused']:
@@ -55,22 +109,13 @@ class DeliberationMixin:
             agents = island._agents(tx)
             # Recheck under the same transaction as selection so arrivals cannot
             # race the external snapshot and silently approve an outdated plan.
-            if fingerprint({'island': {'agents': agents}}) != population_fingerprint:
+            if not _council_population_current(island, tx, agents, session):
                 return {'status': 'stale', 'reason': 'New residents or changed capabilities require a fresh discussion.'}
-            allowed = {a['id'] for a in agents} & set(participant_ids)
-            messages = tx.find('colonyBoard', {'world_id': island.world_id, 'session_id': session_id, 'origin': 'model'}, sort='created_at', limit=64)
-            latest = {}
-            for row in sorted(messages, key=lambda r: (r.get('turn_index', 0), r['created_at'])):
-                if row['actor_id'] in allowed and row['kind'] in ('proposal', 'support', 'objection'):
-                    latest[row['actor_id']] = row
-            candidates = island._assess_projects(state, agents)
-            votes = {}
-            for row in latest.values():
-                if row['kind'] in ('proposal', 'support'):
-                    votes.setdefault(row.get('project_id'), []).append(row)
-            quorum = 1 if len(agents) == 1 else 2
-            eligible = [c for c in candidates if c['feasible'] and len(votes.get(c['project_id'], [])) >= quorum]
-            selected = sorted(eligible, key=lambda c: (-len(votes[c['project_id']]), c['project_id']))[0] if eligible else None
+            messages, latest, candidates, votes, selected, all_heard = _council_evidence(island, tx, state, agents, session)
+            if session.get('completed_turns', 0) < session.get('max_turns', 1) and not (
+                    session.get('completed_turns', 0) >= len(cohort) and all_heard and selected
+                    and state.get('planning', {}).get('mode') != 'manual'):
+                raise StoreError('The council has not finished its discussion.', 409, 'council_incomplete')
             if state.get('planning', {}).get('mode') == 'manual':
                 selected = None
                 reason = 'Player override remains active; the crew discussion is saved without changing the project.'

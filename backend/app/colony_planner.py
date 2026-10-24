@@ -263,6 +263,8 @@ class ColonyPlanner:
                        'participants': [{k: a[k] for k in ('id', 'character_id', 'display_name') if k in a} for a in actors],
                        'max_turns': 1 if len(actors) == 1 else min(6, len(actors) * 2), 'completed_turns': 0,
                        'messages': [], 'run_ids': [], 'version': 1}
+            if 'characters' in colony:
+                session['resident_ids'] = sorted(character['id'] for character in colony['characters'])
             run = self._new_run(session, 0); session['run_ids'].append(run['id'])
             state.update(pending_run_id=run_id, active_session_id=sid, last_status='queued', auto_blocked=False, error=None,
                          last_request_at=now, last_colony_id=colony['id'])
@@ -733,7 +735,16 @@ class ColonyPlanner:
                     session['messages'].append({'actor_id': run['agent_id'], 'actor_name': run['agent_name'],
                         'run_id': run['id'], 'origin': 'model', 'model': run['model'], 'reply_to_id': run.get('reply_to_id'),
                         'seen_message_ids': run.get('seen_message_ids', []), **message})
-                if session['completed_turns'] < session['max_turns']:
+                # Once every invited resident has spoken, a validated agreement
+                # can unlock work without a second round of identical replies.
+                # Read the committed board and live feasibility in this same
+                # transaction; transcript text alone cannot end the discussion.
+                early_agreement = (session['completed_turns'] < session['max_turns']
+                    and hasattr(self.colonies, 'council_has_early_agreement')
+                    and self.colonies.council_has_early_agreement(tx, session))
+                if early_agreement:
+                    session.update(status='resolving', completion_reason='validated_agreement')
+                elif session['completed_turns'] < session['max_turns']:
                     next_run = self._new_run(session, session['completed_turns'])
                     session['run_ids'].append(next_run['id']); tx.put('colonyReasoning', next_run)
                     state.update(pending_run_id=next_run['id'], last_status='queued')

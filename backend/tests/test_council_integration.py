@@ -1,5 +1,6 @@
 """The real store accepts only a completed, current, independently-authored council."""
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 import pytest
 from app.colonies import ColoniesStore, route_completed_battle
@@ -34,13 +35,20 @@ async def test_real_store_transcript_agreement_and_message_provenance():
     repo,store,clock,settings=setup_world(); provider,calls=provider_for_garden()
     worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
         provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(), clock.advance))
-    worker.request('six-turn-council','winners')
-    for _ in range(6):
+    worker.request('early-agreement-council','winners')
+    for index in range(3):
         run=worker.status()['active_run']; assert run
         await worker.run(run['id']); clock.advance(3)
+        if index < 2:
+            # Two votes alone cannot silence the third invited participant.
+            assert worker.sessions('winners')[0]['status']=='running'
+            assert side(store)['planning']['selected_project_id'] is None
     session=worker.sessions('winners')[0]
     assert session['status']=='agreed' and session['project_id']=='garden'
-    assert len(calls)==6 and len(session['messages'])==6
+    assert session['completed_turns']==3 and session['max_turns']==6
+    assert session['completion_reason']=='validated_agreement'
+    assert len(calls)==3 and len(session['messages'])==3
+    assert not worker.status()['active_run']
     island=side(store)
     board={row['id']:row for row in island['board']}
     for index,message in enumerate(session['messages']):
@@ -49,9 +57,114 @@ async def test_real_store_transcript_agreement_and_message_provenance():
         assert stored['reply_to_id']==(session['messages'][index-1]['id'] if index else None)
         assert stored['seen_message_ids']==[m['id'] for m in session['messages'][:index]]
     assert island['planning']['selected_project_id']=='garden'
-    before=repo._data.copy()
+    before=deepcopy(repo._data)
     replay=store.resolve_council(session['id'],'winners',[a['id'] for a in session['participants']],session['population_fingerprint'])
-    assert replay['status']=='agreed'
+    assert replay['status']=='agreed' and repo._data==before
+    clock.advance(65); store.advance()
+    assert any(a['task']['kind']=='build' for a in side(store)['island']['agents'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('case', ['missing_capability', 'silent_participant', 'manual_override'])
+async def test_early_agreement_does_not_skip_required_evidence_or_override_controls(case):
+    repo,store,clock,settings=setup_world(); calls=[]
+    energy_before=side(store)['island']['resources']['energy']
+    if case=='manual_override':
+        store.command({'colony_id':'winners','kind':'priority','project_id':'workshop',
+                       'idempotency_key':'manual-before-council'})
+    async def create(**kwargs):
+        payload=json.loads(kwargs['input']); calls.append(payload)
+        decision={'message':{'kind':'support' if len(calls)>1 else 'proposal',
+            'project_id':'beacon' if case=='missing_capability' else 'garden', 'text':'I support this project.'}}
+        if case=='silent_participant' and len(calls)==3:
+            decision={'action':'rest'}
+        return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{})
+    provider=SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create)))
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(),clock.advance))
+    worker.request('guarded-council-'+case,'winners')
+    for _ in range(3):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    session=worker.sessions('winners')[0]
+    assert session['status']=='running' and session['completed_turns']==3
+    assert worker.status()['active_run'] and 'completion_reason' not in session
+    assert side(store)['planning']['selected_project_id']==('workshop' if case=='manual_override' else None)
+    assert side(store)['island']['resources']['energy']==energy_before
+    for _ in range(3):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    session=worker.sessions('winners')[0]
+    assert session['completed_turns']==6
+    assert session['status']==('agreed' if case=='silent_participant' else 'no_agreement')
+    if case=='manual_override':
+        assert side(store)['planning']['selected_project_id']=='workshop'
+
+
+@pytest.mark.asyncio
+async def test_early_agreement_requires_committed_board_evidence_not_forged_transcript():
+    repo,store,clock,settings=setup_world(); provider,_=provider_for_garden()
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(),clock.advance))
+    worker.request('durable-evidence-council','winners')
+    for _ in range(2):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    session=worker.sessions('winners')[0]
+    unheard=session['participants'][2]['id']
+    session['completed_turns']=3
+    session['messages'].append({'actor_id':unheard,'origin':'model','kind':'support','project_id':'garden','text':'Invented agreement.'})
+    assert not repo.read(lambda tx:store.council_has_early_agreement(tx,session))
+    # A resolution marker cannot bypass the same evidence check in the executor.
+    session['status']='resolving'; session['_id']=session['id']
+    repo.transaction(lambda tx:tx.put('colonyCouncilSessions',session))
+    with pytest.raises(StoreError) as exc:
+        store.resolve_council(session['id'],'winners',[a['id'] for a in session['participants']],session['population_fingerprint'])
+    assert exc.value.code=='council_incomplete'
+    assert side(store)['planning']['selected_project_id'] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('enroll_arrival', [False, True])
+async def test_population_is_rechecked_after_early_agreement_before_project_selection(enroll_arrival):
+    repo,store,clock,settings=setup_world(); provider,calls=provider_for_garden()
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(),clock.advance))
+    original=store.resolve_council
+    def resolve_after_arrival(*args):
+        arriving=battle(repo,'arrival-at-resolution','plant','lamp')
+        repo.transaction(lambda tx:route_completed_battle(tx,arriving,repo.world_id))
+        if enroll_arrival:
+            store.advance()
+        return original(*args)
+    store.resolve_council=resolve_after_arrival
+    worker.request('arrival-after-agreement','winners')
+    for _ in range(3):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    assert len(calls)==3 and worker.sessions('winners')[0]['status']=='stale'
+    assert side(store)['planning']['selected_project_id'] is None
+
+
+@pytest.mark.asyncio
+async def test_early_readiness_rechecks_routed_residents_before_their_agents_are_enrolled():
+    repo,store,clock,settings=setup_world(); provider,_=provider_for_garden()
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(),clock.advance))
+    async def defer_resolution(session):
+        pass
+    worker._resolve=defer_resolution
+    worker.request('routed-roster-readiness','winners')
+    for _ in range(3):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    session=worker.sessions('winners')[0]
+    assert session['status']=='resolving'
+    assert repo.read(lambda tx:store.council_has_early_agreement(tx,session))
+    before_agents=side(store)['island']['agents']
+    arriving=battle(repo,'routed-before-enrollment','plant','lamp')
+    repo.transaction(lambda tx:route_completed_battle(tx,arriving,repo.world_id))
+    assert side(store)['island']['agents']==before_agents
+    assert not repo.read(lambda tx:store.council_has_early_agreement(tx,session))
+    # Even a session created from the latest routed roster must wait for its
+    # newly eligible participant to be enrolled by the regular island worker.
+    session['resident_ids']=[c['id'] for c in side(store)['characters']]
+    assert not repo.read(lambda tx:store.council_has_early_agreement(tx,session))
 
 
 def test_council_cannot_resolve_without_durable_session():
