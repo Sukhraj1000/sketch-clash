@@ -7,6 +7,7 @@ import { useTimeline } from './game/director';
 import { CaptureStudio, type CaptureInput, type CaptureResponse } from './components/CaptureStudio';
 import { api, post, prepareCapture, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
 import './LiveFlow.css';
+import { routePhase } from './lib/navigation';
 const WorldView = lazy(()=>import('./components/WorldView'));
 const Observatory = lazy(()=>import('./components/Observatory'));
 const IslandPlayground = lazy(()=>import('./components/IslandPlayground'));
@@ -114,8 +115,8 @@ const readActive=()=>{try{return localStorage.getItem(ACTIVE_KEY)}catch{return n
 const saveActive=(id:string|null)=>{try{if(id)localStorage.setItem(ACTIVE_KEY,id);else localStorage.removeItem(ACTIVE_KEY)}catch{/* Server record remains the source of truth. */}};
 
 export default function App() {
-  const [phase,setPhase]=useState<Phase>(window.location.hash.startsWith('#/battles')?'OBJECT_BATTLES':window.location.hash==='#/playground'?'PLAYGROUND':window.location.hash==='#/observatory'?'OBSERVATORY':window.location.hash==='#/islands'?'WORLD':'HOME');
-  const [worldMode,setWorldMode]=useState<'colonies'|'legacy'>('colonies');
+  const [phase,setPhase]=useState<Phase>(()=>routePhase(window.location.hash));
+  const [worldMode,setWorldMode]=useState<'colonies'|'legacy'>(window.location.hash==='#/islands/legacy'?'legacy':'colonies');
   const [quick,setQuick]=useState(false);
   const [isDemo,setIsDemo]=useState(false);
   const [fighters,setFighters]=useState<[Fighter,Fighter]>(PRESET_FIGHTERS);
@@ -134,7 +135,17 @@ export default function App() {
   const createRequest=useRef<string|null>(null);
   const actionBusy=useRef(false);
   const reduced=!!useReducedMotion();
-  useEffect(()=>{const route=()=>{if(location.hash.startsWith('#/battles'))setPhase('OBJECT_BATTLES');else if(location.hash==='#/playground')setPhase('PLAYGROUND');else if(location.hash==='#/observatory')setPhase('OBSERVATORY');else if(location.hash==='#/islands'){setWorldMode('colonies');setPhase('WORLD')}else if(!location.hash)setPhase('HOME')};window.addEventListener('hashchange',route);return()=>window.removeEventListener('hashchange',route)},[]);
+  useEffect(()=>{
+    const route=()=>{
+      // Invalidate outstanding round callbacks; the saved round remains recoverable.
+      epoch.current++; actionBusy.current=false; setBusy(''); setConfirming(false); setError('');
+      setRecovery(readActive()); setReviewPending(null);
+      setWorldMode(location.hash==='#/islands/legacy'?'legacy':'colonies');
+      setPhase(routePhase(location.hash));
+    };
+    window.addEventListener('hashchange',route); window.addEventListener('popstate',route);
+    return()=>{window.removeEventListener('hashchange',route);window.removeEventListener('popstate',route)};
+  },[]);
   useEffect(()=>{window.scrollTo({top:0,left:0,behavior:'instant'});},[phase]);
   const remember=useCallback((record:BattleRecord)=>{currentBattle.current=record;setBattle(record);saveActive(record.id)},[]);
   useEffect(()=>{
@@ -152,9 +163,9 @@ export default function App() {
       if(active&&['draft','ready','running'].includes(active.status))await post(`/battles/${active.id}/cancel`);
       if(generation!==epoch.current)return;
       if(active||!readActive()){saveActive(null);setRecovery(null)}else setRecovery(readActive());currentBattle.current=null;setBattle(null);createRequest.current=null;
-      history.replaceState(null,'',location.pathname+location.search);setReviewPending(null);setPhase('HOME');setIsDemo(false);setFighters(PRESET_FIGHTERS);setRoundKey(k=>k+1);setSaveState('idle');
-    }catch(e){setError((e as Error).message+' Your round is kept for recovery.');}
-    finally{actionBusy.current=false;setBusy('')}
+      history.pushState(null,'',location.pathname+location.search);setReviewPending(null);setPhase('HOME');setIsDemo(false);setFighters(PRESET_FIGHTERS);setRoundKey(k=>k+1);setSaveState('idle');
+    }catch(e){if(generation===epoch.current)setError((e as Error).message+' Your round is kept for recovery.');}
+    finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
   },[]);
   async function play(){
     if(actionBusy.current)return;
@@ -164,7 +175,7 @@ export default function App() {
       const record=await post<BattleRecord>('/battles',{request_id:request});
       if(generation!==epoch.current)return;
       remember(record);setRecovery(null);setReviewPending(null);setIsDemo(false);setFighters(PRESET_FIGHTERS);setSaveState('idle');setRoundKey(k=>k+1);setPhase('THEME');
-    }catch(e){setError((e as Error).message)}finally{actionBusy.current=false;setBusy('')}
+    }catch(e){if(generation===epoch.current)setError((e as Error).message)}finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
   }
   const demo=()=>{if(actionBusy.current)return;epoch.current++;setError('');setIsDemo(true);currentBattle.current=null;setBattle(null);setFighters(PRESET_FIGHTERS);setRoundKey(k=>k+1);setPhase('REVEAL')};
   const themeComplete=useCallback(()=>setPhase(current=>current==='THEME'?'DRAW_P1':current),[]);
@@ -196,7 +207,7 @@ export default function App() {
     if(!accepted||accepted.capture_id!==fighter.capture_id)throw new Error('This capture was replaced. Prepare the latest photograph again.');
     remember(record);setReviewPending(null);setFighters(previous=>{const pair:[Fighter,Fighter]=[...previous];pair[fighter.player_slot]=asFighter(accepted);return pair});
     setPhase(fighter.player_slot===0?'DRAW_P2':'REVEAL');
-    }finally{actionBusy.current=false;setConfirming(false)}
+    }finally{if(generation===epoch.current){actionBusy.current=false;setConfirming(false)}}
   }
   const startBattle=useCallback(async()=>{
     if(actionBusy.current)return;
@@ -207,15 +218,15 @@ export default function App() {
       const started=await post<BattleRecord>(`/battles/${record.id}/start`,{playback_mode:quick?'quick':reduced?'reduced':'normal'});
       if(generation!==epoch.current)return;
       remember(started);setFighters(asPair(started.fighters));setPhase('BATTLE');
-    }catch(e){setError((e as Error).message)}finally{actionBusy.current=false;setBusy('')}
+    }catch(e){if(generation===epoch.current)setError((e as Error).message)}finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
   },[isDemo,quick,reduced,remember]);
   const finalize=useCallback(async()=>{
     const active=currentBattle.current;if(!active||actionBusy.current)return;
     if(active.status==='completed'){setSaveState('saved');return}
     actionBusy.current=true;setSaveState('saving');setError('');const generation=epoch.current;
     try{const complete=await post<BattleRecord>(`/battles/${active.id}/finalize`);if(generation!==epoch.current)return;remember(complete);setSaveState('saved');}
-    catch(e){setError((e as Error).message);setSaveState('error')}
-    finally{actionBusy.current=false}
+    catch(e){if(generation===epoch.current){setError((e as Error).message);setSaveState('error')}}
+    finally{if(generation===epoch.current)actionBusy.current=false}
   },[remember]);
   const battleComplete=useCallback(()=>{setPhase('RESULTS');if(!isDemo)void finalize()},[isDemo,finalize]);
   async function resume(){
@@ -227,12 +238,12 @@ export default function App() {
       if(record.fighters.length===2){setFighters(asPair(record.fighters));setPhase(record.status==='completed'||(record.eligible_at&&Date.now()>=Date.parse(record.eligible_at))?'RESULTS':'BATTLE');setSaveState(record.status==='completed'?'saved':'idle')}
       else if(record.pending_fighters.every((fighter,index)=>fighter&&record.confirmed_capture_ids?.[index]===fighter.capture_id)){setFighters(asPair(record.pending_fighters as PendingFighter[]));setPhase('REVEAL')}
       else {const first=record.pending_fighters[0];const firstConfirmed=first&&record.confirmed_capture_ids?.[0]===first.capture_id;if(firstConfirmed)setFighters([asFighter(first),PRESET_FIGHTERS[1]]);const slot=firstConfirmed?1:0;const pending=record.pending_fighters[slot];let restored:CaptureResponse|null=null;if(pending){try{restored=captureResponse(await api(`/battles/${record.id}/captures/${pending.capture_id}`))}catch{restored={capture_id:pending.capture_id,status:'recognized',image_url:pending.image_ref,width:800,height:600,fighter:pending,output_id:pending.output_id,pipeline_version_id:'legacy-unknown'}}}if(generation!==epoch.current)return;setReviewPending(restored);setPhase(slot===0?'DRAW_P1':'DRAW_P2')}
-    }catch(e){setError((e as Error).message)}finally{actionBusy.current=false;setBusy('')}
+    }catch(e){if(generation===epoch.current)setError((e as Error).message)}finally{if(generation===epoch.current){actionBusy.current=false;setBusy('')}}
   }
   const stage=phase==='DRAW_P1'||phase==='DRAW_P2'?0:phase==='REVEAL'?1:2;
   const memory=battle?.persistence==='development_memory'||health?.persistence==='development_memory';
   return <div className={`game-shell phase-${phase.toLowerCase()}`}><div className="paper-noise" aria-hidden="true"/>
-    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" aria-label="Observatory" onClick={()=>{location.hash='/observatory'}}><Sparkles size={15}/><span>OBSERVATORY</span></button><button className="quality-entry" onClick={()=>setPhase('QUALITY')} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}><Globe2 size={15}/> THE ISLANDS <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'||phase==='OBSERVATORY'||phase==='PLAYGROUND'||phase==='OBJECT_BATTLES'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
+    <header className="game-header"><button className="brand" onClick={()=>void home()} aria-label="Sketch Clash home"><span className="brand-icon"><Pencil size={20}/><Pencil size={20}/></span>SKETCH<span>CLASH</span></button><span className="header-center">{PHASE_LABEL[phase]}</span><div className="header-right">{phase==='HOME'?<><button className="quality-entry" aria-label="Observatory" onClick={()=>{location.hash='/observatory'}}><Sparkles size={15}/><span>OBSERVATORY</span></button><button className="quality-entry" onClick={()=>{location.hash='/quality'}} title="Recognition & World Quality"><SlidersHorizontal size={15}/><span>QUALITY LAB</span></button><button className="text-button island-entry" onClick={()=>{location.hash='/islands'}}><Globe2 size={15}/> THE ISLANDS <ArrowUpRight size={13}/></button></>:<button className="exit-button" onClick={()=>void home()} aria-label="Exit round and return home"><X size={17}/><span>{phase==='WORLD'||phase==='QUALITY'||phase==='OBSERVATORY'||phase==='PLAYGROUND'||phase==='OBJECT_BATTLES'?'BACK HOME':'EXIT ROUND'}</span></button>}</div></header>
     {health?.ai_paused&&!healthUnavailable&&['HOME','WORLD','OBSERVATORY','QUALITY'].includes(phase)&&<div className="ai-maintenance-note" role="status"><span className="ai-maintenance-dot"/><div><strong>GEMINI PAUSED</strong><span>Local island work continues. New AI discussions and recognition are on hold.</span></div><button onClick={()=>{location.hash='/playground'}}>TRY THE PLAYGROUND <ArrowUpRight size={14}/></button></div>}
     {healthUnavailable&&['HOME','WORLD','OBSERVATORY'].includes(phase)&&<div className="ai-maintenance-note is-disconnected" role="status"><div><strong>LOCAL ENGINE DISCONNECTED</strong><span>The playground still runs in this browser. Saved islands reconnect when the backend is available.</span></div><button onClick={()=>{location.hash='/playground'}}>OPEN PLAYGROUND <ArrowUpRight size={14}/></button></div>}
     {memory&&phase!=='PLAYGROUND'&&<div className="service-note">LOCAL MEMORY PREVIEW · Your island disappears when the backend restarts. MongoDB is not connected.</div>}
@@ -242,17 +253,17 @@ export default function App() {
     {phase==='HOME'&&recovery&&<div className="recovery-card"><b>A round is waiting in your sketchbook.</b><button onClick={()=>void resume()}>RESUME ROUND</button><button onClick={()=>{saveActive(null);setRecovery(null);createRequest.current=null}}>DISMISS RECOVERY</button></div>}
     {phase!=='HOME'&&phase!=='THEME'&&phase!=='RESULTS'&&phase!=='WORLD'&&phase!=='QUALITY'&&phase!=='OBSERVATORY'&&phase!=='PLAYGROUND'&&phase!=='OBJECT_BATTLES'&&<div className="game-progress" aria-label="Round progress">{['CAPTURE','SUMMON','CLASH'].map((label,i)=><span key={label} className={i===stage?'current':i<stage?'complete':''}><b>0{i+1}</b>{label}{i<2&&<i/>}</span>)}</div>}
     <AnimatePresence mode="wait" initial={false}><motion.div key={`${roundKey}-${phase}`} className="screen-wrap" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:.18}}>
-      {phase==='HOME'&&<LandingScreen onObjectBattle={()=>{location.hash='/battles'}} aiPaused={Boolean(health?.ai_paused)} onPlayground={()=>{location.hash='/playground'}} onPlay={()=>void play()} onDemo={demo} onIsland={()=>{setWorldMode('colonies');setPhase('WORLD')}} quick={quick} setQuick={setQuick}/>}
+      {phase==='HOME'&&<LandingScreen onObjectBattle={()=>{location.hash='/battles'}} aiPaused={Boolean(health?.ai_paused)} onPlayground={()=>{location.hash='/playground'}} onPlay={()=>void play()} onDemo={demo} onIsland={()=>{location.hash='/islands'}} quick={quick} setQuick={setQuick}/>}
       {phase==='THEME'&&<ThemeReveal onComplete={themeComplete}/>}
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
       {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?.duration_ms&&battle.winner_slot!==null?{events:battle.events,duration_ms:battle.duration_ms,winner_slot:battle.winner_slot}:undefined}/>}
-      {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{setWorldMode('colonies');setPhase('WORLD')}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
+      {phase==='RESULTS'&&<><VictoryScreen fighters={fighters} winner={isDemo?0:battle?.winner_slot??0} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/>{isDemo?<div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div>:<div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{location.hash='/islands'}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div>}</>}
       {phase==='OBJECT_BATTLES'&&<Suspense fallback={<div className="flow-message">Opening the object arena…</div>}><ObjectBattles onBack={()=>void home()}/></Suspense>}
       {phase==='PLAYGROUND'&&<Suspense fallback={<div className="flow-message">Opening the island playground…</div>}><IslandPlayground onBack={()=>void home()}/></Suspense>}
       {phase==='OBSERVATORY'&&<Suspense fallback={<div className="flow-message">Opening the living Observatory…</div>}><Observatory aiPaused={Boolean(health?.ai_paused)} onBack={()=>{location.hash='/islands'}}/></Suspense>}
-      {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>setPhase('HOME')}/></Suspense>}
-      {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening the islands…</div>}>{worldMode==='colonies'?<ColoniesView onBack={()=>void home()} onLegacy={()=>{setWorldMode('legacy');window.scrollTo({top:0,behavior:'instant'})}}/>:<><div className="legacy-island-return"><button onClick={()=>{setWorldMode('colonies');window.scrollTo({top:0,behavior:'instant'})}}><Globe2 size={14}/> BACK TO THE TWO ISLANDS <ArrowRight size={14}/></button><span>Your original shared island and its memories are preserved.</span></div><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></>}</Suspense>}
+      {phase==='QUALITY'&&<Suspense fallback={<div className="flow-message">Opening Recognition & World Quality…</div>}><QualityConsole onClose={()=>void home()}/></Suspense>}
+      {phase==='WORLD'&&<Suspense fallback={<div className="flow-message">Opening the islands…</div>}>{worldMode==='colonies'?<ColoniesView onBack={()=>void home()} onLegacy={()=>{location.hash='/islands/legacy'}}/>:<><div className="legacy-island-return"><button onClick={()=>{location.hash='/islands'}}><Globe2 size={14}/> BACK TO THE TWO ISLANDS <ArrowRight size={14}/></button><span>Your original shared island and its memories are preserved.</span></div><WorldView onBack={()=>void home()} arrivalIds={battle?.status==='completed'&&battle.completion?.durable?battle.completion.new_resident_ids:[]}/></>}</Suspense>}
     </motion.div></AnimatePresence>
     <footer className="game-footer"><span><span className="footer-asterisk">✳</span> REAL OBJECTS. UNREASONABLE AMBITION.</span><span>SKETCH CLASH <i>©</i> 2026</span><span className="footer-last">CAPTURE · CLASH · BUILD · GROW</span></footer>
   </div>;
