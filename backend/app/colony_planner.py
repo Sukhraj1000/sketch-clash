@@ -50,6 +50,15 @@ Read recent_validation_feedback before retrying a rejected design. A rejected pr
 execute a physical experiment and does not establish a finding; revise its invalid parameters.
 If resources or capabilities are missing, discuss a useful feasible alternative instead of waiting
 for the player. Before switching, read current commitments and avoid wasting accepted work.
+Read work_options before proposing an action. Its useful_actions fit current storage, reserves and
+the agreed project; allowed_actions only describes your capabilities, not whether that work helps now.
+If a resource is full, stop collecting it and explain the switch. Do not repeat a zero-gain receipt
+as a contribution. Prefer a useful action that addresses a current shortage or construction need.
+If no useful action remains, discuss a testable experiment or blueprint supported by the supplied
+schemas and actual object evidence, or rest and state the missing capability. Do not invent demand,
+drain stock, or claim that talking/resting improved the island. No actor can generate missing energy
+without a declared capability. A report describes only the actual resource_delta, reserved_cost and
+progress_delta of its cited completed receipt; proposals and accepted assignments are still intentions.
 Use proposal/support/objection with project_id for existing projects; question/reflection can discuss
 uncertainty without a project. Requests require resource and quantity (1..8). Offers must answer a
 supplied request_id and include your capable action. Reports require your actual receipt_id.
@@ -174,11 +183,22 @@ class ColonyPlanner:
         self.repo.transaction(op); self.wake.set()
         return self.status()
 
-    def _pick(self, snapshot, state, colony_id=None, agent_id=None):
+    @staticmethod
+    def _available_colonies(snapshot):
         eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
-        choices = [c for c in snapshot['colonies'] if c['island']['enabled'] and not c['island']['paused']
-                   and any(eligible(a) for a in c['island']['agents'])]
-        if colony_id: choices = [c for c in choices if c['id'] == colony_id]
+        return [c for c in snapshot['colonies'] if c['island']['enabled'] and not c['island']['paused']
+                and any(eligible(a) for a in c['island']['agents'])]
+
+    def _pick(self, snapshot, state, colony_id=None, agent_id=None, *, allow_fallback=False):
+        eligible = lambda a: not (a.get('assignment_origin') == 'player' and a.get('assignment') != 'auto')
+        choices = self._available_colonies(snapshot)
+        if colony_id:
+            preferred = [c for c in choices if c['id'] == colony_id]
+            # An automatic wake-up preference can become stale after an island
+            # pauses. It must not starve another active island. A manual request
+            # remains strict about which island the user actually selected.
+            if preferred or not allow_fallback:
+                choices = preferred
         if not choices: raise StoreError('Start an island with residents and resume it before a council.', 409, 'colony_not_ready')
         choices.sort(key=lambda c: (c['id'] == state['last_colony_id'], c['id']))
         colony = choices[0]
@@ -221,11 +241,13 @@ class ColonyPlanner:
             if state['last_request_at'] is not None and now - state['last_request_at'] < 2: raise StoreError('A council was just requested.', 429, 'planner_cooldown')
             budget = self.legacy._state(tx)
             if self.daily_limit and budget['day'] == utc_day(now) and budget['requests_today'] >= self.daily_limit: raise StoreError('The configured daily allowance is used.', 429, 'planner_daily_limit')
-            colony, actors = self._pick(snapshot, state, colony_id, agent_id)
+            colony, actors = self._pick(snapshot, state, colony_id, agent_id,
+                                        allow_fallback=automatic and not agent_id)
+            actual_trigger = 'review_progress' if automatic and colony_id and colony['id'] != colony_id else trigger
             sid = key_for(self.repo.world_id, 'council-session', request_key)
             session = {'_id': sid, 'id': sid, 'world_id': self.repo.world_id, 'request_key': request_key,
                        'colony_id': colony['id'], 'created_at': iso(now), 'status': 'running',
-                       'trigger': trigger, 'population_fingerprint': population_fingerprint(colony),
+                       'trigger': actual_trigger, 'population_fingerprint': population_fingerprint(colony),
                        'participants': [{k: a[k] for k in ('id', 'character_id', 'display_name') if k in a} for a in actors],
                        'max_turns': 1 if len(actors) == 1 else min(6, len(actors) * 2), 'completed_turns': 0,
                        'messages': [], 'run_ids': [], 'version': 1}
@@ -235,7 +257,7 @@ class ColonyPlanner:
             state['population_fingerprints'][colony['id']] = session['population_fingerprint']
             state['milestone_fingerprints'][colony['id']] = self._milestone_fingerprint(colony)
             tx.put('colonyPlanner', state); tx.put('colonyReasoning', run); tx.put('colonyCouncilSessions', session)
-            _event(tx, self.repo.world_id, sid + ':started', 'council.started', run, 'Residents convened a council.', {'trigger': trigger, 'participants': [a['id'] for a in actors]})
+            _event(tx, self.repo.world_id, sid + ':started', 'council.started', run, 'Residents convened a council.', {'trigger': actual_trigger, 'participants': [a['id'] for a in actors]})
             return public(run)
         result = self.repo.transaction(op); self.wake.set()
         return result
@@ -262,9 +284,12 @@ class ColonyPlanner:
                 'status': 'rejected_before_effect', 'code': row.get('validation_code'),
                 'reason': str(row.get('error', ''))[:400], 'attempt': attempt})
         payload['board'] = [{key: row[key] for key in ('id', 'actor_id', 'actor_name', 'kind', 'text', 'resource', 'quantity',
-            'remaining', 'status', 'request_id', 'project_id', 'claimed_by', 'expires_at', 'origin', 'session_id', 'reply_to_id') if key in row} for row in payload.get('board', [])[:12]]
+            'remaining', 'status', 'request_id', 'project_id', 'claimed_by', 'expires_at', 'origin', 'session_id', 'reply_to_id',
+            'receipt_ids', 'interpretation') if key in row} for row in payload.get('board', [])[:12]]
         payload['last_receipts'] = [{key: row[key] for key in ('id', 'sequence', 'kind', 'at', 'title', 'description',
-            'resource_delta', 'project_id', 'progress', 'decision_id', 'character_id') if key in row} for row in payload.get('last_receipts', [])[:4]]
+            'resource_delta', 'reserved_cost', 'resource_net_delta', 'project_id', 'progress_delta',
+            'decision_origin', 'decision_id', 'execution_origin', 'character_id', 'scheduling_reason',
+            'requested_action', 'action_switched') if key in row} for row in payload.get('last_receipts', [])[:4]]
         payload['council'] = [{key: row[key] for key in ('id', 'at', 'chosen_project_id', 'previous_project_id', 'reason', 'mode', 'votes') if key in row} for row in payload.get('council', [])[-1:]]
         payload['project_discussion'] = [{key: row[key] for key in ('id', 'actor_id', 'actor_name', 'kind', 'project_id', 'proposal_id', 'text', 'origin') if key in row} for row in payload.get('project_discussion', [])[-40:]]
         if session:
@@ -308,8 +333,11 @@ class ColonyPlanner:
             # An island with new abilities outranks a periodic review. Ordinary
             # stock increments and animation ticks do not wake model discussions.
             candidates = []
-            for colony in snapshot['colonies']:
-                if not colony['island']['agents'] or colony['island']['paused'] or not colony['island']['enabled']: continue
+            available = self._available_colonies(snapshot)
+            if state.get('preferred_colony_id') and state['preferred_colony_id'] not in {c['id'] for c in available}:
+                state.pop('preferred_colony_id', None)
+                state.pop('next_trigger', None)
+            for colony in available:
                 changed = state['population_fingerprints'].get(colony['id']) != population_fingerprint(colony)
                 milestone = state['milestone_fingerprints'].get(colony['id']) != self._milestone_fingerprint(colony)
                 if changed or milestone:
@@ -418,7 +446,7 @@ class ColonyPlanner:
         if run['status'] == 'applying':
             await self._apply(run); return
         if run['status'] == 'retry_wait' and self.clock() < run.get('retry_at_epoch', 0): return
-        reserved, received = False, False
+        dispatched, received = False, False
         try:
             payload, encoded = await asyncio.to_thread(self._input, run)
             payload = await self._recall(run, payload)
@@ -446,27 +474,56 @@ class ColonyPlanner:
                 _event(tx, self.repo.world_id, run_id + ':request:' + str(current['attempts']), 'model.queued', current,
                     'Resident queued a Gemini council turn.', {'model': current['model'], 'attempt': current['attempts']})
                 return current
-            run = await asyncio.to_thread(self.repo.transaction, claim); reserved = True
+            run = await asyncio.to_thread(self.repo.transaction, claim)
             if self.client is None:
                 from .gemini_client import create_gemini_client
                 self.client = create_gemini_client(self.settings.gemini_api_key, timeout_ms=60000)
             with _span(run) as span:
+                async def refresh_observation():
+                    nonlocal payload, encoded
+                    # Slow pacing can leave a turn queued for a minute. Read the
+                    # actual stock, useful choices, receipts and transcript again
+                    # immediately before dispatch; semantic recall remains marked
+                    # as recalled evidence, never a fresh physical observation.
+                    enabled = await asyncio.to_thread(self.repo.read, lambda tx: self._state(tx)['enabled'])
+                    if not enabled:
+                        raise StoreError('AI discussions switched off before dispatch.', 409, 'planner_disabled')
+                    recalled = payload.get('learning', {}).get('retrieved_memory')
+                    payload, _ = await asyncio.to_thread(self._input, run)
+                    if recalled is not None:
+                        payload.setdefault('learning', {})['retrieved_memory'] = recalled
+                    payload['observed_at'] = iso(self.clock())
+                    encoded = json.dumps(payload, ensure_ascii=True, separators=(',', ':'))
+                    if len(encoded) + len(SYSTEM) > 48000:
+                        raise StoreError('The bounded council context is full.', 422, 'planner_context_limit')
                 async def invoke():
+                    nonlocal dispatched
                     context = span.get_span_context() if span else None
                     trace_fields = {'trace_id': format(context.trace_id, '032x'), 'span_id': format(context.span_id, '016x')} if context and context.is_valid else {}
-                    def dispatched(tx):
+                    def mark_dispatched(tx):
                         current = tx.get('colonyReasoning', run_id)
                         current.update(trace_fields)
+                        conversation = payload.get('council_session', {}).get('conversation', [])
+                        current.update(seen_message_ids=[m['id'] for m in conversation],
+                            reply_to_id=conversation[-1]['id'] if conversation else None,
+                            observation_summary={'observed_at': payload['observed_at'], 'revision': payload.get('revision'),
+                                'allowed_actions': payload['actor']['allowed_actions'],
+                                'useful_actions': payload.get('work_options', {}).get('useful_actions', []),
+                                'full_resources': payload.get('work_options', {}).get('full_resources', []),
+                                'board_ids': [b['id'] for b in payload.get('board', []) if 'id' in b],
+                                'receipt_ids': [r['id'] for r in payload.get('last_receipts', []) if 'id' in r]})
+                        run.update({key: current[key] for key in ('seen_message_ids', 'reply_to_id', 'observation_summary')})
                         tx.put('colonyReasoning', current)
                         _event(tx, self.repo.world_id, run_id + ':dispatched:' + str(run['attempts']), 'model.requested', run,
                             'Resident sent its observation and actual council transcript to Gemini.',
                             {'model': run['model'], 'attempt': run['attempts'], **trace_fields})
-                    await asyncio.to_thread(self.repo.transaction, dispatched)
+                    await asyncio.to_thread(self.repo.transaction, mark_dispatched)
+                    dispatched = True
                     return await asyncio.wait_for(self.client.aio.interactions.create(
                         model=run['model'], store=False, system_instruction=SYSTEM, input=encoded,
                         response_format={'type':'text','mime_type':'application/json','schema':AgentDecision.model_json_schema()},
                         generation_config={'thinking_level':'medium' if run['model'] == self.settings.colony_proposal_model else 'low','max_output_tokens':2048}), 65)
-                response = await self.queue.run(run['model'], invoke, category='council')
+                response = await self.queue.run(run['model'], invoke, category='council', prepare=refresh_observation)
                 received = True
                 metadata = response.model_dump(mode='json', exclude_none=True) if hasattr(response, 'model_dump') else {}
                 token_usage = metadata.get('usage') or {}
@@ -496,13 +553,13 @@ class ColonyPlanner:
             run = await asyncio.to_thread(self.repo.transaction, store_output)
             await self._apply(run)
         except asyncio.CancelledError:
-            await asyncio.shield(asyncio.to_thread(self._fail, run_id, 'uncertain' if reserved and not received else 'interrupted', 'Worker stopped. No automatic provider replay.'))
+            await asyncio.shield(asyncio.to_thread(self._fail, run_id, 'uncertain' if dispatched and not received else 'interrupted', 'Worker stopped. No automatic provider replay.'))
             raise
         except ProviderFailure as exc:
             await asyncio.to_thread(self._provider_failed, run_id, exc.diagnostic)
         except Exception as exc:
             if isinstance(exc, StoreError) and exc.code == 'planner_claimed': return
-            await asyncio.to_thread(self._fail, run_id, 'uncertain' if reserved and not received else 'rejected',
+            await asyncio.to_thread(self._fail, run_id, 'uncertain' if dispatched and not received else 'rejected',
                 str(exc) if isinstance(exc, StoreError) else f'Agent turn could not complete ({type(exc).__name__}).',
                 block_auto=not (isinstance(exc, StoreError) and exc.code in RECOVERABLE_CONFLICTS))
 

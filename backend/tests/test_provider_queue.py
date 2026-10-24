@@ -13,6 +13,49 @@ class HttpError(Exception):
         self.response = SimpleNamespace(headers=headers or {}, status_code=status)
 
 
+@pytest.mark.asyncio
+async def test_local_dispatch_preparation_failure_is_not_a_provider_call_or_error():
+    from app.repository import StoreError
+    queue = ProviderQueue()
+    calls = []
+    async def prepare():
+        raise StoreError('The island changed while this request waited.', 409, 'population_changed')
+    async def invoke():
+        calls.append('sent')
+    with pytest.raises(StoreError) as error:
+        await queue.run('fixture', invoke, prepare=prepare)
+    status = queue.status()
+    assert error.value.code == 'population_changed'
+    assert calls == [] and status['local_usage']['requests_last_24_hours'] == 0
+    assert status['last_error'] is None and status['completed'] == 0
+    assert status['waiting'] == status['active'] == 0
+
+
+@pytest.mark.asyncio
+async def test_preparation_repeats_if_another_request_wins_dispatch_while_reading():
+    now = [100.]
+    async def sleep(seconds): now[0] += seconds
+    queue = ProviderQueue(concurrency=2, clock=lambda: now[0], sleep=sleep)
+    reading, release = asyncio.Event(), asyncio.Event()
+    preparations, calls = [], []
+    async def prepare():
+        preparations.append(now[0])
+        if len(preparations) == 1:
+            reading.set()
+            await release.wait()
+    async def first(): calls.append(('first', now[0]))
+    async def second():
+        calls.append(('second', now[0]))
+        release.set()
+    pending = asyncio.create_task(queue.run('first', first, prepare=prepare))
+    await reading.wait()
+    await queue.run('second', second)
+    await pending
+    assert preparations == [100., 115.]
+    assert calls == [('second', 100.), ('first', 115.)]
+    assert queue.status()['local_usage']['requests_last_24_hours'] == 2
+
+
 def test_rate_limit_details_are_safe_and_known():
     error = HttpError(429, {'error': {'message': 'limit for project SECRET_PROJECT', 'details': [
         {'retryDelay': '22s'}, {'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_requests_per_minute'}]}]}},

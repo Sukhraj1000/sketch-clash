@@ -301,11 +301,26 @@ class ProviderQueue:
         delay, reason = max(candidates, key=lambda item: item[0])
         return delay, reason if delay > 0 else None
 
-    async def _admit(self):
+    async def _admit(self, prepare=None):
         while True:
             self.require_enabled()
             # Never hold this lock across sleep or a provider call. A second
             # task must recheck the same shared windows after every wake-up.
+            async with self._admission_lock:
+                now = self.clock()
+                self._prune(now)
+                self._require_daily_allowance(now)
+                delay, _ = self._wait_condition(now)
+                changed = self._pacing_changed
+            if delay > 0:
+                await self._wait_for_pacing(delay, changed)
+                continue
+            # Refresh local observations only when a dispatch is eligible. The
+            # callback must not call a provider or hold the admission lock: another
+            # request may win while local persistence is being read.
+            if prepare is not None:
+                await prepare()
+            self.require_enabled()
             async with self._admission_lock:
                 now = self.clock()
                 self._prune(now)
@@ -318,9 +333,8 @@ class ProviderQueue:
                     self._last_dispatch = now
                     return
             await self._wait_for_pacing(delay, changed)
-            self.require_enabled()
 
-    async def run(self, model, operation, category='agent'):
+    async def run(self, model, operation, category='agent', *, prepare=None):
         self.require_enabled()
         now = self.clock()
         self._prune(now)
@@ -333,7 +347,9 @@ class ProviderQueue:
         self.waiting += 1
         try:
             async with self.semaphore:
-                await self._admit()
+                # Local validation errors are not Google errors and do not spend
+                # a dispatch allowance. Preparation may rerun after a queue race.
+                await self._admit(prepare)
                 self.active += 1
                 try:
                     result = await operation()

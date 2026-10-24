@@ -345,3 +345,133 @@ def test_new_session_cannot_replace_a_council_awaiting_local_resolution(fixture)
     with pytest.raises(StoreError) as exc: worker.request('new-council-too-soon','losers')
     assert exc.value.code=='planner_busy'
     assert worker.status()['active_session_id']==run['session_id']
+
+
+@pytest.mark.asyncio
+async def test_slow_queue_refreshes_stock_useful_work_and_receipts_before_dispatch(fixture):
+    from app.provider_queue import ProviderQueue
+    repo, colonies, provider, clock, worker = fixture
+    original = colonies.observation
+    stock = {'materials': 2}
+    def observation(colony, actor):
+        value = original(colony, actor)
+        value['resources'] = dict(stock)
+        value['revision'] = stock['materials']
+        value['work_options'] = {'useful_actions': [] if stock['materials'] == 1000 else ['carry'],
+                                 'full_resources': ['materials'] if stock['materials'] == 1000 else []}
+        value['last_receipts'] = [{'id': 'actual-work', 'resource_delta': {'materials': 0},
+            'reserved_cost': {'ideas': 1}, 'resource_net_delta': {'ideas': -1}, 'progress_delta': 2,
+            'decision_origin': 'model', 'execution_origin': 'local_executor',
+            'scheduling_reason': 'Materials are full; completed accepted construction instead.',
+            'requested_action': 'carry', 'action_switched': True}]
+        value['board'] = [{'id': 'committed-report', 'kind': 'report', 'receipt_ids': ['actual-work'],
+                          'interpretation': 'Materials are full; completed accepted construction instead.'}]
+        return value
+    colonies.observation = observation
+    async def sleep(seconds):
+        stock['materials'] = 1000
+        clock.add(seconds)
+    queue = ProviderQueue(clock=clock, sleep=sleep)
+    queue.set_pacing('slow')
+    async def earlier_request(): pass
+    await queue.run('earlier', earlier_request)
+    worker.queue = queue
+    run = worker.request('storage-fills-while-waiting', 'winners')
+    await worker.run(run['id'])
+    sent = json.loads(provider.calls[0]['input'])
+    assert sent['resources']['materials'] == 1000
+    assert sent['work_options']['useful_actions'] == []
+    assert sent['last_receipts'][0]['progress_delta'] == 2
+    assert sent['last_receipts'][0]['reserved_cost'] == {'ideas': 1}
+    assert sent['last_receipts'][0]['action_switched'] is True
+    assert sent['last_receipts'][0]['requested_action'] == 'carry'
+    assert sent['board'][0]['receipt_ids'] == ['actual-work']
+    assert sent['board'][0]['interpretation'] == sent['last_receipts'][0]['scheduling_reason']
+    saved = repo._data['colonyReasoning'][run['id']]
+    assert saved['observation_summary']['full_resources'] == ['materials']
+    assert saved['observation_summary']['revision'] == 1000
+    assert saved['observation_summary']['observed_at'] == sent['observed_at']
+
+
+@pytest.mark.asyncio
+async def test_arrival_while_queued_reopens_council_without_spending_another_dispatch():
+    from app.provider_queue import ProviderQueue
+    clock = Clock(); settings = Settings(repository='memory', gemini_api_key='fixture-only')
+    repo = MemoryRepository(settings); colonies = CouncilColonies(); provider = Provider()
+    async def sleep(seconds):
+        colonies.extra = True
+        clock.add(seconds)
+    queue = ProviderQueue(clock=clock, sleep=sleep)
+    queue.set_pacing('slow')
+    async def earlier_request(): pass
+    await queue.run('earlier', earlier_request)
+    worker = ColonyPlanner(repo, colonies, settings, client=provider, clock=clock, provider_queue=queue)
+    run = worker.request('arrival-while-waiting', 'winners')
+    await worker.run(run['id'])
+    assert provider.calls == []
+    assert worker.sessions()[0]['status'] == 'stale'
+    assert worker.status()['last_status'] == 'rejected'
+    assert worker.status()['auto_blocked'] is False
+    assert queue.status()['local_usage']['requests_last_24_hours'] == 1
+    assert queue.status()['last_error'] is None
+
+
+@pytest.mark.asyncio
+async def test_disabling_discussions_during_queue_wait_prevents_provider_dispatch(fixture):
+    from app.provider_queue import ProviderQueue
+    _, _, provider, clock, worker = fixture
+    async def sleep(seconds):
+        worker.toggle(False)
+        clock.add(seconds)
+    queue = ProviderQueue(clock=clock, sleep=sleep)
+    queue.set_pacing('slow')
+    async def earlier_request(): pass
+    await queue.run('earlier', earlier_request)
+    worker.queue = queue
+    run = worker.request('disabled-while-queued', 'winners')
+    await worker.run(run['id'])
+    assert provider.calls == [] and worker.status()['enabled'] is False
+    assert queue.status()['local_usage']['requests_last_24_hours'] == 1
+    assert queue.status()['last_error'] is None
+
+
+def test_paused_island_preference_cannot_starve_an_available_automatic_council(fixture):
+    repo, colonies, provider, _, worker = fixture
+    original = colonies.snapshot
+    def snapshot():
+        value = original()
+        value['colonies'][0]['island']['paused'] = True
+        return value
+    colonies.snapshot = snapshot
+    from app.colony_planner import population_fingerprint
+    def seed(tx):
+        state = worker._state(tx, True)
+        state.update(preferred_colony_id='winners', next_trigger='population_changed')
+        for colony in colonies.snapshot()['colonies']:
+            state['population_fingerprints'][colony['id']] = population_fingerprint(colony)
+            state['milestone_fingerprints'][colony['id']] = worker._milestone_fingerprint(colony)
+        tx.put('colonyPlanner', state)
+    repo.transaction(seed)
+    worker._check_population()
+    state = repo.read(worker._state)
+    assert 'preferred_colony_id' not in state and 'next_trigger' not in state
+    # Also cover the race where the preference was read just before the pause.
+    run = worker.request('old-preference', colony_id='winners', automatic=True, trigger='population_changed')
+    assert run['colony_id'] == 'losers'
+    assert worker.sessions()[0]['trigger'] == 'review_progress'
+    assert colonies.snapshot()['colonies'][0]['island']['paused'] is True
+    assert provider.calls == []
+
+
+def test_manual_council_does_not_silently_switch_away_from_a_paused_island(fixture):
+    _, colonies, provider, _, worker = fixture
+    original = colonies.snapshot
+    def snapshot():
+        value = original()
+        value['colonies'][0]['island']['paused'] = True
+        return value
+    colonies.snapshot = snapshot
+    with pytest.raises(StoreError) as exc:
+        worker.request('manual-winner-only', colony_id='winners')
+    assert exc.value.code == 'colony_not_ready'
+    assert worker.sessions() == [] and provider.calls == []
