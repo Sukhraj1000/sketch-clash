@@ -34,8 +34,9 @@ services:
       # Trust X-Forwarded-For from the nginx container so operator rate limits see the real client.
       FORWARDED_ALLOW_IPS: "*"
     volumes:
-      # Operator token survives rebuilds; it is the only file the backend writes.
-      - api-data:/app/backend/data
+      # The same folder npm run dev uses, so one operator key works for both
+      # (npm run operator:token prints it). It is the only place the backend writes.
+      - ./backend/data:/app/backend/data
     tmpfs:
       - /tmp
     mem_limit: 4g
@@ -61,6 +62,3 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8080:80"
-
-volumes:
-  api-data:

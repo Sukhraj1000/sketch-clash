@@ -39,8 +39,7 @@
     "docker:up": "docker compose up --build -d",
     "docker:demo": "docker compose -f compose.yaml -f compose.demo.yaml up --build -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
-    "docker:operator-token": "docker compose exec api cat backend/data/operator-token"
+    "docker:logs": "docker compose logs -f"
   },
   "dependencies": {
     "@fontsource/bangers": "^5.3.0",

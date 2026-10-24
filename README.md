@@ -37,7 +37,7 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). Only that port is publish
 
 - `npm run docker:demo` uses temporary in-memory records, like `npm run dev:demo`.
 - `npm run docker:logs` follows both services; `npm run docker:down` stops them.
-- The operator key lives in the `api-data` volume: `npm run docker:operator-token` prints it in your terminal.
+- The backend shares `backend/data` with `npm run dev`, so `npm run operator:token` prints the Quality Lab key for both.
 - The first build downloads torch and the vision weights and takes several minutes; later builds reuse the cached layers. Keep about 5 GB free: a full disk turns Docker's VM read-only mid-build.
 - The stack restarts with Docker Desktop (`restart: unless-stopped`). To keep it running after a reboot, enable Docker Desktop → Settings → General → **Start Docker Desktop when you sign in**.
 - While AI is not paused, the island crews call Gemini automatically, bounded by `ISLAND_AI_REQUESTS_PER_DAY` (legacy `GEMINI_REQUESTS_PER_DAY`). Run `npm run docker:down` or set `SKETCH_AI_PAUSED=true` when you are not playing.
