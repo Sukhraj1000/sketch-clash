@@ -23,6 +23,8 @@ for (let time = 0; time <= BATTLE_DURATION; time += 5) {
     assert.equal(reduced.x, 0, `Reduced motion disables lunges at ${time}ms`);
     assert.equal(reduced.y, 0, `Reduced motion disables bouncing at ${time}ms`);
     assert.equal(reduced.rotate, 0, `Reduced motion disables spinning at ${time}ms`);
+    assert.equal(reduced.scaleX, 1, `Reduced motion disables stretching/shrinking at ${time}ms`);
+    assert.equal(reduced.scaleY, 1, `Reduced motion disables squashing at ${time}ms`);
     assert.equal(getHitFlash(time, side, true), false, `Reduced motion disables hit flashes at ${time}ms`);
   }
   assert.ok(Number.isFinite(getCameraOffset(time)), `Camera offset is finite at ${time}ms`);
@@ -78,6 +80,7 @@ for (const count of [7, 11, 15]) {
       assert.ok(Object.values(getFighterPose(t, slot, false, events, 1)).every(Number.isFinite));
       const reduced = getFighterPose(t, slot, true, events, 1);
       assert.equal(reduced.x, 0); assert.equal(reduced.y, 0); assert.equal(reduced.rotate, 0);
+      assert.equal(reduced.scaleX, 1); assert.equal(reduced.scaleY, 1);
     }
   }
   const quickEvents = events.map(event => ({ ...event, at: event.at / 2 }));
@@ -104,6 +107,7 @@ for (const outcome of ['points', 'tiebreak']) {
     for (const side of [0, 1]) {
       const pose = getFighterPose(BATTLE_DURATION, side, true, decisionEvents, winner, outcome);
       assert.equal(pose.x, 0); assert.equal(pose.y, 0); assert.equal(pose.rotate, 0);
+      assert.equal(pose.scaleX, 1); assert.equal(pose.scaleY, 1);
       assert.ok(Object.values(pose).every(Number.isFinite), 'Decision transforms remain finite');
     }
   }

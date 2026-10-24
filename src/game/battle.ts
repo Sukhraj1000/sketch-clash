@@ -47,8 +47,8 @@ export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = fal
       pose.x = reducedMotion ? 0 : -dir * 0.1 * easeOut(progress);
       pose.y = reducedMotion ? 0 : 60 * easeOut(progress);
       pose.rotate = reducedMotion ? 0 : -dir * 105 * easeOut(progress);
-      pose.scaleX = 1 - progress * .66;
-      pose.scaleY = 1 - progress * .78;
+      pose.scaleX = reducedMotion ? 1 : 1 - progress * .66;
+      pose.scaleY = reducedMotion ? 1 : 1 - progress * .78;
       pose.opacity = 1 - progress * .3;
     } else if (side === winnerSlot && !reducedMotion) {
       const jump = Math.max(0, Math.sin((elapsed - finalTime - 350) / 210));
@@ -63,7 +63,6 @@ export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = fal
     if (relative < -440 || relative > 720) continue;
     if (event.attacker === side) {
       if (reducedMotion) {
-        pose.scaleX = relative >= 0 && relative < 140 ? 1.035 : 1;
         return pose;
       }
       if (relative < -170) {
@@ -95,8 +94,8 @@ export function getFighterPose(elapsed: number, side: 0 | 1, reducedMotion = fal
       pose.x = reducedMotion ? 0 : -dir * .047 * (1 - p) * power;
       pose.y = reducedMotion ? 0 : -Math.sin(p * Math.PI) * 24;
       pose.rotate = reducedMotion ? 0 : -dir * 16 * (1 - p) * power;
-      pose.scaleX = 1 - .17 * (1 - p);
-      pose.scaleY = 1 + .12 * (1 - p);
+      pose.scaleX = reducedMotion ? 1 : 1 - .17 * (1 - p);
+      pose.scaleY = reducedMotion ? 1 : 1 + .12 * (1 - p);
     }
     return pose;
   }
