@@ -52,6 +52,19 @@ def register_colony_routes(app):
     async def get_colonies(store=Depends(colonies)):
         return await snapshot(store)
 
+    @app.get('/api/colonies/{colony_id}/knowledge')
+    async def knowledge(colony_id: Literal['winners', 'losers'], store=Depends(colonies)):
+        return await asyncio.to_thread(store.learning.snapshot, store._side(colony_id).world_id)
+
+    @app.get('/api/colonies/{colony_id}/experiments')
+    async def experiments(colony_id: Literal['winners', 'losers'], store=Depends(colonies)):
+        data = await asyncio.to_thread(store.learning.snapshot, store._side(colony_id).world_id)
+        return {'experiments': data.get('experiments', []), 'findings': data.get('findings', [])}
+
+    @app.get('/api/colonies/councils/history')
+    async def councils(worker=Depends(planner)):
+        return await asyncio.to_thread(worker.sessions)
+
     @app.post('/api/colonies/start')
     async def start_colonies(store=Depends(colonies)):
         await asyncio.to_thread(store.initialize)

@@ -180,7 +180,8 @@ async def test_model_request_offer_and_report_are_backed_by_actual_contribution(
                         'message': {'kind': 'offer', 'request_id': request['id']}}
     claim_run = worker.request('offer-water', 'winners', bottle['id'])
     await worker.run(claim_run['id'])
-    assert worker.status()['last_status'] == 'completed'
+    assert repo._data['colonyReasoning'][claim_run['id']]['status'] == 'completed'
+    assert worker.status()['active_run']['agent_id'] == pencil['id']
     accepted = repo._data['colonyBoard'][request['id']]
     assert accepted['status'] == 'claimed' and not accepted['receipt_ids']
     assert not repo._data.get('colonyContributions')
@@ -195,17 +196,28 @@ async def test_model_request_offer_and_report_are_backed_by_actual_contribution(
     assert receipt['decision_origin'] == 'model' and receipt['resource_delta']['water'] >= 4
     assert contributions[0]['created_at'] >= repo._data['colonyReasoning'][claim_run['id']]['received_at']
     clock.advance(21)
+    # The peer answers inside this same council before the supplier reports its
+    # actual receipt. No manual request is needed to schedule the next speaker.
+    provider.decision = {'message': {'kind': 'question', 'text': 'Did the water reach our shared stock?'}}
+    peer_run = worker.status()['active_run']
+    assert peer_run['agent_id'] == pencil['id']
+    await worker.run(peer_run['id']); clock.advance(3)
     provider.decision = {'message': {'kind': 'report', 'receipt_id': receipt['id'],
                                      'text': 'I also built an imaginary castle.'}}
-    report_run = worker.request('report-water', 'winners', bottle['id'])
+    report_run = worker.status()['active_run']
+    assert report_run['agent_id'] == bottle['id']
     await worker.run(report_run['id'])
-    assert worker.status()['last_status'] == 'completed'
+    assert repo._data['colonyReasoning'][report_run['id']]['status'] == 'completed'
     report = next(row for row in repo._data['colonyBoard'].values()
                   if row['kind'] == 'report' and row['origin'] == 'model')
     assert report['verified'] and report['text'] == receipt['description']
     assert report['receipt_ids'] == [receipt['id']]
     assert 'castle' not in report['text']
-    assert len(provider.calls) == worker.status()['requests_today'] == 3
+    clock.advance(3)
+    provider.decision = {'message': {'kind': 'reflection', 'text': 'The committed delivery supplies our builders.'}}
+    await worker.run(worker.status()['active_run']['id'])
+    assert not worker.status()['active_run']
+    assert len(provider.calls) == worker.status()['requests_today'] == 5
 
 
 def route_fixture():
@@ -319,7 +331,8 @@ async def test_model_project_proposal_is_readable_to_next_same_island_actor(colo
         'kind':'proposal','project_id':'garden','text':'I can collect water; let us finish the garden.'}}
     run=worker.request('propose-garden-fixture','winners',bottle['id'])
     await worker.run(run['id'])
-    assert worker.status()['last_status']=='completed'
+    assert repo._data['colonyReasoning'][run['id']]['status']=='completed'
+    assert worker.status()['active_run']['agent_id']==pencil['id']
     payload,encoded=worker._input({'colony_id':'winners','agent_id':pencil['id']})
     proposal=next(item for item in payload['project_discussion'] if item['actor_id']==bottle['id'])
     assert proposal['kind']=='proposal' and proposal['text']==provider.decision['message']['text']
@@ -328,11 +341,17 @@ async def test_model_project_proposal_is_readable_to_next_same_island_actor(colo
     clock.advance(61)
     provider.decision={'message':{'kind':'support','project_id':'garden','proposal_id':proposal['id'],
         'text':'Agreed. I can help with construction and gather materials.'}}
-    run2=worker.request('support-garden-fixture','winners',pencil['id'])
+    run2=worker.status()['active_run']
+    assert run2['agent_id']==pencil['id'] and run2['session_id']==run['session_id']
     await worker.run(run2['id'])
-    assert worker.status()['last_status']=='completed'
-    clock.advance(46); store.advance()
+    assert repo._data['colonyReasoning'][run2['id']]['status']=='completed'
+    for _ in range(2):
+        clock.advance(3)
+        await worker.run(worker.status()['active_run']['id'])
+    assert not worker.status()['active_run']
+    clock.advance(3); store.advance()
     council=side(store,'winners')['council'][-1]
     assert council['chosen_project_id']=='garden'
-    assert len(council['model_message_ids'])==2
-    assert len(provider.calls)==2
+    assert len(council['model_message_ids'])==4
+    assert len(provider.calls)==4
+    assert worker.sessions('winners')[0]['status']=='agreed'

@@ -64,3 +64,47 @@ async def test_queue_cancellation_releases_admission_slot():
     await entered.wait(); task.cancel()
     with pytest.raises(asyncio.CancelledError): await task
     assert queue.status()['active'] == queue.status()['waiting'] == 0
+
+
+def test_generic_google_429_billing_boilerplate_is_not_account_failure():
+    error=HttpError(429, {'error': {'code':429, 'status':'RESOURCE_EXHAUSTED',
+        'message':'You exceeded your current quota, please check your plan and billing details. Retry in 23s.',
+        'details':[{'@type':'type.googleapis.com/google.rpc.RetryInfo','retryDelay':'23s'}]}})
+    diagnostic=diagnose_provider_error(error)
+    assert diagnostic.category=='rate_limited' and diagnostic.retryable
+    assert diagnostic.retry_after_seconds==23 and diagnostic.provider_reason=='RESOURCE_EXHAUSTED'
+
+
+def test_interactions_http_response_json_retains_quota_fields_without_raw_body():
+    class RateLimitError(Exception):
+        status_code=429
+        body='not parsed here'
+        response=SimpleNamespace(status_code=429,headers={},json=lambda:{'error':{
+            'message':'You exceeded your current quota; check your plan and billing details. Secret project ID SECRET_PROJECT',
+            'details':[{'violations':[{'quotaMetric':'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count',
+                'quotaId':'GenerateContentInputTokensPerModelPerMinute-FreeTier','quotaValue':'250000'}]},
+                {'retryDelay':{'seconds':31,'nanos':500000000}}]}})
+    diagnostic=diagnose_provider_error(RateLimitError('https://api.invalid/?key=SECRET_KEY'))
+    assert diagnostic.category=='rate_limited' and diagnostic.retryable
+    assert diagnostic.quota_value==250000 and diagnostic.quota_id.endswith('FreeTier')
+    assert diagnostic.retry_after_seconds==31.5
+    assert 'SECRET' not in str(diagnostic.public())
+
+
+def test_only_explicit_zero_quota_is_configuration_problem():
+    absent=diagnose_provider_error(HttpError(429, {'error':{'details':[{'violations':[{'quotaMetric':'requests_per_minute'}]}]}}))
+    assert absent.retryable and absent.quota_value is None
+    zero=diagnose_provider_error(HttpError(429, {'error':{'details':[{'violations':[{'quotaMetric':'requests_per_minute','quotaValue':'0'}]}]}}))
+    assert zero.category=='project_quota_zero' and zero.quota_value==0 and not zero.retryable
+
+
+def test_observed_monthly_spending_cap_is_precise_nonretryable_account_failure():
+    class RateLimitError(Exception):
+        status_code=429
+        response=SimpleNamespace(headers={},json=lambda:{'message':
+            'Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/rate-limits#tier-spend-caps.',
+            'code':'too_many_requests'})
+    diagnostic=diagnose_provider_error(RateLimitError())
+    assert diagnostic.category=='account_quota' and not diagnostic.retryable
+    assert diagnostic.message=='Gemini billing account has reached its monthly spending cap. Check AI Studio billing and project credits.'
+    assert diagnostic.provider_reason=='too_many_requests'

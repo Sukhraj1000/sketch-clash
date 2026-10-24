@@ -29,7 +29,12 @@ class Settings:
     embedding_dimensions: int = 768
     vector_index: str = 'character_types_vector'
     frontend_origin: str = 'http://127.0.0.1:5173'
-    colony_requests_per_day: int = 24
+    # Zero removes the old artificial daily ceiling. Provider project quotas still apply.
+    colony_requests_per_day: int = 0
+    colony_proposal_model: str = 'gemini-4-argon'
+    colony_reply_model: str = 'gemini-3.8-flash'
+    colony_session_interval_seconds: int = 120
+    gemini_provider_concurrency: int = 2
 
     @classmethod
     def load(cls) -> 'Settings':
@@ -56,5 +61,9 @@ class Settings:
             embedding_dimensions=int(os.getenv('EMBEDDING_DIMENSIONS', '768')),
             vector_index=os.getenv('MONGODB_VECTOR_INDEX', 'character_types_vector'),
             frontend_origin=os.getenv('FRONTEND_ORIGIN', 'http://127.0.0.1:5173'),
-            colony_requests_per_day=max(1, min(240, int(os.getenv('COLONY_REQUESTS_PER_DAY', '24')))),
+            colony_requests_per_day=max(0, int(os.getenv('COLONY_REQUESTS_PER_DAY', '0'))),
+            colony_proposal_model=os.getenv('COLONY_PROPOSAL_MODEL', 'gemini-4-argon'),
+            colony_reply_model=os.getenv('COLONY_REPLY_MODEL', 'gemini-3.8-flash'),
+            colony_session_interval_seconds=max(15, int(os.getenv('COLONY_SESSION_INTERVAL_SECONDS', '120'))),
+            gemini_provider_concurrency=max(1, min(8, int(os.getenv('GEMINI_PROVIDER_CONCURRENCY', '2')))),
         )

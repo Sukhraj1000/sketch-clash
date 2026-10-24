@@ -256,7 +256,7 @@ def test_legacy_blocked_project_migrates_without_losing_partial_progress():
 
 
 @pytest.mark.asyncio
-async def test_automatic_zero_fifteen_thirty_minute_turns_can_read_and_support_peer_opinions():
+async def test_automatic_council_reads_and_answers_peers_without_fifteen_minute_gaps():
     import json
     from app.colony_planner import ColonyPlanner
     from test_colony_integration import Provider
@@ -265,27 +265,27 @@ async def test_automatic_zero_fifteen_thirty_minute_turns_can_read_and_support_p
     provider = Provider()
     worker = ColonyPlanner(repo, store, repo.settings, client=provider, clock=lambda: clock.value.timestamp())
     provider.decision = {'message': {'kind': 'proposal', 'project_id': 'workshop', 'text': 'A workshop would improve our material supply.'}}
-    first = worker.request('automatic-opinion-0', automatic=True)
+    first = worker.request('automatic-session-0', automatic=True)
     assert first['colony_id'] == 'winners'
     await worker.run(first['id'])
-    assert worker.status()['last_status'] == 'completed'
+    assert repo._data['colonyReasoning'][first['id']]['status'] == 'completed'
     proposal = next(row for row in repo._data['colonyBoard'].values() if row['origin'] == 'model')
-    clock.advance(900)
-    provider.decision = {'action': 'forage'}
-    second = worker.request('automatic-opinion-15', automatic=True)
-    assert second['colony_id'] == 'losers'
-    await worker.run(second['id'])
-    clock.advance(900)
     provider.decision = {'message': {'kind': 'support', 'project_id': 'workshop', 'proposal_id': proposal['id'], 'text': 'I can help supply the workshop.'}}
-    third = worker.request('automatic-opinion-30', automatic=True)
-    assert third['colony_id'] == 'winners' and third['agent_id'] != first['agent_id']
-    await worker.run(third['id'])
-    assert worker.status()['last_status'] == 'completed'
-    sent = json.loads(provider.calls[2]['input'])
-    peer = next(row for row in sent['project_discussion'] if row['id'] == proposal['id'])
+    second = worker.status()['active_run']
+    assert second['colony_id'] == 'winners' and second['agent_id'] != first['agent_id']
+    for _ in range(3):
+        clock.advance(3)
+        await worker.run(worker.status()['active_run']['id'])
+    session = worker.sessions('winners')[0]
+    assert session['status'] == 'agreed' and session['completed_turns'] == 4
+    sent = json.loads(provider.calls[1]['input'])
+    peer = next(row for row in sent['council_session']['conversation'] if row['id'] == proposal['id'])
     assert peer['text'] == proposal['interpretation'] and peer['actor_id'] == first['agent_id']
-    assert len(provider.calls) == worker.status()['requests_today'] == 3
-    assert len(store.observation('winners', third['agent_id'])['project_discussion']) == 2
+    assert len(provider.calls) == worker.status()['requests_today'] == 4
+    assert not worker.status()['active_run']
+    clock.advance(worker.interval)
+    other = worker.request('next-island-review', automatic=True)
+    assert other['colony_id'] == 'losers'
 
 
 def test_project_stance_survives_upgrade_but_full_completion_retires_it():

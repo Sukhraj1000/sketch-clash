@@ -17,6 +17,9 @@ from .agent_sdk import SDK_VERSION, AgentDecision, action_resource, capability_p
 from .island import (IslandStore, ACTION_LABELS, RESOURCE_LOCATIONS, RESOURCE_KEYS, MAX_AGENTS, MAX_RESOURCE,
                      _position, _iso, _time)
 from .repository import StoreError, key_for, public
+from .colony_deliberation import DeliberationMixin, model_controlled, review_model_plan
+from .colony_learning import ColonyLearningStore
+from .observability import record_event, agent_span
 
 COLONY_IDS = ('winners', 'losers')
 COLONY_NAMES = {'winners': 'Winner Island', 'losers': 'Loser Island'}
@@ -68,6 +71,13 @@ def route_completed_battle(tx, battle: dict, root_world_id: str) -> list[str]:
                         'state': {'activity': 'wander', 'mood': 'curious'}, 'distinct_battle_count': 0,
                         'market_price': None, 'estimated_value_gbp': None, 'valuation_status': 'unknown',
                         'valuation_provenance': None}
+            resident['observed_object'] = deepcopy(fighter.get('observed_object', {}))
+            resident['capture_id'] = fighter.get('capture_id')
+            resident['validation'] = deepcopy(fighter.get('validation', {}))
+            record_event(tx, root_world_id, event_id=key_for(placement_id, 'arrival'), kind='resident.arrived',
+                         island_id=colony_id, actor_id=resident_id, actor_name=resident['display_name'],
+                         message=f"{resident['display_name']} arrived. The crew will reassess what it can build.",
+                         data={'resident_id': resident_id, 'canonical_type_id': resident['canonical_type_id']})
         resident['distinct_battle_count'] += 1
         resident['last_battle_at'] = timestamp
         tx.put('colonyResidents', resident)
@@ -287,6 +297,9 @@ class _ColonyIsland(IslandStore):
     def _run_council(self, tx, state, agents, now, force=False):
         if state is None:
             return
+        if model_controlled(self, state):
+            review_model_plan(self, tx, state, agents, now)
+            return
         previous_plan = state.get('planning', {})
         if state['paused'] and previous_plan and not force:
             return
@@ -458,6 +471,11 @@ class _ColonyIsland(IslandStore):
             if resource is None:
                 raise StoreError('A production action has no accepted yield.', 503, 'capability_invariant')
             amount = agent['action_yields'][action][resource] + self._resource_bonus(state, resource) + (agent['level'] - 1) // 5
+            earned_bonus = any(p.get('kind') == 'assembly' and p['level'] >= p['max_level']
+                               and action in p.get('benefit', {}).get('eligible_actions', [])
+                               and p['benefit'].get('resource') == resource for p in state['projects'])
+            amount += int(earned_bonus)
+            task['tested_structure_bonus'] = int(earned_bonus)
             task['gain'] = {resource: min(amount, max(0, MAX_RESOURCE - state['resources'][resource]))}
             task['resource'] = resource
             destination = deepcopy(RESOURCE_LOCATIONS[resource])
@@ -507,6 +525,11 @@ class _ColonyIsland(IslandStore):
                  'expires_at': _iso(now + timedelta(seconds=BOARD_SECONDS)),
                  'status': 'recorded', 'receipt_ids': [], 'origin': 'deterministic', **fields}
         tx.put('colonyBoard', value)
+        record_event(tx, self.repo.root_world_id, event_id=key_for(identifier, 'published'), kind='board.message',
+                     island_id=self.repo.colony_id, actor_id=value['actor_id'], actor_name=value['actor_name'],
+                     session_id=value.get('session_id'), message=value.get('interpretation') or value.get('text', ''),
+                     data={'message_id': identifier, 'message_kind': kind, 'origin': value['origin'],
+                           'reply_to_id': value.get('reply_to_id'), 'project_id': value.get('project_id')})
         return value
 
     def _request(self, tx, state, agent, resource, quantity, project_id, now, identifier, origin='deterministic', note=''):
@@ -563,6 +586,8 @@ class _ColonyIsland(IslandStore):
                     if (agent.get('active_commitment') or {}).get('id') == row['commitment_id']:
                         agent.update(active_commitment=None, assignment='auto', assignment_origin='deterministic')
                         tx.put('islandAgents', agent)
+        if model_controlled(self, state):
+            return  # Actual agents publish requests and volunteer; expiry above remains authoritative.
         project = self._choose_project(state)
         if not project or not agents:
             return
@@ -651,13 +676,27 @@ class _ColonyIsland(IslandStore):
             tx.put('islandState', state)
 
     def _complete(self, tx, state, agent, at):
+        decision = tx.get('colonyDecisions', agent['task'].get('decision_id')) if agent['task'].get('decision_id') else None
+        with agent_span('task.complete', island_id=self.repo.colony_id, actor_id=agent['id'],
+                        link_trace_id=(decision or {}).get('trace_id'), link_span_id=(decision or {}).get('span_id')):
+            return self._complete_work(tx, state, agent, at)
+
+    def _complete_work(self, tx, state, agent, at):
         task = deepcopy(agent['task'])
         super()._complete(tx, state, agent, at)
+        if task.get('project_id'):
+            completed_project = self._project(state, task['project_id'])
+            if completed_project and completed_project.get('kind') == 'assembly' and completed_project['level'] >= completed_project['max_level']:
+                ColonyLearningStore(self.repo.parent).complete_blueprint_tx(tx, self.world_id, completed_project)
         receipt = tx.get('islandEvents', task['id'])
         receipt.update(colony_id=self.repo.colony_id, sdk_version=SDK_VERSION,
                        decision_origin=task.get('decision_origin', 'deterministic'), decision_id=task.get('decision_id'),
                        request_id=task.get('request_id'), commitment_id=task.get('commitment_id'))
         tx.put('islandEvents', receipt)
+        record_event(tx, self.repo.root_world_id, event_id=key_for(receipt['id'], 'completed'), kind='task.completed',
+                     island_id=self.repo.colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
+                     message=receipt['description'], data={'receipt_id': receipt['id'], 'resource_delta': receipt['resource_delta'],
+                         'project_id': task.get('project_id'), 'decision_id': task.get('decision_id'), 'progress_delta': receipt.get('progress_delta', 0)})
         contributions = agent['contributions']
         for resource, quantity in receipt['resource_delta'].items():
             contributions['resources'][resource] += quantity
@@ -699,13 +738,15 @@ class _ColonyIsland(IslandStore):
         tx.put('islandAgents', agent)
 
 
-class ColoniesStore:
+class ColoniesStore(DeliberationMixin):
     def __init__(self, repo):
         self.repo, self.world_id = repo, repo.world_id
         self.state_id = key_for(self.world_id, 'colonies-mode')
+        self.learning = ColonyLearningStore(repo)
         self.islands = {side: _ColonyIsland(_ScopedRepository(repo, side)) for side in COLONY_IDS}
 
     def ensure_indexes(self):
+        self.learning.ensure_indexes()
         if not hasattr(self.repo, 'db'):
             return
         db = self.repo.db
@@ -730,6 +771,7 @@ class ColoniesStore:
         self.repo.transaction(enroll)
         for island in self.islands.values():
             island.initialize()
+            self._refresh_learning(island)
         return self.snapshot()
 
     def advance(self):
@@ -738,8 +780,25 @@ class ColoniesStore:
             return self.snapshot()
         for island in self.islands.values():
             # Explicitly enabled colony mode enrolls newly routed battle residents.
-            island.initialize()
+            with agent_span('island.advance', island_id=island.repo.colony_id):
+                island.initialize()
+                self._refresh_learning(island)
         return self.snapshot()
+
+    def _refresh_learning(self, island):
+        def refresh(tx):
+            residents = tx.find('colonyResidents', {'world_id': island.world_id}, limit=501)
+            for resident in residents:
+                placement = tx.get('colonyPlacements', key_for(self.world_id, 'colony-placement', resident['first_battle_id'], str(resident['first_player_slot'])))
+                self.learning.initialize_resident(tx, resident, accepted_fighter=(placement or {}).get('accepted_fighter'),
+                                                 placement_id=(placement or {}).get('id'))
+            result = self.learning.refresh_arrivals(tx, island.world_id, island.repo.colony_id, residents)
+            if result.get('changed'):
+                record_event(tx, self.world_id, event_id=key_for(island.world_id, 'capabilities', result['fingerprint']),
+                             kind='capabilities.changed', island_id=island.repo.colony_id,
+                             message='The roster changed. Reconsider blocked projects, experiments and collaborators.', data=result)
+            return result
+        return self.repo.transaction(refresh)
 
     def _side(self, colony_id):
         if colony_id not in self.islands:
@@ -774,11 +833,12 @@ class ColoniesStore:
             colonies.append({'id': colony_id, 'name': COLONY_NAMES[colony_id], 'characters': [public(row) for row in characters[:500]],
                              'island': snapshot, 'board': [public(row) for row in reversed(board)], 'metrics': metrics,
                              'planning': planning, 'council': deepcopy(snapshot.get('council', [])),
+                             'learning': self.learning.snapshot(island.world_id),
                              'world': {'id': island.world_id, 'name': COLONY_NAMES[colony_id], 'layout_seed': 4127}})
         left, right = (colony['metrics']['project_levels'] for colony in colonies)
         return {'enabled': bool(mode), 'server_time': self.repo.clock(), 'persistence': self.repo.persistence, 'colonies': colonies,
                 'placement_policy': 'one_resident_per_side_and_canonical_type', 'sdk_version': SDK_VERSION,
-                'decision_mode': 'capability_rules_with_optional_validated_agent_decisions',
+                'decision_mode': 'model_councils_with_validated_execution' if self.repo.settings.gemini_api_key else 'explicit_rule_preview',
                 'comparison': {'project_level_leader': 'tie' if left == right else 'winners' if left > right else 'losers',
                     'price_comparison': 'unavailable', 'note': 'Battle outcomes determine placement. User estimates are descriptive, never powers or rewards. This is not a controlled experiment.'}}
 
@@ -812,9 +872,13 @@ class ColoniesStore:
                     'limits': {'message_characters': 240, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS,
                                'project_opinion_expiry_seconds': PROJECT_OPINION_SECONDS},
                     'authority': 'Propose only accepted actions; requests and offers do not create resources. Shared stock is abstract, not physical cargo. Sentience, walking, loose-material gathering and basic construction are shared game attributes.'}
-        return island.repo.read(read)
+        result = island.repo.read(read)
+        result['learning'] = self.learning.snapshot(island.world_id)
+        result['peers'] = [{k: deepcopy(a.get(k)) for k in ('id', 'character_id', 'display_name', 'capabilities', 'allowed_actions', 'action_yields', 'active_commitment')}
+                           for a in island.snapshot()['agents'] if a['id'] != agent_id]
+        return result
 
-    def apply_decision(self, colony_id, agent_id, decision, run_id):
+    def apply_decision(self, colony_id, agent_id, decision, run_id, provenance=None):
         island = self._side(colony_id)
         if not isinstance(run_id, str) or not 1 <= len(run_id) <= 160:
             raise StoreError('A decision needs a durable reasoning run identifier.', 422, 'invalid_run_id')
@@ -833,6 +897,22 @@ class ColoniesStore:
                     if prior.model_dump() != value.model_dump():
                         raise StoreError('That actor turn already has a different immutable decision.', 409, 'decision_conflict')
                 return public(existing)
+            if provenance and provenance.get('session_id'):
+                from .colony_planner import population_fingerprint
+                session = tx.get('colonyCouncilSessions', provenance['session_id'])
+                run = tx.get('colonyReasoning', run_id)
+                if (not session or session.get('world_id') != self.world_id or session.get('colony_id') != colony_id
+                        or agent['id'] not in {a['id'] for a in session.get('participants', [])}
+                        or session.get('status') != 'running' or not run
+                        or run.get('world_id') != self.world_id or run.get('session_id') != session['id']
+                        or run.get('agent_id') != agent['id'] or run.get('status') != 'applying'
+                        or run_id not in session.get('run_ids', [])):
+                    raise StoreError('The model turn is outside its active durable council.', 409, 'invalid_council_session')
+                expected = {key: run.get(key) for key in ('session_id', 'reply_to_id', 'seen_message_ids', 'model', 'turn_index')}
+                if any(provenance.get(key) != value for key, value in expected.items()):
+                    raise StoreError('The council message provenance does not match its saved model turn.', 409, 'invalid_council_session')
+                if population_fingerprint({'island': {'agents': island._agents(tx)}}) != session['population_fingerprint']:
+                    raise StoreError('New residents or capabilities changed this island. Reopen the council before committing this turn.', 409, 'population_changed')
             state = tx.get('islandState', island.state_id)
             if state is None or state['paused']:
                 raise StoreError('The colony must be running to accept a new decision.', 409, 'colony_paused')
@@ -847,6 +927,19 @@ class ColoniesStore:
                 raise StoreError('Wait for the previous actor turn to settle.', 429, 'actor_rate_limit')
             request_id = value.claim_request_id or (value.message.request_id if value.message and value.message.kind == 'offer' else None)
             records = []
+            learning_results = {}
+            if value.experiment:
+                learning_results['experiment'] = self.learning.run_experiment_tx(tx, island.world_id, agent['id'], value.experiment.model_dump(), key_for(decision_id, 'experiment'))
+                state = tx.get('islandState', island.state_id)
+            if value.blueprint:
+                blueprint = self.learning.propose_blueprint_tx(tx, island.world_id, agent['id'], value.blueprint.model_dump(), key_for(decision_id, 'blueprint'))
+                learning_results['blueprint'] = blueprint
+                project = blueprint.get('project')
+                if project and not any(p['id'] == project['id'] for p in state['projects']):
+                    state['projects'].append(deepcopy(project))
+            if value.message and value.message.kind in ('question', 'reflection'):
+                records.append(island._new_board(tx, agent, value.message.kind, now, key_for(decision_id, value.message.kind),
+                                                text=value.message.text, origin='model', project_id=value.message.project_id))
             if request_id:
                 request = tx.get('colonyBoard', request_id)
                 if request is None or request.get('world_id') != island.world_id:
@@ -893,18 +986,36 @@ class ColoniesStore:
                         'project_id': project['id'], 'kind': message.kind, 'message_id': record_id, 'decision_id': decision_id,
                         'created_at': _iso(now), 'expires_at': opinion_expiry, 'origin': 'model'})
             agent.update(last_decision_at=_iso(now), decision_origin='model', decision_reason=value.reason)
+            if learning_results and not records:
+                records.append(island._new_board(tx, agent, 'reflection', now, key_for(decision_id, 'research'),
+                    text=value.reason or 'The executor recorded this resident’s research submission. Inspect the attached evidence for its outcome.',
+                    origin='model' if value.reason else 'executor', evidence=learning_results))
+            for row in records:
+                if provenance:
+                    row.update({key: deepcopy(provenance[key]) for key in ('session_id', 'reply_to_id', 'seen_message_ids', 'model', 'turn_index', 'trace_id', 'span_id') if key in provenance})
+                    row['council_id'] = provenance.get('session_id')
+                    row['run_id'] = run_id
+                    tx.put('colonyBoard', row)
+                    record_event(tx, self.world_id, event_id=key_for(row['id'], 'model-publication'),
+                                 kind='agent.message' if row.get('origin') == 'model' else 'research.recorded',
+                                 island_id=colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
+                                 session_id=provenance.get('session_id'), message=row.get('interpretation') or row.get('text', ''),
+                                 data={'message_id': row['id'], 'reply_to_id': row.get('reply_to_id'), 'model': row.get('model'), 'origin': row.get('origin'), 'run_id': run_id})
             tx.put('islandAgents', agent)
             state['revision'] += 1
             tx.put('islandState', state)
             record = {'_id': decision_id, 'id': decision_id, 'world_id': island.world_id, 'colony_id': colony_id,
                       'actor_id': agent['id'], 'character_id': agent['character_id'], 'run_id': run_id,
                       'fingerprint': fingerprint, 'created_at': _iso(now), 'decision': value.model_dump(),
-                      'status': 'accepted', 'board_ids': [row['id'] for row in records],
+                      'status': 'accepted', 'board_ids': [row['id'] for row in records], 'learning_results': learning_results,
+                      'trace_id': (provenance or {}).get('trace_id'), 'span_id': (provenance or {}).get('span_id'),
                       'assignment_effect': 'Current task is preserved; accepted action applies when the next task is scheduled.'}
             tx.put('colonyDecisions', record)
             return public(record)
-        accepted = island.repo.transaction(apply)
-        return {'decision': accepted}
+        with agent_span('agent.validate_apply', island_id=colony_id, actor_id=agent_id, session_id=(provenance or {}).get('session_id'),
+                        link_trace_id=(provenance or {}).get('trace_id'), link_span_id=(provenance or {}).get('span_id')):
+            accepted = island.repo.transaction(apply)
+        return {'decision': accepted, 'message_ids': accepted['board_ids'], 'message_id': next(iter(accepted['board_ids']), None)}
 
     def command(self, body):
         body = deepcopy(body)

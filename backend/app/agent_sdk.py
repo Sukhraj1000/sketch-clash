@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .island import _affordance
 from .repository import StoreError
+from .colony_experiments import ExperimentSpec, BlueprintProposal
 
 Resource = Literal['materials', 'water', 'ideas', 'energy']
 Action = Literal['forage', 'carry', 'water', 'plan', 'measure', 'charge', 'signal', 'tend', 'build', 'rest', 'explore']
@@ -15,7 +16,7 @@ MAX_BOARD_QUANTITY = 8
 
 class BoardMessage(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    kind: Literal['request', 'offer', 'report', 'proposal', 'support', 'objection']
+    kind: Literal['request', 'offer', 'report', 'proposal', 'support', 'objection', 'question', 'reflection']
     text: str = Field(default='', max_length=240)
     request_id: str | None = Field(default=None, max_length=128)
     resource: Resource | None = None
@@ -43,11 +44,15 @@ class AgentDecision(BaseModel):
     reason: str = Field(default='', max_length=240)
     claim_request_id: str | None = Field(default=None, max_length=128)
     message: BoardMessage | None = None
+    experiment: ExperimentSpec | None = None
+    blueprint: BlueprintProposal | None = None
 
     @model_validator(mode='after')
     def useful_decision(self):
-        if self.action is None and self.message is None and not self.claim_request_id:
+        if self.action is None and self.message is None and not self.claim_request_id and self.experiment is None and self.blueprint is None:
             raise ValueError('A decision must propose an action or a typed message.')
+        if self.experiment is not None and self.blueprint is not None:
+            raise ValueError('Test an idea before submitting its construction blueprint.')
         if self.message and self.message.kind == 'offer' and self.claim_request_id and self.message.request_id != self.claim_request_id:
             raise ValueError('An offer and claim must refer to the same request.')
         return self

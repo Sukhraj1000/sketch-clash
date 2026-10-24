@@ -44,6 +44,9 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.colonies = None
         app.state.colony_runtime = None
         app.state.colony_planner = None
+        app.state.observatory = None
+        from .provider_queue import ProviderQueue
+        app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency)
         app.state.repository = repository
         app.state.store_error = None
         if app.state.repository is None:
@@ -69,6 +72,15 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             catalog.retriever = AtlasRetriever(collection=catalog.collection, client=app.state.recognizer.client,
                 config=RetrievalConfig(model=settings.embedding_model, dimensions=settings.embedding_dimensions, index=settings.vector_index))
         app.state.service = BattleService(settings, app.state.repository, app.state.recognizer) if app.state.repository else None
+        if hasattr(app.state.recognizer, 'provider_queue'):
+            app.state.recognizer.provider_queue = app.state.provider_queue
+        retriever = getattr(getattr(app.state.recognizer, 'catalog', None), 'retriever', None)
+        if retriever:
+            retriever.provider_queue = app.state.provider_queue
+        if app.state.repository:
+            from .observability import Observatory
+            app.state.observatory = Observatory(app.state.repository)
+            await app.state.observatory.start()
         if app.state.repository:
             try:
                 from .quality import QualityStore
@@ -77,6 +89,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 app.state.quality.catalog_settings = settings
                 await asyncio.to_thread(app.state.quality.ensure_indexes)
                 app.state.quality_worker = QualityWorker(app.state.quality, settings)
+                app.state.quality_worker.provider_queue = app.state.provider_queue
                 await app.state.quality_worker.start()
                 from .quality_references import ApprovedReferences
                 app.state.references = ApprovedReferences(app.state.repository, settings)
@@ -122,8 +135,13 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                 app.state.colonies = None
         if app.state.colonies:
             try:
+                from .retrieval import AtlasRetriever, RetrievalConfig
+                memory_embedder = AtlasRetriever(client=getattr(app.state.recognizer, 'client', None),
+                    config=RetrievalConfig(model=settings.embedding_model or 'gemini-embedding-2', dimensions=settings.embedding_dimensions))
+                memory_embedder.provider_queue = app.state.provider_queue
                 app.state.colony_planner = ColonyPlanner(app.state.repository, app.state.colonies, settings,
-                                                        legacy_planner=app.state.island_planner)
+                                                        legacy_planner=app.state.island_planner, provider_queue=app.state.provider_queue,
+                                                        memory_embedder=memory_embedder)
                 await asyncio.to_thread(app.state.colony_planner.ensure_indexes)
                 await app.state.colony_planner.start()
             except Exception as exc:
@@ -150,9 +168,14 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             if inspect.isawaitable(result):
                 await result
         if app.state.repository:
+            if app.state.observatory:
+                await app.state.observatory.close()
             await asyncio.to_thread(app.state.repository.close)
 
     app = FastAPI(title='Sketch Clash local API', version='2.0.0', lifespan=lifespan)
+    from .observability import instrument_app, register_observatory_routes
+    instrument_app(app)
+    register_observatory_routes(app)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],
                        allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type', 'X-Request-ID'], allow_credentials=True)
 

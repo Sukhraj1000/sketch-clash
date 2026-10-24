@@ -57,7 +57,7 @@ async def test_actor_context_is_separate_and_turn_replay_has_no_new_provider_cal
     assert len(provider.calls)==1 and colonies.applied[run['id']]['actor']=='winners-agent'
     assert 'losers' not in provider.calls[0]['input']
     assert provider.calls[0]['model']==MODEL and provider.calls[0]['store'] is False
-    assert provider.calls[0]['generation_config']=={'thinking_level':'low','max_output_tokens':768}
+    assert provider.calls[0]['generation_config']=={'thinking_level':'medium','max_output_tokens':2048}
     assert 'fixture-only' not in json.dumps(provider.calls)
     assert worker.request('first','winners')['status']=='completed'
     await worker.run(run['id']); assert len(provider.calls)==1
@@ -206,3 +206,138 @@ def test_crowded_council_context_keeps_proposals_and_receipts_within_existing_bu
     assert payload['last_receipts'][0]['id']=='receipt-0'
     assert 'irrelevant_detail' not in encoded and 'private_large_detail' not in encoded
     assert len(payload['project_discussion'])>=4
+
+class CouncilColonies(Colonies):
+    def __init__(self):
+        super().__init__(); self.extra = False; self.resolutions = []; self.provenances = []
+    def snapshot(self):
+        snapshot = super().snapshot()
+        for colony in snapshot['colonies']:
+            colony['island']['agents'] = [{'id': colony['id']+'-agent-'+str(i),
+                'character_id': colony['id']+'-character-'+str(i), 'display_name': 'Object '+str(i),
+                'allowed_actions': ['carry','build','rest'], 'capabilities': ['carry']} for i in range(3 + int(self.extra))]
+        return snapshot
+    def observation(self, colony, actor):
+        return {'colony_id': colony, 'actor': {'id': actor, 'allowed_actions': ['carry','build','rest']},
+            'resources': {'materials':2}, 'projects': [{'id':'garden'}], 'board': [], 'last_receipts': []}
+    def apply_decision(self, colony, actor, decision, run_id, provenance=None):
+        self.provenances.append(provenance)
+        self.applied.setdefault(run_id, decision)
+        return {'decision': {'id': run_id, 'message_ids': ['board-'+run_id]}}
+    def resolve_council(self, session_id, colony_id, participant_ids, fingerprint):
+        self.resolutions.append((session_id, colony_id, participant_ids))
+        return {'status':'agreed','project_id':'garden','reason':'Two distinct residents supported the garden.'}
+
+
+@pytest.mark.asyncio
+async def test_separate_agents_read_actual_committed_replies_and_session_is_bounded():
+    clock=Clock(); settings=Settings(repository='memory',gemini_api_key='fixture-only')
+    repo=MemoryRepository(settings); colonies=CouncilColonies(); provider=Provider()
+    async def reply(**kwargs):
+        provider.calls.append(kwargs)
+        payload=json.loads(kwargs['input']); conversation=payload['council_session']['conversation']
+        if conversation:
+            assert conversation[-1]['text'] == 'Build the garden, reply '+str(len(conversation)-1)
+            assert conversation[-1]['id'].startswith('board-')
+            assert conversation[-1]['actor_id'] != payload['actor']['id']
+        decision={'message': {'kind':'proposal' if not conversation else 'support', 'project_id':'garden',
+            'text':'Build the garden, reply '+str(len(conversation))}, 'reason':'Useful shared work.'}
+        return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{'usage':{'total_tokens':20}})
+    provider.aio.interactions.create=reply
+    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+    worker.request('council','winners')
+    for _ in range(6):
+        current=worker.status()['active_run']; assert current
+        await worker.run(current['id'])
+    status=worker.status()
+    assert not status['active_run'] and len(provider.calls)==6
+    assert status['sessions'][0]['status']=='agreed' and len(status['sessions'][0]['messages'])==6
+    assert len({json.loads(c['input'])['actor']['id'] for c in provider.calls})==3
+    assert provider.calls[0]['model']=='gemini-4-argon' and provider.calls[1]['model']=='gemini-3.8-flash'
+    assert colonies.provenances[1]['reply_to_id']==status['sessions'][0]['messages'][0]['id']
+    assert len(colonies.resolutions)==1
+    assert status['max_requests_per_day']==0 and status['remaining_requests'] is None
+
+
+@pytest.mark.asyncio
+async def test_new_resident_invalidates_old_session_before_next_model_call():
+    clock=Clock(); settings=Settings(repository='memory',gemini_api_key='fixture-only')
+    repo=MemoryRepository(settings); colonies=CouncilColonies(); provider=Provider()
+    worker=ColonyPlanner(repo,colonies,settings,client=provider,clock=clock)
+    run=worker.request('before-arrival','winners'); colonies.extra=True
+    await worker.run(run['id'])
+    assert not provider.calls and not colonies.applied
+    assert worker.sessions()[0]['status']=='stale'
+    assert not worker.status()['auto_blocked']
+    clock.add(3); worker._check_population()
+    replacement=worker.request('after-arrival','winners',automatic=True,trigger='population_changed')
+    assert replacement['id'] != run['id']
+    assert worker.sessions()[0]['population_fingerprint'] != worker.sessions()[1]['population_fingerprint']
+
+
+@pytest.mark.asyncio
+async def test_definite_429_is_retried_with_diagnostics_without_duplicate_publication(fixture):
+    repo,colonies,provider,clock,worker=fixture
+    class RateLimitError(Exception):
+        status_code=429
+        response=SimpleNamespace(headers={'retry-after':'10'})
+    provider.error=RateLimitError('Sensitive provider message KEY_MUST_NOT_ESCAPE')
+    run=worker.request('throttled','winners'); await worker.run(run['id'])
+    status=worker.status()
+    assert status['last_status']=='retry_wait' and not status['auto_blocked']
+    assert status['active_run']['provider_diagnostic']['status_code']==429
+    assert 'KEY_MUST_NOT_ESCAPE' not in json.dumps(status)
+    await worker.run(run['id']); assert len(provider.calls)==1
+    clock.add(20); provider.error=None; await worker.run(run['id'])
+    assert worker.status()['last_status']=='completed' and len(provider.calls)==2
+    assert len(colonies.applied)==1
+
+
+def test_population_fingerprint_tracks_attributes_but_not_resource_ticks():
+    from app.colony_planner import population_fingerprint
+    colony=CouncilColonies().snapshot()['colonies'][0]
+    before=population_fingerprint(colony)
+    colony['island']['resources']={'materials':1000}
+    assert population_fingerprint(colony)==before
+    colony['island']['agents'][0]['capabilities'].append('store_water')
+    assert population_fingerprint(colony)!=before
+
+@pytest.mark.asyncio
+async def test_restart_applies_durable_provider_output_without_repeating_request(fixture):
+    repo,colonies,provider,_,worker=fixture
+    run=worker.request('response-saved-before-crash','winners')
+    def saved(tx):
+        current=tx.get('colonyReasoning',run['id'])
+        current.update(status='running',received_at='2026-10-24T10:00:00+00:00',
+            proposal_text=json.dumps({'action':'carry','reason':'Use the persisted answer.'}))
+        tx.put('colonyReasoning',current)
+    repo.transaction(saved)
+    await worker.start(); await worker.close()
+    assert repo._data['colonyReasoning'][run['id']]['status']=='applying'
+    await worker.run(run['id'])
+    assert not provider.calls and len(colonies.applied)==1
+    assert repo._data['colonyReasoning'][run['id']]['status']=='completed'
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cannot_relabel_an_already_committed_turn(fixture):
+    repo,colonies,provider,_,worker=fixture
+    run=worker.request('committed-before-cleanup','winners'); await worker.run(run['id'])
+    worker._fail(run['id'],'interrupted','Worker stopped during subsequent memory indexing.')
+    assert repo._data['colonyReasoning'][run['id']]['status']=='completed'
+    assert len(colonies.applied)==len(provider.calls)==1
+
+
+def test_new_session_cannot_replace_a_council_awaiting_local_resolution(fixture):
+    repo,_,_,clock,worker=fixture
+    run=worker.request('awaiting-resolution','winners')
+    def resolving(tx):
+        state=worker._state(tx,True); state['pending_run_id']=None
+        tx.put('colonyPlanner',state)
+        session=tx.get('colonyCouncilSessions',run['session_id'])
+        session.update(status='resolving',completed_turns=session['max_turns'])
+        tx.put('colonyCouncilSessions',session)
+    repo.transaction(resolving); clock.add(3)
+    with pytest.raises(StoreError) as exc: worker.request('new-council-too-soon','losers')
+    assert exc.value.code=='planner_busy'
+    assert worker.status()['active_session_id']==run['session_id']
