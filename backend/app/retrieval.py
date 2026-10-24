@@ -43,6 +43,7 @@ class AtlasRetriever:
     def __init__(self, collection: Any = None, client: Any = None, config: RetrievalConfig | None = None):
         self.collection, self.client = collection, client
         self.config = config or RetrievalConfig()
+        self.provider_queue = None
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
         self._lock = asyncio.Semaphore(1)
 
@@ -55,8 +56,10 @@ class AtlasRetriever:
             self._cache.move_to_end(cache_key)
             return self._cache[cache_key][:]
         async with self._lock:
-            response = await asyncio.wait_for(self.client.aio.models.embed_content(model=self.config.model, contents=prepared,
-                config={"output_dimensionality": self.config.dimensions, **options}), timeout=self.config.timeout_seconds)
+            async def invoke():
+                return await asyncio.wait_for(self.client.aio.models.embed_content(model=self.config.model, contents=prepared,
+                    config={"output_dimensionality": self.config.dimensions, **options}), timeout=self.config.timeout_seconds)
+            response = await self.provider_queue.run(self.config.model, invoke, category='embedding') if self.provider_queue else await invoke()
         vector = [float(x) for x in response.embeddings[0].values]
         if len(vector) != self.config.dimensions or not all(math.isfinite(x) for x in vector):
             raise ValueError("Embedding output dimensions or values did not match the index contract.")

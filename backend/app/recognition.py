@@ -64,6 +64,7 @@ class RecognitionService:
             timeout_seconds=getattr(self.settings, "evidence_timeout_seconds", 30)))
         self.catalog = catalog or CharacterCatalog()
         self.client = client
+        self.provider_queue = None
         self._gate = asyncio.Semaphore(max(1, min(4, self.settings.recognition_concurrency)))
         if self.client is None and self.settings.gemini_api_key:
             from google import genai
@@ -94,11 +95,13 @@ class RecognitionService:
             if request_budget is not None:
                 reservation = await request_budget.reserve(input_tokens=input_tokens, output_tokens=4096, kind='recognition')
             try:
-                response = await asyncio.wait_for(self.client.aio.interactions.create(
+                async def invoke():
+                    return await asyncio.wait_for(self.client.aio.interactions.create(
                     model=config['model'], store=False, input=history,
                     system_instruction=system_instruction(config), tools=[PROPOSAL_TOOL],
                     generation_config={"thinking_level": config['thinking_level'], **({'max_output_tokens': 4096} if request_budget is not None else {})},
                     timeout=self.settings.api_timeout_seconds), timeout=self.settings.api_timeout_seconds + 2)
+                response = await self.provider_queue.run(config['model'], invoke, category='recognition') if self.provider_queue else await invoke()
                 if request_budget is not None:
                     await request_budget.complete(reservation, response)
                 return response

@@ -269,8 +269,11 @@ class QualityWorker:
         try:
             for _ in range(10):
                 reservation = await budget.reserve(input_tokens=(len(json.dumps(history))+len(system))//3+2000, output_tokens=2048, kind='improvement_agent')
-                response = await asyncio.wait_for(client.aio.interactions.create(model='gemini-4-argon', store=False, input=history,
-                    system_instruction=system, tools=tools, generation_config={'thinking_level': 'medium', 'max_output_tokens': 2048}), 62)
+                async def invoke():
+                    return await asyncio.wait_for(client.aio.interactions.create(model='gemini-4-argon', store=False, input=history,
+                        system_instruction=system, tools=tools, generation_config={'thinking_level': 'medium', 'max_output_tokens': 2048}), 62)
+                queue = getattr(self, 'provider_queue', None)
+                response = await queue.run('gemini-4-argon', invoke, category='quality') if queue else await invoke()
                 await budget.complete(reservation, response)
                 data = response_data(response)
                 steps = data.get('steps', [])
