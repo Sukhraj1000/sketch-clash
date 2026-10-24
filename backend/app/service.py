@@ -16,6 +16,7 @@ from .engine import validate_fighter_config, validate_visual_spec
 from .images import ProcessedImage, normalize_image, crop_image
 from .repository import Repository, StoreError
 from .provider_queue import require_ai_enabled
+from .market_prices import MarketPrices
 
 logger = logging.getLogger('sketch.capture')
 
@@ -23,6 +24,7 @@ class BattleService:
     def __init__(self, settings: Settings, repository: Repository, recognizer: Any):
         self.settings, self.repository, self.recognizer = settings, repository, recognizer
         self.reference_provider = None
+        self.market_prices = MarketPrices(settings)
         self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
     @asynccontextmanager
@@ -168,6 +170,14 @@ class BattleService:
                     observation['saved_resident_preview'] = await asyncio.to_thread(
                         self.repository.saved_resident_preview, fighter['canonical_type_id'])
                 self._validate_identity(observation, capture, battle_id)
+                if fighter:
+                    # Ignore anything the model emits as a price. Only our optional
+                    # server-side market connector can attach a sourced snapshot.
+                    original = (capture.get('correction') or {}).get('original_fighter')
+                    if original and capture['correction']['request']['kind'] == 'style':
+                        fighter['market_price'] = deepcopy(original.get('market_price'))
+                    else:
+                        fighter['market_price'] = await self.market_prices.quote(fighter)
                 component = observation.get('evidence', {}).get('gemini', {})
                 if component.get('status') in ('failed', 'unavailable'):
                     # Do not permanently memoize transport/configuration failures as image judgments.

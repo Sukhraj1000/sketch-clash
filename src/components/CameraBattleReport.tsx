@@ -6,11 +6,13 @@ import { COMBAT_STATS, equalDamageBeforeLuck, priceComparisonTitle, type CameraC
 import { humanize, pounds, signed, type ArenaEvent } from '../lib/object-battles';
 import './ObjectBattles.css';
 import './CameraBattleReport.css';
+import MarketPriceEvidence from './MarketPriceEvidence';
 
 function FrozenProfile({ profile, slot }: { profile: CombatProfile; slot: number }) {
   return <article className={`cb-profile ob-player-${slot}`}>
     <div className="cb-profile-heading"><span>P{slot + 1}</span><div><h3>{profile.name}</h3><p>{humanize(profile.object_type)}</p></div><b>{pounds(profile.price.amount_gbp)}<small>{profile.price.amount_gbp === null ? 'NO PRICE ADVANTAGE' : 'RECORDED VALUE'}</small></b></div>
     <p>{profile.description}</p>
+    <MarketPriceEvidence price={profile.price}/>
     <div className="ob-stats">{COMBAT_STATS.map(stat => <div key={stat}><small>{humanize(stat)}</small><b>{profile.stats[stat]}</b></div>)}</div>
     <div className="ob-traits">{profile.traits.map(trait => <span key={trait}>{humanize(trait)}</span>)}</div>
     <details className="ob-evidence"><summary>Inspect this frozen profile <ChevronDown size={14}/></summary><div><b>SUPPORTED ABILITIES</b><ul>{profile.capabilities.map(value => <li key={value}>{humanize(value)}</li>)}</ul><b>LIMITS & ASSUMPTIONS</b><ul>{profile.limitations.map(value => <li key={value}>{value}</li>)}</ul><p>{profile.provenance.label}</p><p>{profile.price.label}</p><p>Profile {profile.profile_version}. Attributes are balanced game values, not measurements of real-world strength.</p><details className="cb-source-evidence"><summary>Recorded source evidence</summary><pre>{JSON.stringify(profile.provenance, null, 2)}</pre></details></div></details>

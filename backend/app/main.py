@@ -269,6 +269,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
                            'status': ai_status, 'paused': settings.ai_paused,
                            'pause_reason': AI_PAUSE_REASON if settings.ai_paused else None},
                 'world_id': settings.world_id,
+                'market_prices': {'configured': bool(settings.ebay_client_id and settings.ebay_client_secret),
+                                  'provider': 'ebay_browse', 'basis': 'UK category asking-price comparables; unknown stays neutral'},
                 'evidence': app.state.recognizer.evidence.status() if hasattr(app.state.recognizer, 'evidence') else {'fixture': True},
                 'semantic_retrieval': {'configured': bool(settings.embedding_model and settings.mongodb_uri), 'model': settings.embedding_model or None, 'index': settings.vector_index, 'paused': settings.ai_paused},
                 'quality': {'available': app.state.quality is not None, 'operator_required': True, 'ai_paused': settings.ai_paused},

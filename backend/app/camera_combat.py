@@ -1,4 +1,4 @@
-"""Conservative capture-to-combat adapter. No provider calls or market estimates.
+"""Conservative capture-to-combat adapter. No provider calls; frozen price receipts only.
 
 Accepted descriptions are evidence for a declared cartoon rule, not a measured
 material test. Unknown properties stay neutral; cosmetic names and accessories,
@@ -10,6 +10,7 @@ import json
 import re
 
 from .combat_v2 import RULES, STAT_NAMES, simulate_v2, validate_profile
+from .market_prices import combat_price
 
 PROFILE_VERSION = 'accepted-capture-1'
 DURATIONS = {'normal': 12800, 'reduced': 12800, 'quick': 6400}
@@ -102,8 +103,9 @@ def capture_profile(fighter: dict, observation: dict | None = None, *, confirmed
             stats[gain] += 1
             stats[cost] -= 1
             transfers.append({'trait': trait, 'gain': gain, 'cost': cost, 'points': 1})
+    price = combat_price(fighter.get('market_price'))
     limitations = ['Attributes are bounded game interpretations of the selected photograph, not measured physical properties.',
-                   'No verified marketplace price: both price premiums are disabled.',
+                   price['label'],
                    'Unstated, negated, uncertain and background properties are omitted.']
     if eligible_water and not confirmed:
         limitations.append('Two splashes become available when you confirm the visible water and open pouring access.')
@@ -117,8 +119,7 @@ def capture_profile(fighter: dict, observation: dict | None = None, *, confirmed
         'image_ref': fighter['image_ref'], 'health': 100, 'stats': stats, 'traits': traits,
         'capabilities': [entry['rule'] for entry in trait_evidence], 'limitations': limitations,
         'resources': {'water_charges': charges, 'water_evidence': 'confirmed' if charges else 'none'},
-        'price': {'amount_gbp': None, 'source': 'unavailable', 'label': 'No verified price; no premium',
-                  'observed_at': None, 'confidence': 'unknown'},
+        'price': price,
         'provenance': {'kind': 'accepted_capture' if confirmed else 'capture_preview',
             'label': 'Player-accepted capture; deterministic game rules' if confirmed else 'Capture evidence preview; awaiting player acceptance',
             'profile_version': PROFILE_VERSION, 'capture_id': fighter['capture_id'],
@@ -145,13 +146,17 @@ def simulate_capture_battle(fighters: list[dict], observations: list[dict], seed
     for event in result['events']:
         event['at'] = round(event['at'] * duration / 12800)
     result.update(duration_ms=duration, playback_mode=playback_mode)
-    result['price_policy'] = {**result['price_policy'], 'kind': 'unknown_capture_prices',
-        'description': 'No verified marketplace prices are available for these captures. Both premiums are disabled.'}
-    result['explanation']['price_note'] = 'Neither capture has a verified price. Both price premiums are zero; removing price cannot change this winner.'
+    priced = all(p['price']['amount_gbp'] is not None for p in profiles)
+    price_note = ('Frozen medians of similar eBay UK asking prices, excluding postage; not appraisals or sold prices. '
+                  'The logarithmic price premium is capped at 1% damage.' if priced else
+                  'At least one capture lacks a sourced comparable price. Both price premiums are zero; removing price cannot change this winner.')
+    result['price_policy'] = {**result['price_policy'], 'kind': 'sourced_comparables' if priced else 'unknown_capture_prices',
+        'description': price_note}
+    result['explanation']['price_note'] = price_note
     result['explanation']['highlights'].append('Combat attributes come from the accepted photographs. Quick, Power and Guard labels do not select stats or the winner.')
     result['provenance'] = {'kind': 'accepted_capture', 'profile_version': PROFILE_VERSION,
         'resolution': 'Deterministic local simulation; no model selects the winner.',
-        'frozen_at': 'battle_start', 'price_source': 'unavailable'}
+        'frozen_at': 'battle_start', 'price_source': 'ebay_browse' if priced else 'unavailable'}
     result['rules_snapshot'] = deepcopy(RULES)
     result['rules_hash'] = sha256(json.dumps(RULES, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     result['immutable'] = True

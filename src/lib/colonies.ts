@@ -1,10 +1,11 @@
 import type { WorldCharacter } from '../components/WorldView'
 import type { IslandAgent, IslandSimulation } from './island'
+import type { CombatProfile } from './camera-combat'
 
 export type ColonyId = 'winners' | 'losers'
 export type ColonyCharacter = WorldCharacter & {
-  market_price?: null; estimated_value_gbp?: number | null; valuation_status?: 'unknown' | 'user_estimate'
-  valuation_provenance?: { kind: 'user_estimate'; currency: 'GBP'; recorded_at: string } | null
+  market_price?: CombatProfile['price'] | null; estimated_value_gbp?: number | null; valuation_status?: 'unknown' | 'user_estimate' | 'category_comparable'
+  valuation_provenance?: { kind: 'user_estimate'; currency: 'GBP'; recorded_at: string } | CombatProfile['price'] | null
 }
 export type ColonyBoardEntry = {
   id: string; created_at: string; kind: 'request' | 'offer' | 'report' | 'proposal' | 'support' | 'objection' | 'decision' | 'question' | 'reflection'; text: string
@@ -47,6 +48,7 @@ export type ColonyMetrics = {
   resident_count?: number; active_agents?: number; completed_actions?: number; building_levels?: number
   project_levels?: number; fulfilled_requests?: number; open_requests?: number; cooperative_deliveries?: number; capability_gaps?: string[]
   estimated_total_gbp?: number | null; estimated_mean_gbp?: number | null; valued_residents?: number; unknown_value_residents?: number
+  comparable_total_gbp?: number | null; comparable_residents?: number
   total_building_levels?: number; contribution_score?: number; active_seconds?: number; actions_per_resident?: number
   dependency_contributions?: number; resource_contributions?: Record<string, number>; score?: number
   [key: string]: unknown

@@ -6,7 +6,7 @@ export type ArenaFixture = {
   id: string; name: string; object_type: string; description: string;
   stats: { impact: number; resilience: number; agility: number; control: number };
   health: 100; traits: string[]; capabilities: string[]; limitations: string[];
-  price: { amount_gbp: number | null; source: string; label: string; observed_at: string | null; confidence: string };
+  price: { amount_gbp: number | null; source: string; label: string; observed_at: string | null; confidence: string; listings?: { item_id: string; title: string; amount_gbp: number; url: string; condition: string }[] };
   provenance: { kind: string; label: string; profile_version: string }; profile_version: string;
 };
 export type ArenaRule = { id: string; name: string; description: string };

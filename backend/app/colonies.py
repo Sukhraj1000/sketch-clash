@@ -21,6 +21,7 @@ from .colony_deliberation import DeliberationMixin, model_controlled, review_mod
 from .colony_learning import ColonyLearningStore
 from .observability import record_event, agent_span
 from .board_presentation import board_text, report_commentary
+from .market_prices import combat_price
 
 COLONY_IDS = ('winners', 'losers')
 COLONY_NAMES = {'winners': 'Winner Island', 'losers': 'Loser Island'}
@@ -75,6 +76,9 @@ def route_completed_battle(tx, battle: dict, root_world_id: str) -> list[str]:
                         'market_price': None, 'estimated_value_gbp': None, 'valuation_status': 'unknown',
                         'valuation_provenance': None}
             resident['observed_object'] = deepcopy(fighter.get('observed_object', {}))
+            quote = combat_price(fighter.get('market_price'))
+            if quote['amount_gbp'] is not None:
+                resident.update(market_price=quote, valuation_status='category_comparable', valuation_provenance=deepcopy(quote))
             resident['capture_id'] = fighter.get('capture_id')
             resident['validation'] = deepcopy(fighter.get('validation', {}))
             record_event(tx, root_world_id, event_id=key_for(placement_id, 'arrival'), kind='resident.arrived',
@@ -88,7 +92,7 @@ def route_completed_battle(tx, battle: dict, root_world_id: str) -> list[str]:
                 'battle_id': battle['id'], 'player_slot': slot, 'winner_slot': battle['winner_slot'],
                 'colony_id': colony_id, 'resident_id': resident_id, 'canonical_type_id': fighter['canonical_type_id'],
                 'accepted_fighter': deepcopy(fighter), 'created_at': timestamp, 'immutable': True,
-                'basis': 'authoritative_completed_battle', 'market_price': None})
+                'basis': 'authoritative_completed_battle', 'market_price': deepcopy(fighter.get('market_price'))})
     return ids
 
 
@@ -983,12 +987,15 @@ class ColoniesStore(DeliberationMixin):
         produced = {resource for agent in agents for action in agent['allowed_actions']
                     if (resource := action_resource(agent, action)) is not None}
         values = [character['estimated_value_gbp'] for character in characters if character.get('estimated_value_gbp') is not None]
+        sourced = [price for character in characters if (price := combat_price(character.get('market_price'))['amount_gbp']) is not None]
         return {'resident_count': len(characters), 'active_agents': len(agents), 'completed_actions': snapshot.get('completed_actions', 0),
                 'project_levels': sum(project['level'] for project in snapshot['projects']),
                 'resource_total': sum(snapshot['resources'].values()), 'fulfilled_requests': snapshot.get('fulfilled_requests', 0),
                 'cooperative_deliveries': snapshot.get('cooperative_deliveries', 0),
                 'capability_gaps': [resource for resource in RESOURCE_KEYS if resource not in produced],
                 'market_value': None, 'valuation_status': 'user_estimates' if values else 'unknown',
+                'comparable_total_gbp': round(sum(sourced), 2) if sourced else None,
+                'comparable_residents': len(sourced), 'comparable_basis': 'frozen_category_asking_prices_not_appraisals',
                 'estimated_total_gbp': round(sum(values), 2) if values else None,
                 'estimated_mean_gbp': round(sum(values) / len(values), 2) if values else None,
                 'valued_residents': len(values), 'unknown_value_residents': len(characters) - len(values)}

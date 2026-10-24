@@ -10,6 +10,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 @dataclass(frozen=True)
 class Settings:
     gemini_api_key: str = field(default='', repr=False)
+    ebay_client_id: str = field(default='', repr=False)
+    ebay_client_secret: str = field(default='', repr=False)
     gemini_model: str = 'gemini-4-argon'
     mongodb_uri: str = field(default='', repr=False)
     mongodb_database: str = 'sketch_clash'
@@ -55,6 +57,8 @@ class Settings:
             return int(os.getenv(name, os.getenv(legacy, default)))
         return cls(
             gemini_api_key=os.getenv('GEMINI_API_KEY', ''),
+            ebay_client_id=os.getenv('EBAY_CLIENT_ID', ''),
+            ebay_client_secret=os.getenv('EBAY_CLIENT_SECRET', ''),
             gemini_key_source=key_source,
             ai_paused=boolean('SKETCH_AI_PAUSED', 'false'),
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-4-argon'),

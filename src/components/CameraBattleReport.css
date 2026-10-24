@@ -3,3 +3,9 @@
 .cb-attribute-matchup{display:grid;grid-template-columns:1fr 1fr;gap:14px;border-top:1px dashed #1e1c2933;margin-top:17px;padding-top:15px}.cb-attribute-matchup p{margin:0;font-size:11px;line-height:1.75}.cb-attribute-matchup b{display:block;margin-bottom:5px}.cb-attribute-matchup span{color:#625b58}.cb-attribute-matchup strong{color:var(--ink);white-space:nowrap}@media(max-width:650px){.cb-attribute-matchup{grid-template-columns:1fr;gap:12px}.cb-attribute-matchup p{font-size:10px}}
 
 .cb-even-match{font-size:12px;line-height:1.75;background:#fff9ed;border-left:3px solid var(--ink);padding:12px 15px;margin:18px 0 0}
+.cb-price-sources { margin: 12px 0; padding: 12px; border: 1px solid #ffffff20; border-radius: 10px; font-size: 12px; }
+.cb-price-sources summary { cursor: pointer; font-weight: 700; }
+.cb-price-sources ul { list-style: none; padding: 0; display: grid; gap: 10px; }
+.cb-price-sources li { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+.cb-price-sources a { color: inherit; text-decoration: underline; }
+.cb-price-sources small, .cb-price-status { opacity: .7; font-size: 11px; }

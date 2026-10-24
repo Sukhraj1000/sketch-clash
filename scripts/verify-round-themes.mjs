@@ -47,6 +47,24 @@ const eligible = renderToStaticMarkup(createElement(Review,{response:{...respons
 assert.match(eligible,/FITS THE ROUND/)
 assert.doesNotMatch(eligible,/<button[^>]*class="review-confirm"[^>]*disabled/)
 
+// Pricing integration renders its real component recursively, not a stub. A
+// market receipt must stay inspectable before confirmation and cannot override
+// an off-theme decision.
+const price={amount_gbp:12,source:'ebay_browse',label:'Comparable asking prices; not sold prices.',observed_at:'2026-10-24T21:00:00Z',confidence:'matched_listings',
+  listings:[{item_id:'fixture-mug',title:'Ceramic mug controlled listing',amount_gbp:12,url:'https://www.ebay.co.uk/itm/123456789012',condition:'Used'}]}
+const pricedResponse={...response,fighter:{...response.fighter,combat_profile:{stats:{impact:5,resilience:5,agility:5,control:5},price}}}
+const priced=renderToStaticMarkup(createElement(Review,{response:pricedResponse,...props}))
+assert.match(priced,/See 1 sourced asking prices/)
+assert.match(priced,/Comparable asking prices; not sold prices\./)
+assert.match(priced,/href="https:\/\/www\.ebay\.co\.uk\/itm\/123456789012" target="_blank" rel="noopener noreferrer"/)
+assert.match(priced,/Ceramic mug controlled listing/)
+assert.match(priced,/£12\.00/)
+assert.match(priced,/Used/)
+assert.match(priced,/<button[^>]*class="review-confirm"[^>]*disabled=""/,'A sourced price cannot override rejected theme eligibility')
+const unpriced=renderToStaticMarkup(createElement(Review,{response:{...pricedResponse,fighter:{...pricedResponse.fighter,combat_profile:{...pricedResponse.fighter.combat_profile,price:{amount_gbp:null,source:'unavailable',label:'Marketplace is not configured; neutral price.'}}}},...props}))
+assert.match(unpriced,/Marketplace is not configured; neutral price\./)
+assert.doesNotMatch(unpriced,/sourced asking prices|ebay\.co\.uk/)
+
 const theme={id:'animals',name:'Animal Kingdom',instructions:'Choose a clear photograph of an animal.',examples:['cat','dog','rabbit','parrot'],rotation_index:4,policy_version:'round-themes-1',enforced:true}
 for (const player of [1,2]) {
   const html=renderToStaticMarkup(createElement(CaptureStudio,{player,duration:60,theme,...props,onCancel(){},onPrepare(){throw Error('No requests')}}))
@@ -54,4 +72,4 @@ for (const player of [1,2]) {
   assert.match(html,/cat · dog · rabbit · parrot/)
   assert.doesNotMatch(html,/THEME <strong>EVERYDAY OBJECTS/)
 }
-console.log('Round theme screens passed: both-player saved brief, eligible confirmation, DQ/uncertainty lock and retake presentation. SSR fixtures only.')
+console.log('Round theme screens passed: both-player saved brief, eligible confirmation, DQ/uncertainty lock, retake and real market receipt component presentation. SSR fixtures only.')
