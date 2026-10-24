@@ -29,6 +29,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, Spa
 from opentelemetry.trace import Link, SpanContext, Status, StatusCode, TraceFlags
 
 from .repository import Repository, StoreError, key_for, now_iso
+from .observatory_evidence import ReceiptEvidence
 
 logger = logging.getLogger('sketch_clash.observatory')
 OPERATION_DAYS = 7
@@ -550,6 +551,26 @@ def register_observatory_routes(app: FastAPI):
     async def events(request: Request, after: int | None = None, island: str | None = None,
                      session_id: str | None = None, limit: int = 200):
         return await asyncio.to_thread(service(request).events, after=after, island_id=island, session_id=session_id, limit=limit)
+
+    @app.get('/api/observatory/events/{event_id}/evidence')
+    async def event_evidence(request: Request, event_id: str):
+        result = await asyncio.to_thread(ReceiptEvidence(service(request).repository).event_evidence, event_id)
+        return safe(result)
+
+    @app.get('/api/observatory/receipts/{receipt_id}/evidence')
+    async def receipt_evidence(request: Request, receipt_id: str):
+        result = await asyncio.to_thread(ReceiptEvidence(service(request).repository).receipt_evidence, receipt_id)
+        return safe(result)
+
+    @app.get('/api/observatory/contributions')
+    async def contributions(request: Request, island: str | None = None, window: int = 60):
+        # Only sanitize individual receipt payloads. The bounded aggregate actor
+        # list must not silently truncate to safe()'s generic 30-item limit.
+        result = await asyncio.to_thread(ReceiptEvidence(service(request).repository).contributions, island, window)
+        for colony in result['islands']:
+            for actor in colony['actors']:
+                actor['name'] = safe(actor['name'])
+        return result
 
     @app.get('/api/observatory/sessions')
     async def sessions(request: Request):
