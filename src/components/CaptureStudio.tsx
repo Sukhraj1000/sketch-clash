@@ -45,6 +45,22 @@ type Stage = 'handoff' | 'idle' | 'permission' | 'camera' | 'normalizing' | 'pro
 type PreparedCapture = NormalizedImage & { captureId: string; source: 'camera' | 'upload'; crop?: ImageCrop }
 type Point = { x: number; y: number }
 
+export function captureReviewMessage(response: Pick<CaptureResponse, 'theme_validation' | 'degraded'>) {
+  const eligibility = response.theme_validation
+  if (eligibility?.verdict === 'outside_theme') return `Capture disqualified for this round. ${eligibility.reason}`
+  if (eligibility?.verdict === 'uncertain') return `Theme eligibility is not confirmed. ${eligibility.reason}`
+  return response.degraded
+    ? 'Object recognised. Review the identity and fighter before locking it in. Some supporting evidence was unavailable; open the details to see which.'
+    : 'Object recognised. Review the identity and fighter before locking it in.'
+}
+
+export function captureStatusMessage(stage: Stage, response: CaptureResponse | null, message: string) {
+  // Recognition success is not permission to fight. A recovered or revised
+  // proposal must never keep an earlier success message over a theme rejection.
+  if (stage === 'recognized' && response?.theme_validation && response.theme_validation.verdict !== 'eligible') return captureReviewMessage(response)
+  return message
+}
+
 function ToolbarButton({ children, label, disabled, selected, onClick }: { children: ReactNode; label: string; disabled?: boolean; selected?: boolean; onClick: () => void }) {
   return <button type="button" className={`sketch-tool capture-tool ${selected ? 'is-selected' : ''}`} disabled={disabled} aria-label={label} aria-pressed={selected} onClick={onClick}>{children}<span>{label}</span></button>
 }
@@ -236,7 +252,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
       setResponse(result)
       if (result.status === 'recognized') {
         setStage('recognized')
-        setMessage(result.degraded ? 'Ready to battle. Some supporting evidence was unavailable; open the details to see which.' : 'Object recognised. Fighter checked. Ready to battle.')
+        setMessage(captureReviewMessage(result))
       } else if (result.status === 'needs_selection') {
         setStage('selection')
         setMessage(result.message || 'Choose one outlined object, or crop tightly around your fighter.')
@@ -370,6 +386,10 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
 
   const confirm = async () => {
     if (stage !== 'recognized' || !response?.fighter || submitted.current || cropMode) return
+    if (response.theme_validation && response.theme_validation.verdict !== 'eligible') {
+      setMessage(captureReviewMessage(response))
+      return
+    }
     submitted.current = true
     setConfirming(true)
     stopCamera()
@@ -428,14 +448,14 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
           {stage === 'permission' && <div className="capture-processing"><Camera size={32} /><strong>CAMERA PERMISSION</strong><span>Choose Allow in your browser. Your timer is paused.</span><button type="button" className="capture-text-button" onClick={() => { discard(); setStage('idle'); inputRef.current?.click() }}>Use an uploaded photo instead</button></div>}
           {busy && <CaptureProgressPanel normalizing={stage === 'normalizing'} progress={progress} unavailable={progressUnavailable} seconds={processingSeconds} />}
           {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> {response?.theme_validation&&response.theme_validation.verdict!=='eligible'?'CHECK THE ROUND THEME':'READY FOR REVIEW'}</span>}
-          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : theme.instructions}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>{theme.examples.join(' · ')}<br/>Your timer runs only while framing or selecting.</small></div>}
+          {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : theme.instructions}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage(captureReviewMessage(initialResponse))}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>{theme.examples.join(' · ')}<br/>Your timer runs only while framing or selecting.</small></div>}
         </div>
         <div className="sketch-paper-bottom"><span>ORIGINAL PHOTO. UNLIMITED ATTITUDE.</span><span>CAPTURE No. 00{player}</span></div>
       </div>
       <span className="sketch-star-doodle" aria-hidden="true">✳</span>
     </div>
 
-    {stage === 'recognized' && response?.fighter && <FighterReview key={response.output_id ?? response.fighter.output_id ?? response.capture_id} response={response} onFeedback={onFeedback} onCorrect={onCorrect} onRevised={revised=>{setResponse(revised);setStage(revised.status==='recognized'?'recognized':revised.status==='needs_selection'?'selection':'recapture');setMessage(revised.message??'Revised proposal ready. Review the new result before locking it in.')}} onConfirm={confirm} onBusy={setConfirming} onRetake={()=>{discard();setStage('idle')}} onCrop={originalRef.current?startCropping:undefined}/> }
+    {stage === 'recognized' && response?.fighter && <FighterReview key={response.output_id ?? response.fighter.output_id ?? response.capture_id} response={response} onFeedback={onFeedback} onCorrect={onCorrect} onRevised={revised=>{setResponse(revised);setStage(revised.status==='recognized'?'recognized':revised.status==='needs_selection'?'selection':'recapture');setMessage(revised.status==='recognized'?captureReviewMessage(revised):revised.message??'Use a clearer subject before continuing.')}} onConfirm={confirm} onBusy={setConfirming} onRetake={()=>{discard();setStage('idle')}} onCrop={originalRef.current?startCropping:undefined}/> }
 
     <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="capture-file-input" aria-label="Upload a fighter photograph" tabIndex={-1} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void upload(file) }} />
     <div className="sketch-bottom-bar">
@@ -458,7 +478,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
     </div>}
     {stage === 'selection' && !cropMode && detections.length > 0 && <div className="capture-selection-list" aria-label="Choose one detected object">{detections.map((item, index) => <button key={item.id} type="button" onClick={() => selectCrop(item.box)}>{index + 1}. {item.label} <span aria-hidden="true">↗</span></button>)}</div>}
     {stage === 'error' && captureRef.current && <button type="button" className="capture-retry" onClick={() => captureRef.current && void prepare(captureRef.current)}><RotateCcw size={16} /> Retry this photograph</button>}
-    <div className="sketch-footnote"><button type="button" disabled={confirming} onClick={() => { discard(); onCancel() }}>← Back to lobby</button><span role="status" aria-live="polite">{message || (remaining === 0 ? 'Time is up. Nothing submits automatically; finish choosing your photograph when ready.' : 'One object becomes one fighter. Confirm it before passing the laptop.')}</span><span className="sketch-counter">{player} / 2 FIGHTERS</span></div>
+    <div className="sketch-footnote"><button type="button" disabled={confirming} onClick={() => { discard(); onCancel() }}>← Back to lobby</button><span role="status" aria-live="polite">{captureStatusMessage(stage,response,message) || (remaining === 0 ? 'Time is up. Nothing submits automatically; finish choosing your photograph when ready.' : 'One object becomes one fighter. Confirm it before passing the laptop.')}</span><span className="sketch-counter">{player} / 2 FIGHTERS</span></div>
     {response && <EvidenceDetails response={response} />}
   </section>
 }

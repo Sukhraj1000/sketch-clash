@@ -29,12 +29,26 @@ async function sourceModule(url) {
 }
 
 const { default: Review } = await import(await sourceModule(new URL('../src/components/FighterReview.tsx', import.meta.url)))
-const { CaptureStudio } = await import(await sourceModule(new URL('../src/components/CaptureStudio.tsx', import.meta.url)))
+const { CaptureStudio, captureReviewMessage, captureStatusMessage } = await import(await sourceModule(new URL('../src/components/CaptureStudio.tsx', import.meta.url)))
 const response = {capture_id:'saved',status:'recognized',image_url:'/fixture-photo',width:120,height:90,
   fighter:{display_name:'Kiln',object_type:'mug',visual_spec:{},image_ref:'/fixture-photo'},
   theme_validation:{theme_id:'animals',theme_name:'Animal Kingdom',policy_version:'round-themes-1',
     verdict:'outside_theme',reason:'A mug is outside Animal Kingdom. Correct the label or retake.',evidence_labels:['mug'],basis:'recognition_identity_rules'}}
 const props = {onFeedback(){throw Error('No writes')},onCorrect(){throw Error('No writes')},onRevised(){},onConfirm(){throw Error('No writes')},onRetake(){}}
+const staleSuccess='Object recognised. Fighter checked. Ready to battle.'
+const disqualifiedStatus=captureStatusMessage('recognized',response,staleSuccess)
+assert.match(disqualifiedStatus,/Capture disqualified for this round/)
+assert.match(disqualifiedStatus,/Correct the label or retake/)
+assert.doesNotMatch(disqualifiedStatus,/Ready to battle/,'A stale success message cannot contradict capture DQ')
+const unclearResponse={...response,theme_validation:{...response.theme_validation,verdict:'uncertain',reason:'Correct the identity or use a clearer photograph.'}}
+const uncertainStatus=captureStatusMessage('recognized',unclearResponse,staleSuccess)
+assert.match(uncertainStatus,/Theme eligibility is not confirmed/)
+assert.match(uncertainStatus,/Correct the identity or use a clearer photograph/)
+assert.doesNotMatch(uncertainStatus,/disqualified|Ready to battle/)
+assert.equal(captureStatusMessage('processing',response,'Checking revised photograph…'),'Checking revised photograph…')
+assert.equal(captureStatusMessage('error',response,'Upload failed. Retry.'),'Upload failed. Retry.')
+assert.match(captureReviewMessage({theme_validation:{...response.theme_validation,verdict:'eligible'}}),/Review the identity and fighter before locking it in/)
+assert.doesNotMatch(captureReviewMessage({degraded:true}),/Ready to battle/)
 const blocked = renderToStaticMarkup(createElement(Review,{response,...props}))
 assert.match(blocked,/OUTSIDE THE THEME · CAPTURE DISQUALIFIED/)
 assert.match(blocked,/Choose another photograph/)
