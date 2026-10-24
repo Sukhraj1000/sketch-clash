@@ -8,6 +8,7 @@ import type { AgentEvent, CouncilSession, ObservatoryMetrics, TraceDetail, Reque
 import './Observatory.css'
 import { startIndependentPoll } from '../lib/independentPolling'
 import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
+import { colonyActivity, emptyActivityWindow } from '../lib/colonyActivity'
 
 const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})
 const short = (value?: string | null) => value ? `${value.slice(0, 8)}…` : '—'
@@ -322,11 +323,12 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
           const colony = snapshot?.colonies.find(item => item.id === side)
           const visibleEvents = mode === 'replay' ? filtered.slice(0, position + 1) : events
           const last = [...visibleEvents].reverse().find(item => item.island_id === side)
+          const activity = colonyActivity(colony, snapshot?.planner, aiPaused)
           return <section className={`obs-shore obs-shore-${side} ${island !== 'all' && island !== side ? 'is-dim' : ''}`} key={side}><header><span>{side === 'winners' ? '01' : '02'}</span><div><h2>{side === 'winners' ? 'WINNER ISLAND' : 'LOSER ISLAND'}</h2><p>{colony ? `${colony.characters.length} ${mode === 'replay' ? 'current residents · replaying events' : 'residents · separate memories'}` : 'Resident state unavailable'}</p></div></header><div className="obs-agent-roster">{colony?.characters.slice(0, 6).map(character => {
             const agent = colony.island.agents.find(item => item.character_id === character.id)
             const speaking = Boolean(current && (current.actor_id === agent?.id || current.actor_id === character.id)) || (mode === 'live' && pendingActors.some(item => item.actor_id === agent?.id || item.actor_id === character.id))
             return <button className={`obs-resident ${speaking ? 'is-speaking' : ''}`} key={character.id} onClick={() => { const event = [...events].reverse().find(item => item.actor_id === agent?.id || item.actor_id === character.id); if (event) inspectEvent(event) }} title={character.display_name}><div><img src={character.image_ref} alt={character.object_type}/>{speaking && <MessageSquare size={13}/>}</div><b>{character.object_type}</b><small>{agent?.persona.role || 'Resident'}</small></button>
-          })}{colony && !colony.characters.length && <p className="obs-empty-crew">New objects arrive here after a battle. Their attributes change what the crew can attempt.</p>}</div><div className="obs-shore-base"><span/><span/><span/></div><footer><BrainCircuit size={14}/><p>{last?.message || 'No committed activity recorded for this crew yet.'}</p></footer></section>
+          })}{colony && !colony.characters.length && <p className="obs-empty-crew">New objects arrive here after a battle. Their attributes change what the crew can attempt.</p>}</div><div className="obs-shore-base"><span/><span/><span/></div><div className={`obs-shore-status is-${activity.tone}`} aria-label={`${side === 'winners' ? 'Winner' : 'Loser'} Island current status`}><small>CURRENT STATE{mode === 'replay' ? ' · ALSO SHOWN DURING REPLAY' : ''}</small><strong>{activity.label}</strong><p>{activity.detail}</p>{colony?.island.paused && <a href="#/islands">Open island controls <ArrowRight size={11}/></a>}</div><footer><BrainCircuit size={14}/><p>{last ? <><time dateTime={last.created_at}>{time(last.created_at)}</time> · {last.message}</> : emptyActivityWindow(mode === 'replay')}</p></footer></section>
         })}
       </div>
       <button className={`obs-memory-core ${current ? 'is-active' : ''}`} onClick={() => current && inspectEvent(current)} aria-label="Inspect the current committed event"><div className="obs-memory-disc"><Database size={34}/><span>ATLAS</span></div><div className="obs-memory-shelf"/><div className="obs-memory-shelf"/><strong>SHARED MEMORY</strong><small>State · discussion · evidence</small><span className="obs-commit-label"><CheckCheck size={12}/> {current ? 'EVENT COMMITTED' : 'DURABLE WHEN SAVED'}</span></button>

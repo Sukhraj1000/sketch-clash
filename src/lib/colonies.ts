@@ -18,6 +18,7 @@ export type ColonyBoardEntry = {
   request_reused?: boolean; effect?: string
 }
 export type ColonyAgent = IslandAgent & {
+  assignment_origin?: 'player' | 'model' | 'deterministic' | 'executor'
   intent?: string; contribution?: Record<string, number>
   contributions?: { resources: Record<string, number>; work: number; cooperative_units: number }
 }
@@ -58,6 +59,7 @@ export type ColonyRun = {
   id: string; colony_id: ColonyId; agent_id?: string; agent_name?: string; status: string
   created_at: string; completed_at?: string; decision?: Record<string, unknown> | null
   usage?: Record<string, unknown> | null; receipt?: Record<string, unknown> | null; error?: string
+  session_id?: string; turn_index?: number
 }
 export type GeminiQueueStatus = {
   paused?: boolean; active?: number; waiting?: number; completed?: number; throttled?: number
@@ -81,6 +83,10 @@ export type ColonyPlanner = {
   remaining_requests?: number; last_status?: string; next_turn_at?: string; active_run?: ColonyRun | null
   runs?: ColonyRun[]; error?: string; active_session_id?: string | null
   provider_queue?: GeminiQueueStatus
+  sessions?: { id: string; colony_id: ColonyId; status: string; completed_turns: number; max_turns: number }[]
+  limits?: { max_session_turns?: number }
+  auto_blocked?: boolean
+  validation_backoff?: Partial<Record<ColonyId, { until: number }>>
 }
 export type ColoniesSnapshot = {
   enabled: boolean; server_time: string; persistence: 'mongodb' | 'development_memory'; colonies: Colony[]

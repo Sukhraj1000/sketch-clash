@@ -5,6 +5,7 @@ import './ColonyResearch.css'
 import { ReceiptResult, recentActionReceipts } from './ColonyReceipts'
 import { BoardMessageText } from './BoardMessageText'
 import { boardText } from '../lib/boardPresentation'
+import { colonyActivity } from '../lib/colonyActivity'
 
 const label = (value: string) => value.replaceAll('_', ' ')
 
@@ -17,13 +18,13 @@ export function LiveConversation({ colony, planner, paused = false, canThink = t
   const receipts = recentActionReceipts(colony)
   const queue = planner?.provider_queue
   const interval = queue?.local_limits?.min_dispatch_interval_seconds
-  const queueStatus = paused ? 'Gemini is paused. Saved messages remain here.' : !planner?.enabled ? 'Automatic councils are off.' : queue?.active ? 'A Gemini request is in progress in the shared queue.' : queue?.waiting ? `Shared queue: ${queue.waiting} request${queue.waiting === 1 ? '' : 's'} waiting${queue.dispatch_wait_seconds ? ` · next admission in about ${Math.ceil(queue.dispatch_wait_seconds)}s` : ''}.` : 'The crew reviews changes between conversations.'
+  const activity = colonyActivity(colony, planner, paused)
   return <section className="research-conversation" aria-label="Actual agent conversation">
     <div className="research-heading"><div><span><MessageCircle size={14}/> SEPARATE AGENTS. ONE SHARED BOARD.</span><h2>The crew’s conversation.</h2></div><a href="#/observatory">WATCH UNDER THE HOOD <ArrowRight size={15}/></a></div>
     <p>These are saved Gemini responses from separate resident turns. Each speaker reads the earlier discussion. Accepted plans run through the local executor; their completed work appears below.</p>
-    <div className="research-live-status" role="status"><Timer size={15}/><span>{queueStatus}{!paused && interval ? ` Requests are spaced at least ${Math.ceil(interval)} seconds apart.` : ''}</span></div>
+    <div className="research-live-status" role="status" data-activity={activity.tone}><Timer size={15}/><span><b>{activity.label}.</b> {activity.detail}{activity.tone !== 'paused' && activity.tone !== 'unavailable' && interval ? ` Requests are spaced at least ${Math.ceil(interval)} seconds apart.` : ''}</span></div>
     {sessions.length > 1 && <label className="research-select">CONVERSATION <select value={session} onChange={e => setChosen(e.target.value)}>{sessions.map((s, i) => <option key={s} value={s}>{i === 0 ? 'Latest discussion' : `Earlier discussion ${i}`}</option>)}</select></label>}
-    {!conversation.length ? <div className="research-empty"><MessageCircle/><h3>{paused ? 'No Gemini discussion to show yet.' : 'Waiting for the first council.'}</h3><p>{paused ? 'New model turns are paused by the operator. No conversation is generated for display.' : canThink ? 'Use “Gather the crew” to request a discussion. Automatic councils also react to island changes; the board shows responses only after they are saved.' : 'The next accepted model response will appear here. A slow request pace can leave time between speakers.'}</p></div> : <div className="research-transcript">{conversation.map((m, index) => {
+    {!conversation.length ? <div className="research-empty"><MessageCircle/><h3>No saved model messages are loaded for this island.</h3><p>{activity.detail} {canThink ? 'Use “Gather the crew” to request a discussion. The board shows responses only after they are saved.' : 'Existing messages remain readable when available; no conversation is generated for display.'}</p></div> : <div className="research-transcript">{conversation.map((m, index) => {
       const resident = colony.characters.find(c => c.id === m.character_id)
       const parent = colony.board.find(p => p.id === m.reply_to_id)
       const outcomes = m.run_id ? receipts.filter(receipt => receipt.decision_run_id === m.run_id && receipt.decision_evidence === 'accepted_decision') : []
