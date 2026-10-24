@@ -152,3 +152,71 @@ def test_full_storage_cancels_stale_offer_without_faking_delivery_or_trapping_ac
     assert actor(store, 'bottle')['active_commitment'] is None
     assert actor(store, 'bottle')['assignment'] == 'auto'
     assert not [r for r in repo._data.get('colonyContributions', {}).values() if r['request_id'] == request]
+
+
+def test_newly_useful_work_supersedes_model_rest_but_preserves_player_rest():
+    _, store, _, island = prepared()
+    state = island.repo.read(lambda tx: tx.get('islandState', island.state_id))
+    state['resources']['energy'] = 20
+    project = island._choose_project(state)
+    pencil = actor(store, 'pencil')
+    pencil.update(assignment='rest', assignment_origin='model')
+    assert island._choose_action(state, pencil, project) == 'build'
+    pencil['assignment_origin'] = 'player'
+    assert island._choose_action(state, pencil, project) == 'rest'
+
+
+def test_council_wake_reserves_once_without_completing_idle_or_overriding_busy_work():
+    repo, store, clock, island = prepared()
+    before = {a['id']: deepcopy(a) for a in side(store)['island']['agents']}
+    journal_before = deepcopy(repo._data.get('islandEvents', {}))
+    def wake(tx):
+        state = tx.get('islandState', island.state_id)
+        state['resources']['energy'] = 20
+        agents = island._agents(tx)
+        for agent in agents:
+            agent.update(assignment='rest', assignment_origin='model', pending_decision_action='rest',
+                         pending_decision_id='earlier-idle-decision')
+        started = island._wake_idle_workers(tx, state, agents, clock.value, 'accepted-council-outcome')
+        tx.put('islandState', state)
+        return started
+    started = island.repo.transaction(wake)
+    assert len(started) == 2  # Only the two real construction places are admitted.
+    assert all(task['status'] == 'scheduled' and task['kind'] == 'build' for task in started)
+    snapshot = side(store)['island']
+    for item in started:
+        current = next(a for a in snapshot['agents'] if a['id'] == item['actor_id'])
+        previous = before[current['id']]
+        assert current['task']['id'] == previous['task']['id']
+        assert current['xp'] == previous['xp'] and current['completed_actions'] == previous['completed_actions']
+        assert current['task']['council_id'] == 'accepted-council-outcome'
+        assert current['task']['decision_origin'] == 'deterministic' and current['task']['decision_id'] is None
+        assert current['task']['requested_decision_id'] == 'earlier-idle-decision'
+        assert current['task']['requested_action'] == 'rest' and current['task']['action_switched']
+        assert current['assignment'] == 'auto'
+    assert repo._data.get('islandEvents', {}) == journal_before
+    state_before = deepcopy(repo._data)
+    def repeat(tx):
+        state = tx.get('islandState', island.state_id)
+        assert island._wake_idle_workers(tx, state, island._agents(tx), clock.value, 'accepted-council-outcome') == []
+    island.repo.transaction(repeat)
+    assert repo._data == state_before
+    clock.advance(20); store.advance()
+    receipts = [repo._data['islandEvents'][item['task_id']] for item in started]
+    assert all(row['progress_delta'] > 0 and row['council_id'] == 'accepted-council-outcome' for row in receipts)
+    assert all(row['kind'] == 'build' and row['decision_origin'] == 'deterministic' for row in receipts)
+
+
+def test_council_wake_preserves_player_rest_and_active_commitments():
+    repo, store, clock, island = prepared()
+    def wake(tx):
+        state = tx.get('islandState', island.state_id)
+        state['resources']['energy'] = 20
+        agents = island._agents(tx)
+        agents[0].update(assignment='rest', assignment_origin='player')
+        agents[1]['active_commitment'] = {'id': 'still-promised', 'action': 'rest'}
+        agents[2]['task']['kind'] = 'plan'
+        before = deepcopy(agents)
+        assert island._wake_idle_workers(tx, state, agents, clock.value, 'accepted-council') == []
+        assert agents == before and state['resources']['energy'] == 20
+    island.repo.transaction(wake)

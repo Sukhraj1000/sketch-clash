@@ -19,13 +19,14 @@ def setup_world():
     return repo,store,clock,settings
 
 
-def provider_for_garden():
+def provider_for_garden(action=None):
     calls=[]
     async def create(**kwargs):
         payload=json.loads(kwargs['input']); calls.append(payload)
         conversation=payload['council_session']['conversation']
         decision={'reason':'Build a shared garden.', 'message':{'kind':'support' if conversation else 'proposal',
                     'project_id':'garden','text': 'I support the garden and its water supply.' if conversation else 'Shall we build a garden using our water and ideas?'}}
+        if action: decision['action']=action
         return SimpleNamespace(output_text=json.dumps(decision),model_dump=lambda **kw:{'usage':{'total_tokens':40}})
     return SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=create))),calls
 
@@ -60,8 +61,51 @@ async def test_real_store_transcript_agreement_and_message_provenance():
     before=deepcopy(repo._data)
     replay=store.resolve_council(session['id'],'winners',[a['id'] for a in session['participants']],session['population_fingerprint'])
     assert replay['status']=='agreed' and repo._data==before
+    assert replay['started_tasks']==[]  # Existing productive work stays in flight.
     clock.advance(65); store.advance()
     assert any(a['task']['kind']=='build' for a in side(store)['island']['agents'])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('idle_choice',[None,'rest'])
+async def test_agreed_funded_project_wakes_idle_crew_without_fabricated_completion(idle_choice):
+    repo,store,clock,settings=setup_world(); provider,_=provider_for_garden(action=idle_choice)
+    island=store.islands['winners']
+    def stock_and_wait(tx):
+        state=tx.get('islandState',island.state_id)
+        state['resources']={'materials':1000,'water':1000,'ideas':1000,'energy':0}
+        for agent in island._agents(tx):
+            island._schedule(state,agent,clock.value)
+            assert agent['task']['kind']=='rest'
+            tx.put('islandAgents',agent)
+        tx.put('islandState',state)
+    island.repo.transaction(stock_and_wait)
+    before_agents={a['id']:deepcopy(a) for a in side(store)['island']['agents']}
+    worker=ColonyPlanner(repo,store,settings,client=provider,clock=lambda:clock.value.timestamp(),
+        provider_queue=queue_with_advancing_clock(lambda:clock.value.timestamp(),clock.advance))
+    worker.request('full-storage-to-real-build','winners')
+    for _ in range(3):
+        await worker.run(worker.status()['active_run']['id']); clock.advance(3)
+    session=worker.sessions('winners')[0]
+    assert session['status']=='agreed'
+    outcome=store.resolve_council(session['id'],'winners',[a['id'] for a in session['participants']],session['population_fingerprint'])
+    started=outcome['started_tasks']
+    assert len(started)==2
+    assert 'contributions will be recorded when the work completes' in outcome['reason']
+    for task in started:
+        current=next(a for a in side(store)['island']['agents'] if a['id']==task['actor_id'])
+        assert current['task']['kind']=='build' and current['assignment']=='auto'
+        assert current['completed_actions']==before_agents[current['id']]['completed_actions']
+        assert current['xp']==before_agents[current['id']]['xp']
+        assert not repo._data['islandEvents'].get(task['task_id'])
+    unchanged=deepcopy(repo._data)
+    assert store.resolve_council(session['id'],'winners',[a['id'] for a in session['participants']],session['population_fingerprint'])==outcome
+    assert repo._data==unchanged
+    clock.advance(20); store.advance()
+    assert all(repo._data['islandEvents'][task['task_id']]['progress_delta']>0 for task in started)
+    reports=[row for row in side(store)['board'] if row.get('council_id')==outcome['id'] and row['kind']=='report']
+    assert len(reports)==2 and all(row['origin']=='executor' and row['verified'] for row in reports)
+    assert {row['receipt_ids'][0] for row in reports}=={task['task_id'] for task in started}
 
 
 @pytest.mark.asyncio

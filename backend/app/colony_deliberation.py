@@ -140,6 +140,12 @@ class DeliberationMixin:
                     'selected_project_id': selected['project_id'], 'target_level': selected['target_level'],
                     'reason': reason, 'last_council_at': _iso(now), 'next_council_at': _iso(now + timedelta(seconds=45))}
                 state['active_project_id'] = selected['project_id']
+                outcome['started_tasks'] = island._wake_idle_workers(tx, state, agents, now, decision_id)
+                if outcome['started_tasks']:
+                    reason += (f" The executor started {len(outcome['started_tasks'])} useful tasks from idle waits; "
+                               'their contributions will be recorded when the work completes.')
+                    outcome['reason'] = reason
+                    council['reason'] = reason
             state['revision'] += 1
             tx.put('islandState', state)
             tx.put('colonyCouncilOutcomes', outcome)

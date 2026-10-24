@@ -13,7 +13,7 @@ import json
 import math
 from typing import Any
 
-from .agent_sdk import SDK_VERSION, AgentDecision, action_resource, capability_profile, resource_actions, validate_decision
+from .agent_sdk import SDK_VERSION, PUBLIC_TEXT_LIMIT, AgentDecision, action_resource, capability_profile, resource_actions, validate_decision
 from .island import (IslandStore, ACTION_LABELS, RESOURCE_LOCATIONS, RESOURCE_KEYS, MAX_AGENTS, MAX_RESOURCE,
                      _position, _iso, _time)
 from .repository import StoreError, key_for, public
@@ -473,7 +473,12 @@ class _ColonyIsland(IslandStore):
         if assigned != 'auto':
             if assigned not in agent['allowed_actions']:
                 raise StoreError('Saved assignment exceeds accepted capabilities.', 503, 'capability_invariant')
-            if assigned in options['available_actions']:
+            # A model's idle choice is a fallback for the observation it saw,
+            # not an instruction to ignore newly agreed, funded work. Explicit
+            # player rest remains authoritative until the player changes it.
+            stale_model_rest = (assigned == 'rest' and agent.get('assignment_origin') == 'model'
+                                and bool(options['useful_actions']))
+            if assigned in options['available_actions'] and not stale_model_rest:
                 return assigned
         if 'build' in options['useful_actions']:
             return 'build'
@@ -506,6 +511,8 @@ class _ColonyIsland(IslandStore):
         duration = IDLE_CHECK_SECONDS if action == 'rest' else 14 + seed % 5
         switched = requested is not None and requested != action
         blocked_reason = next((row['reason'] for row in options['blocked_actions'] if row['action'] == requested), '')
+        if switched and requested == 'rest':
+            blocked_reason = 'Useful work became available after the earlier idle decision.'
         reason = (f'{requested} was not useful now: {blocked_reason} Switched to {action}.' if switched else
                   options['idle_reason'] if action == 'rest' and options['idle_reason'] else
                   f'Executing the accepted {action} assignment.' if requested else
@@ -578,6 +585,37 @@ class _ColonyIsland(IslandStore):
             agent['assignment_origin'] = 'deterministic'
         self._record_reservation(task, agent, resources_before_reservation, state['resources'])
         agent['task'], agent['updated_at'] = task, _iso(start)
+
+    def _wake_idle_workers(self, tx, state, agents, now, council_id):
+        """Replace uncommitted idle slots after agreement, never complete them early.
+
+        The next sequence/id stays the same because no action was completed.
+        Reservations happen through the ordinary scheduler inside the council's
+        transaction, whose outcome is the replay boundary for this handoff.
+        """
+        if state['paused'] or state.get('planning', {}).get('mode') == 'manual':
+            return []
+        started = []
+        for agent in sorted(agents, key=lambda row: row['id']):
+            task = agent.get('task') or {}
+            if (task.get('kind') != 'rest' or agent.get('active_commitment')
+                    or agent.get('assignment_origin') == 'player' and agent['assignment'] != 'auto'):
+                continue
+            project = self._choose_project(state)
+            if project is None or self._choose_action(state, agent, project) == 'rest':
+                continue
+            previous_task = deepcopy(task)
+            self._schedule(state, agent, now)
+            task = agent['task']
+            task.update(council_id=council_id, superseded_idle_started_at=previous_task.get('started_at'),
+                        scheduling_reason='The crew agreed on a project. The executor replaced an idle wait with useful work. '
+                                          + task['scheduling_reason'])
+            tx.put('islandAgents', agent)
+            started.append({'actor_id': agent['id'], 'character_id': agent['character_id'],
+                            'actor_name': agent['display_name'], 'task_id': task['id'], 'kind': task['kind'],
+                            'project_id': task.get('project_id'), 'reserved_cost': deepcopy(task.get('cost', {})),
+                            'status': 'scheduled', 'execution_origin': 'local_executor'})
+        return started
 
     def _board(self, tx):
         return tx.find('colonyBoard', {'world_id': self.world_id}, sort='created_at', limit=256)
@@ -805,6 +843,7 @@ class _ColonyIsland(IslandStore):
                                  and decision.get('status') == 'accepted')
         receipt.update(colony_id=self.repo.colony_id, sdk_version=SDK_VERSION,
                        decision_origin=task.get('decision_origin', 'deterministic'), decision_id=task.get('decision_id'),
+                       council_id=task.get('council_id'),
                        decision_run_id=decision.get('run_id') if accepted_decision else None,
                        decision_evidence='accepted_decision' if accepted_decision else
                                          'missing_reference' if task.get('decision_id') else 'not_applicable',
@@ -814,18 +853,20 @@ class _ColonyIsland(IslandStore):
                      island_id=self.repo.colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
                      message=receipt['description'], data={'receipt_id': receipt['id'], 'resource_delta': receipt['resource_delta'],
                          'project_id': task.get('project_id'), 'decision_id': task.get('decision_id'),
+                         'council_id': task.get('council_id'),
                          'decision_origin': receipt['decision_origin'], 'execution_origin': receipt['execution_origin'],
                          'receipt_version': receipt['receipt_version'], 'reserved_cost': receipt['reserved_cost'],
                          'resource_net_delta': receipt['resource_net_delta'],
                          'scheduling_reason': receipt.get('scheduling_reason'), 'action_switched': receipt.get('action_switched', False),
                          'progress_delta': receipt.get('progress_delta', 0)}, at=_iso(at))
         notice = {'kind': task['kind'], 'reason': task.get('scheduling_reason', '')}
-        if (task.get('decision_origin') == 'model' or task.get('action_switched') or
+        if (task.get('decision_origin') == 'model' or task.get('action_switched') or task.get('council_id') or
                 (task['kind'] == 'rest' and agent.get('last_executor_notice') != notice)):
             self._new_board(tx, agent, 'report', at, key_for(receipt['id'], 'execution-report'),
                     text=receipt['description'], interpretation=task.get('scheduling_reason', ''),
                     receipt_ids=[receipt['id']], origin='executor', verified=True,
                     decision_id=task.get('decision_id'), requested_decision_id=task.get('requested_decision_id'),
+                    council_id=task.get('council_id'),
                     session_id=decision.get('session_id') if accepted_decision else None,
                     resource_delta=deepcopy(receipt['resource_delta']), progress_delta=receipt.get('progress_delta', 0))
         agent['last_executor_notice'] = notice
@@ -1002,7 +1043,7 @@ class ColoniesStore(DeliberationMixin):
                     'council': [{key: deepcopy(row[key]) for key in ('id', 'at', 'chosen_project_id', 'reason', 'origin', 'votes', 'model_message_ids')} for row in state.get('council', [])[-1:]],
                     'project_discussion': island._project_discussion(tx, island._now()),
                     'known_capability_gaps': [resource for resource in RESOURCE_KEYS if not any(resource_actions(other, resource) for other in all_agents)],
-                    'limits': {'message_characters': 240, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS,
+                    'limits': {'message_characters': PUBLIC_TEXT_LIMIT, 'request_quantity': 8, 'board_expiry_seconds': BOARD_SECONDS,
                                'project_opinion_expiry_seconds': PROJECT_OPINION_SECONDS},
                     'authority': 'Propose only accepted actions; requests and offers do not create resources. Shared stock is abstract, not physical cargo. Sentience, walking, loose-material gathering and basic construction are shared game attributes.'}
         result = island.repo.read(read)

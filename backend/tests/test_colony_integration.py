@@ -347,13 +347,12 @@ async def test_model_project_proposal_is_readable_to_next_same_island_actor(colo
     assert run2['agent_id']==pencil['id'] and run2['session_id']==run['session_id']
     await worker.run(run2['id'])
     assert repo._data['colonyReasoning'][run2['id']]['status']=='completed'
-    for _ in range(2):
-        clock.advance(3)
-        await worker.run(worker.status()['active_run']['id'])
+    # Both invited residents have now spoken and agreed on a feasible build;
+    # the council should not buy two redundant turns before handing off work.
     assert not worker.status()['active_run']
     clock.advance(3); store.advance()
     council=side(store,'winners')['council'][-1]
     assert council['chosen_project_id']=='garden'
-    assert len(council['model_message_ids'])==4
-    assert len(provider.calls)==4
+    assert len(council['model_message_ids'])==2
+    assert len(provider.calls)==2
     assert worker.sessions('winners')[0]['status']=='agreed'
