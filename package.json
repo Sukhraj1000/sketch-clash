@@ -15,7 +15,7 @@
     "operator:token": "node scripts/operator-token.mjs",
     "dev:demo": "node scripts/dev.mjs --demo",
     "dev:frontend": "vite --host 127.0.0.1",
-    "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000",
+    "dev:api": ".venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --timeout-graceful-shutdown 5",
     "setup:vision": ".venv/bin/python backend/scripts/setup_vision.py",
     "test:backend": ".venv/bin/python -m pytest backend/tests -q",
     "setup:retrieval": ".venv/bin/python backend/scripts/setup_retrieval.py",
