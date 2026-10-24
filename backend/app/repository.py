@@ -150,6 +150,11 @@ class Repository:
                 immutable_fields = ('image_hash', 'source', 'player_slot', 'crop', 'canonical_media_id', 'width', 'height', 'parent_output_id', 'correction')
                 if any(existing.get(k) != capture.get(k) for k in immutable_fields):
                     raise StoreError('This capture ID is already locked to a different image or selection.', 409, 'capture_mismatch')
+                if (existing.get('status') == 'failed' and not existing.get('observation')
+                        and battle['status'] in ('draft', 'ready')
+                        and battle['active_capture_ids'][capture['player_slot']] == capture['capture_id']):
+                    existing.update(status='processing', error=None)
+                    tx.put('captures', existing)
                 return existing
             if battle['status'] not in ('draft', 'ready'):
                 raise StoreError('New captures are allowed only before the battle starts.')

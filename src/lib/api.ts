@@ -68,6 +68,7 @@ export async function prepareCapture<T>(battleId:string,form:FormData,signal:Abo
       if(recoveryError instanceof ApiError&&recoveryError.code==='capture_processing'){
         throw new ApiError('This photo is still queued or being checked. Slow mode spaces Gemini calls at least 60 seconds apart. Retry this photograph to recover the same capture; do not upload it again.','capture_processing',409);
       }
+      if(recoveryError instanceof ApiError&&recoveryError.code==='capture_failed')throw recoveryError;
       throw error;
     }
   }

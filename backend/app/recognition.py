@@ -120,7 +120,9 @@ class RecognitionService:
         if text_size > 60000 or image_count > 4:
             raise ValueError('Recognition context exceeds the local input limit.')
         input_tokens = max(1200, (text_size // 2) + image_count * 8192 + 3000)
-        # One bounded transport retry, separate from model specification repairs.
+        # Only a definite throttle rejection can be retried. A transport timeout
+        # or server/gateway error can have an unknown paid outcome, even without
+        # the shared queue; never submit an automatic duplicate.
         for attempt in range(1 + min(1, max(0, self.settings.transport_retries))):
             reservation = None
             try:
@@ -142,7 +144,7 @@ class RecognitionService:
                 return response
             except Exception as exc:
                 status = getattr(exc, "status_code", getattr(exc, "code", None))
-                transient = isinstance(exc, (TimeoutError, asyncio.TimeoutError)) or status in (429, 500, 502, 503, 504)
+                transient = status == 429
                 # Evaluation records uncertainty rather than blindly paying for a possible duplicate.
                 if request_budget is not None:
                     raise

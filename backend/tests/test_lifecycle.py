@@ -353,6 +353,29 @@ def test_service_failure_can_retry_same_capture_and_releases_locks(state):
     assert service._locks == {}
 
 
+def test_capture_recovery_distinguishes_failed_pending_and_explicit_retry(state):
+    from backend.app.main import create_app
+    settings, repo, _ = state
+    model = ControlledRecognizer()
+    battle = repo.create_battle('capture-status')
+    image = normalize_image(photo(), 'image/png', settings)
+    capture = {'capture_id': 'same', 'player_slot': 0, 'source': 'upload',
+               'image_hash': image.image_hash, 'image_ref': image.image_ref,
+               'canonical_media_id': image.image_hash, 'width': image.width,
+               'height': image.height, 'crop': None}
+    repo.begin_capture(battle['id'], capture)
+    with TestClient(create_app(settings, repo, model)) as client:
+        path = f"/api/battles/{battle['id']}/captures/same"
+        assert client.get(path).json()['error']['code'] == 'capture_processing'
+        repo.fail_capture(battle['id'], 'same', 'recognition_retryable')
+        failed = client.get(path)
+        assert failed.status_code == 409 and failed.json()['error']['code'] == 'capture_failed'
+        assert model.calls == 0, 'Recovery GET never dispatches recognition.'
+        retried = repo.begin_capture(battle['id'], capture)
+        assert retried['status'] == 'processing' and retried['error'] is None
+        assert client.get(path).json()['error']['code'] == 'capture_processing'
+
+
 def test_rejected_post_start_upload_does_not_store_an_orphan_image(state):
     settings, repo, _ = state
     battle = ready(repo, settings, 'sealed')

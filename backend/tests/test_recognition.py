@@ -181,6 +181,22 @@ async def test_uncertainty_and_unavailable_api_never_fabricate_fighter():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('status', [None, 500, 502, 503, 504])
+async def test_standalone_uncertain_transport_never_repeats_paid_request(status):
+    class ProviderError(Exception):
+        status_code = status
+    calls = []
+    async def uncertain(**kwargs):
+        calls.append(kwargs)
+        raise TimeoutError() if status is None else ProviderError()
+    client = SimpleNamespace(aio=SimpleNamespace(interactions=SimpleNamespace(create=uncertain)))
+    service = RecognitionService(Settings(transport_retries=1), client=client, evidence_runner=FakeEvidence())
+    with pytest.raises((TimeoutError, ProviderError)):
+        await service._request([])
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_semantic_candidates_are_reviewed_without_merging_identity_or_consuming_repair_budget():
     from app.catalog import CharacterCatalog
     class Related:

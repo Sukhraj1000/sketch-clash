@@ -24,6 +24,11 @@ globalThis.fetch=async(path,init)=>{
 }
 await assert.rejects(prepareCapture('battle',form,signal),{code:'capture_processing'})
 assert.equal(calls.filter(call=>call.method==='POST').length,1,'Recovery never repeats a paid request automatically')
+globalThis.fetch=async(_path,init)=>{
+  if(init.method==='POST')throw new TypeError('Connection interrupted')
+  return {ok:false,status:409,json:async()=>({error:{code:'capture_failed',message:'Recognition stopped without a saved result.'}})}
+}
+await assert.rejects(prepareCapture('battle',form,signal),{code:'capture_failed',message:'Recognition stopped without a saved result.'})
 const cancelled=new AbortController()
 globalThis.fetch=async()=>{cancelled.abort();throw new TypeError('Cancelled')}
 await assert.rejects(prepareCapture('battle',form,cancelled.signal),{name:'AbortError'})

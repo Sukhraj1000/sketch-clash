@@ -308,6 +308,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     async def capture_observation(battle_id: str, capture_id: str):
         capture = await asyncio.to_thread(repo().get_capture, battle_id, capture_id)
         if not capture.get('observation'):
+            if capture.get('status') == 'failed':
+                raise StoreError('Recognition stopped without a saved result. You can retry this same photograph; it is not still queued.', 409, 'capture_failed')
             raise StoreError('This capture is still being prepared.', 409, 'capture_processing')
         return await app.state.service._recover_observation(battle_id, capture)
 
