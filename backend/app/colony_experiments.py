@@ -1,0 +1,246 @@
+"""Bounded analytical island experiments, not claims about real-world physics.
+
+The evaluator consumes numeric properties and arrangements, never object labels,
+prices, dialogue or a model-supplied reward. All units are simulation units.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from hashlib import sha256
+import json
+import math
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .repository import StoreError
+
+RULE_VERSION = 'island-laboratory-v1'
+Family = Literal['hold', 'contain', 'support']
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+
+
+class ExperimentContext(StrictModel):
+    wind_force: float = Field(default=1, ge=0, le=20)
+    load: float = Field(default=1, gt=0, le=30)
+    duration: float = Field(default=10, ge=1, le=60)
+    span: float = Field(default=.6, ge=.1, le=4)
+    volume: float = Field(default=.3, gt=0, le=10)
+    distance: float = Field(default=2, ge=0, le=10)
+    support_count: int = Field(default=2, ge=2, le=12, strict=True)
+    tilt_degrees: float = Field(default=0, ge=0, le=70)
+
+
+class ExperimentSpec(StrictModel):
+    family: Family
+    subject_ids: list[str] = Field(min_length=1, max_length=12)
+    hypothesis: str = Field(min_length=5, max_length=400)
+    expected_success: bool
+    context: ExperimentContext = Field(default_factory=ExperimentContext)
+    reply_to_finding_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode='after')
+    def unique_subjects(self):
+        if len(set(self.subject_ids)) != len(self.subject_ids):
+            raise ValueError('One physical resident cannot be duplicated in an experiment.')
+        return self
+
+
+class PartPosition(StrictModel):
+    x: float = Field(default=0, ge=-3, le=3)
+    y: float = Field(default=0, ge=0, le=3)
+    z: float = Field(default=0, ge=-3, le=3)
+
+
+class AssemblyPart(StrictModel):
+    kind: Literal['beam', 'panel', 'vessel', 'connector']
+    resident_id: str = Field(min_length=1, max_length=128)
+    position: PartPosition = Field(default_factory=PartPosition)
+    rotation: Literal[0, 90] = 0
+
+
+class BlueprintProposal(StrictModel):
+    name: str = Field(min_length=3, max_length=80)
+    purpose: str = Field(min_length=8, max_length=300)
+    family: Family
+    parts: list[AssemblyPart] = Field(min_length=1, max_length=12)
+    experiment_id: str = Field(min_length=1, max_length=128)
+    position: PartPosition = Field(default_factory=lambda: PartPosition(x=0, z=-.8))
+
+    @model_validator(mode='after')
+    def unique_sources(self):
+        if len({part.resident_id for part in self.parts}) != len(self.parts):
+            raise ValueError('Each source resident contributes one tested part design.')
+        return self
+
+
+def canonical_digest(value: dict | list) -> str:
+    return sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+
+def context_for(family: str, context: dict | ExperimentContext) -> dict:
+    value = context if isinstance(context, ExperimentContext) else ExperimentContext.model_validate(context)
+    keys = {'hold': ('wind_force', 'load', 'duration'),
+            'contain': ('volume', 'distance', 'tilt_degrees'),
+            'support': ('span', 'load', 'support_count')}[family]
+    return {key: getattr(value, key) for key in keys}
+
+
+def physical_properties(features: list[str], visual_spec: dict | None = None) -> dict:
+    """Author stable testbed properties from accepted visual evidence.
+
+    Shape cues come from visible_features, not the canonical label. Stiffness,
+    friction, mass and leak rate are authored hidden properties; even an apparent
+    material is a simulation assumption, not a measured material diagnosis.
+    Identical evidence gives identical properties under a renamed object.
+    """
+    text = ' '.join(str(feature).lower() for feature in features)
+    proportions = (visual_spec or {}).get('proportions', {})
+    width = max(.3, min(1.5, float(proportions.get('width', 1))))
+    height = max(.2, min(1.5, float(proportions.get('height', 1))))
+    depth, length = width * .65, width
+    if any(cue in text for cue in ('flat', 'thin', 'slender', 'elongated', 'long narrow', 'rectangular strip')):
+        height, length = .12 * height, 1.8 * width
+    if any(cue in text for cue in ('tall', 'vertical')):
+        height *= 1.35
+    hollow = any(cue in text for cue in ('hollow', 'open top', 'open-top', 'opening', 'concave', 'container', 'vessel', 'reservoir'))
+    material = next((kind for kind in ('metal', 'ceramic', 'glass', 'wood', 'plastic', 'paper', 'fabric') if kind in text), 'unknown')
+    # No identity fields or random display seed participate in physics.
+    seed = int(canonical_digest({'features': sorted(features), 'width': width, 'height': height})[:8], 16)
+    density, stiffness, permeability = {
+        'metal': (2.8, 90, .001), 'ceramic': (2.2, 60, .002),
+        'glass': (2.1, 55, .001), 'wood': (.8, 45, .03),
+        'plastic': (.65, 28, .004), 'paper': (.3, 4, .22),
+        'fabric': (.25, 1.5, .28), 'unknown': (1, 18, .04),
+    }[material]
+    variation = .9 + (seed % 21) / 100
+    return {'width': round(width, 5), 'height': round(height, 5), 'depth': round(depth, 5),
+            'length': round(length, 5), 'mass': round(max(.08, width * height * depth * density * variation), 5),
+            'stiffness': round(stiffness * variation, 5), 'friction': round(.35 + (seed % 30) / 100, 5),
+            'capacity': round(width * height * depth * .7 if hollow else 0, 5),
+            'leak_rate': permeability, 'material_assumption': material,
+            'provenance': 'authored_simulation_parameters_from_accepted_visible_features'}
+
+
+def _numeric_properties(properties: list[dict]) -> list[dict]:
+    if not 1 <= len(properties) <= 12:
+        raise StoreError('An experiment needs one to twelve physical participants.', 422, 'invalid_experiment')
+    result = []
+    for original in properties:
+        value = deepcopy(original)
+        for field in ('width', 'height', 'depth', 'length', 'mass', 'stiffness', 'friction', 'capacity', 'leak_rate'):
+            number = value.get(field)
+            if isinstance(number, bool) or not isinstance(number, (float, int)) or not math.isfinite(number) or number < 0:
+                raise StoreError('Simulation properties must be finite nonnegative values.', 422, 'invalid_physical_properties')
+        if min(value['width'], value['height'], value['length'], value['mass'], value['stiffness']) <= 0:
+            raise StoreError('Simulation geometry and material parameters must be positive.', 422, 'invalid_physical_properties')
+        result.append(value)
+    return result
+
+
+def simulate_experiment(family: str, properties: list[dict], context: dict | ExperimentContext) -> dict:
+    """Pure, replayable evaluation; no stock, memory, labels or network access."""
+    if family not in ('hold', 'contain', 'support'):
+        raise StoreError('Unknown experiment family.', 422, 'invalid_experiment')
+    p = _numeric_properties(properties)
+    c = context_for(family, context)
+    if family == 'hold':
+        mass = sum(row['mass'] for row in p)
+        grip = sum(row['mass'] * 9.81 * row['friction'] for row in p)
+        restoring = sum(row['mass'] * 9.81 * row['width'] / 2 for row in p)
+        wind = c['wind_force'] * (1 + c['load'] * .1)
+        tipping = wind * max(row['height'] for row in p) / 2
+        sliding_margin = grip - wind
+        tipping_margin = restoring - tipping
+        displacement = max(0, wind - grip) / mass * c['duration'] ** 2 / 2
+        success = sliding_margin >= 0 and tipping_margin >= 0
+        measures = {'sliding_margin': sliding_margin, 'tipping_margin': tipping_margin,
+                    'displacement': displacement, 'held_seconds': c['duration'] if success else 0}
+        reason = 'The arrangement stayed in place.' if success else 'The arrangement slid or tipped under the specified wind and load.'
+    elif family == 'contain':
+        # Tilt changes the usable cavity; travel loss is proportional to leakage.
+        tilt_factor = max(0, math.cos(math.radians(c['tilt_degrees'])) ** 2)
+        capacities = [row['capacity'] * tilt_factor for row in p]
+        usable = sum(capacities)
+        initial = min(c['volume'], usable)
+        leak = sum(row['leak_rate'] * capacities[i] for i, row in enumerate(p)) / usable if usable else 1
+        retained = max(0, initial * (1 - min(1, leak * (1 + c['distance']))))
+        spilled = c['volume'] - retained
+        success = retained >= .85 * c['volume']
+        measures = {'usable_capacity': usable, 'retained_volume': retained, 'spilled_volume': spilled,
+                    'delivery_fraction': retained / c['volume']}
+        reason = 'At least 85% of the load arrived.' if success else 'The cavity, tilt or leakage prevented the required delivery.'
+    else:
+        # The first subject spans two banks. Further subjects may add intermediate
+        # supports; an invented support_count cannot summon extra residents.
+        available_supports = len(p) + 1
+        if c['support_count'] > available_supports:
+            raise StoreError('Intermediate supports require additional physical participants.', 422, 'missing_support')
+        beam = p[0]
+        clear_span = c['span'] / (c['support_count'] - 1)
+        inertia = beam['width'] * beam['height'] ** 3 / 12
+        deflection = c['load'] * clear_span ** 3 / max(1e-8, 48 * beam['stiffness'] * inertia)
+        strength = beam['stiffness'] * beam['width'] * beam['height'] ** 2 / (6 * clear_span)
+        support_strength = min((row['mass'] * 9.81 + row['stiffness'] * row['width'] * row['depth'] for row in p[1:]), default=1e6)
+        capacity = min(strength, support_strength)
+        spans = beam['length'] >= c['span']
+        success = spans and capacity >= c['load'] and deflection <= clear_span * .08
+        measures = {'clear_span': clear_span, 'deflection': deflection, 'deflection_limit': clear_span * .08,
+                    'supported_load': capacity, 'required_load': c['load'], 'span_covered': spans}
+        reason = 'The span stayed within its load and deflection limits.' if success else 'The span was too short, overloaded or bent beyond its allowed deflection.'
+    rounded = {key: round(value, 6) if isinstance(value, float) else value for key, value in measures.items()}
+    return {'rule_version': RULE_VERSION, 'family': family, 'context': c, 'success': success,
+            'measurements': rounded, 'summary': reason, 'authority': 'deterministic_simulation',
+            'replay': {'duration_seconds': min(8, c.get('duration', 4)),
+                       'motion': {'hold': 'wind_test', 'contain': 'transfer_test', 'support': 'load_test'}[family],
+                       'measurements': rounded}}
+
+
+BENEFITS = {
+    'hold': {'kind': 'task_yield_bonus', 'resource': 'ideas', 'eligible_actions': ['plan', 'measure'], 'amount': 1},
+    'contain': {'kind': 'task_yield_bonus', 'resource': 'water', 'eligible_actions': ['water'], 'amount': 1},
+    'support': {'kind': 'task_yield_bonus', 'resource': 'materials', 'eligible_actions': ['carry', 'forage'], 'amount': 1},
+}
+
+
+def validate_blueprint(proposal: BlueprintProposal | dict, dossiers: dict[str, dict], experiment: dict) -> dict:
+    """Costed design derived only from a successful same-arrangement test.
+
+    Residents inspire reusable manufactured shapes; they are not consumed or
+    cloned. Parts use island materials. This is a construction recipe, not an
+    arbitrary model-authored physics script.
+    """
+    value = proposal if isinstance(proposal, BlueprintProposal) else BlueprintProposal.model_validate(proposal)
+    ids = [part.resident_id for part in value.parts]
+    if any(identifier not in dossiers for identifier in ids):
+        raise StoreError('Every part must reference a resident from this island.', 422, 'blueprint_part_unavailable')
+    if (not experiment.get('result', {}).get('success') or experiment.get('rule_version') != RULE_VERSION
+            or experiment.get('family') != value.family or experiment.get('subject_ids') != ids):
+        raise StoreError('A construction needs a successful current-version test of these ordered participants.', 422, 'blueprint_evidence_mismatch')
+    if experiment.get('property_fingerprints') != [dossiers[identifier]['property_fingerprint'] for identifier in ids]:
+        raise StoreError('The tested objects changed; this design needs a new experiment.', 422, 'blueprint_evidence_stale')
+    primary = {'hold': {'panel', 'connector'}, 'contain': {'vessel'}, 'support': {'beam', 'panel'}}[value.family]
+    if value.parts[0].kind not in primary:
+        raise StoreError('The first construction part must match the tested function.', 422, 'blueprint_function_mismatch')
+    # Only this canonical arrangement has been tested. Coordinates are not a way
+    # to turn a successful small experiment into an untested arbitrary structure.
+    for index, part in enumerate(value.parts):
+        expected_x = 0 if index == 0 else round((index / len(value.parts) - .5) * experiment['context'].get('span', .6), 4)
+        if abs(part.position.x - expected_x) > .001 or part.position.y != 0 or part.position.z != 0 or part.rotation != 0:
+            raise StoreError('Part positions must use the tested arrangement (primary at origin; supports along the span).', 422, 'untested_arrangement')
+    materials = sum(max(1, math.ceil(dossiers[part.resident_id]['simulation_properties']['geometry']['width'] *
+                                      dossiers[part.resident_id]['simulation_properties']['geometry']['length'] * 2)) for part in value.parts)
+    work = max(4, len(value.parts) * 4)
+    actions = math.ceil(work / 2)
+    per_action = {'materials': max(1, math.ceil(materials / actions)), 'ideas': 1}
+    parts = [{**part.model_dump(), 'geometry': deepcopy(dossiers[part.resident_id]['simulation_properties']['geometry']),
+              'material_assumption': dossiers[part.resident_id]['simulation_properties']['material_assumption']}
+             for part in value.parts]
+    return {'parts': parts, 'work_required': work,
+            'cost_per_action': per_action, 'minimum_actions': actions,
+            'maximum_cost_at_base_work': {resource: amount * actions for resource, amount in per_action.items()},
+            'benefit': deepcopy(BENEFITS[value.family]), 'context': deepcopy(experiment['context']),
+            'rule_version': RULE_VERSION, 'manufacturing_basis': 'island_materials_reproduce_tested_shape_assumptions'}

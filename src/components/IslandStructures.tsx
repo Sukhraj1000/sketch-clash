@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { ThreeEvent } from '@react-three/fiber'
 import { Group } from 'three'
+import { assemblyPartPresentation } from '../lib/island'
 import type { IslandProject } from '../lib/island'
 
 const INK = '#172338'
@@ -65,6 +66,55 @@ function Boardwalk({ progress }: { progress: number }) {
   </group>
 }
 
+const MATERIAL_COLOURS: Record<string, string> = {
+  metal: '#91A6B0', ceramic: '#F5E9D0', glass: '#91D2DB', wood: '#BA7950',
+  plastic: '#77B7AA', paper: '#EED49B', fabric: '#D98D76', unknown: '#B8B1A0',
+}
+
+/** Render the server-approved recipe, with its real part proportions and work state. */
+function Assembly({ project, progress }: { project: IslandProject; progress: number }) {
+  const assembly = project.assembly
+  if (!assembly?.parts.length) return null
+  const parts = assembly.parts.slice(0, 12)
+  const presentations = parts.map((part, index) => assemblyPartPresentation(part, index, parts.length, progress))
+  const supportHeight = assembly.family === 'support' ? Math.max(.25, ...presentations.slice(1).map(part => part.height)) : 0
+  const width = Math.max(1, ...presentations.map(part => Math.abs(part.position.x) * 2 + part.length))
+  const scale = Math.min(.8, 2 / width)
+  return <group name={`assembly-${project.blueprint_id ?? project.id}`} scale={scale}>
+    {parts.map((part, index) => {
+      const shape = presentations[index]
+      const primarySpan = assembly.family === 'support' && index === 0
+      const y = shape.position.y + shape.height / 2 + (primarySpan ? supportHeight + .05 : 0)
+      const color = shape.solid ? MATERIAL_COLOURS[part.material_assumption] ?? MATERIAL_COLOURS.unknown : '#6BA9B9'
+      const material = <meshStandardMaterial color={color} roughness={.78} flatShading transparent={!shape.solid} opacity={shape.solid ? 1 : .34} wireframe={!shape.solid} depthWrite={shape.solid} />
+      return <group key={`${part.resident_id}-${index}`} name={`assembly-part-${part.resident_id}`} position={[shape.position.x, y, shape.position.z]} rotation={[0, part.rotation === 90 ? Math.PI / 2 : 0, 0]}>
+        {part.kind === 'vessel' ? <>
+          <mesh castShadow={shape.solid} receiveShadow>
+            <cylinderGeometry args={[shape.width / 2, shape.width * .45, shape.height, 12, 1, true]} />{material}
+          </mesh>
+          <mesh position={[0, -shape.height / 2 + .025, 0]} castShadow={shape.solid}>
+            <cylinderGeometry args={[shape.width * .45, shape.width * .45, .05, 12]} />{material}
+          </mesh>
+          <mesh position={[0, shape.height / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[shape.width * .49, .025, 5, 12]} />{material}
+          </mesh>
+        </> : part.kind === 'connector' ? <mesh castShadow={shape.solid} receiveShadow>
+          <cylinderGeometry args={[shape.width / 2, shape.width / 2, shape.height, 8]} />{material}
+        </mesh> : <mesh castShadow={shape.solid} receiveShadow>
+          <boxGeometry args={[shape.length, shape.height, shape.depth]} />{material}
+        </mesh>}
+        {shape.solid && <mesh position={[0, shape.height / 2 + .02, 0]}>
+          <boxGeometry args={[Math.min(.16, shape.width * .2), .025, Math.min(.16, shape.depth * .2)]} />
+          <Paint color={assembly.family === 'contain' ? '#6BAECD' : assembly.family === 'hold' ? '#FFD166' : '#8AC9AA'} />
+        </mesh>}
+      </group>
+    })}
+    {assembly.family === 'support' && [-1, 1].map(side => <mesh key={side} position={[side * (assembly.context.span ?? .6) / 2, .12, 0]}>
+      <boxGeometry args={[.2, .24, .65]} /><Paint color="#A5AC9D" />
+    </mesh>)}
+  </group>
+}
+
 export default function IslandStructure({ project, selected, onSelect, active, reducedMotion }: { project: IslandProject; selected: boolean; onSelect?: (id: string) => void; active: boolean; reducedMotion: boolean }) {
   const upgradeProgress = project.status === 'complete' ? 1 : Math.max(0, Math.min(1, project.progress / Math.max(1, project.required_progress)))
   // Construction progress resets for the next upgrade; an existing building never disappears.
@@ -89,7 +139,7 @@ export default function IslandStructure({ project, selected, onSelect, active, r
   return <group position={[project.position.x, .025, project.position.z]} onClick={choose}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.009, 0]} receiveShadow><circleGeometry args={[project.kind === 'beacon' ? 1.05 : 1.5, 8]} /><Paint color={selected ? '#FFE17F' : project.level > 0 ? '#AAD66A' : '#D4B585'} /></mesh>
     {project.level === 0 && [-1, 1].map(side => <group key={side} position={[side * 1.12, .18, .8]}><mesh castShadow><coneGeometry args={[.11, .35, 4]} /><Paint color="#FFC951" /></mesh><mesh position={[0, -.14, 0]}><boxGeometry args={[.28, .055, .28]} /><Paint color={INK} /></mesh></group>)}
-    {project.kind === 'garden' ? <Garden progress={progress} time={flag} /> : project.kind === 'workshop' ? <Workshop progress={progress} /> : project.kind === 'beacon' ? <Beacon progress={progress} light={light} /> : <Boardwalk progress={progress} />}
+    {project.kind === 'garden' ? <Garden progress={progress} time={flag} /> : project.kind === 'workshop' ? <Workshop progress={progress} /> : project.kind === 'beacon' ? <Beacon progress={progress} light={light} /> : project.kind === 'boardwalk' ? <Boardwalk progress={progress} /> : project.kind === 'assembly' ? <Assembly project={project} progress={progress} /> : null}
     {project.level >= 2 && project.kind === 'garden' && [-.8, .8].map(x => <group key={x} position={[x, .1, -.85]}><mesh position={[0, .3, 0]}><cylinderGeometry args={[.04, .06, .6, 5]} /><Paint color={WOOD} /></mesh><mesh position={[0, .65, 0]} castShadow><icosahedronGeometry args={[.3, 0]} /><Paint color="#58B85D" /></mesh><mesh position={[.13, .7, .2]}><sphereGeometry args={[.08, 6, 5]} /><Paint color="#FF8D62" /></mesh></group>)}
     {project.level >= 2 && project.kind === 'workshop' && <group position={[.62, 1.75, -.4]}><mesh castShadow><boxGeometry args={[.2, .7, .23]} /><Paint color="#86A2AD" /></mesh><mesh position={[0, .39, 0]}><boxGeometry args={[.3, .12, .31]} /><Paint color={INK} /></mesh></group>}
     {project.level >= 2 && project.kind === 'beacon' && <mesh position={[0, 1.55, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.55, .04, 5, 16]} /><Paint color="#7FE2D1" glow /></mesh>}

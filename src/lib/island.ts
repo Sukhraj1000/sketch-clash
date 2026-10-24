@@ -17,7 +17,7 @@ export type IslandTask = {
 }
 export type IslandProject = {
   id: string
-  kind: 'garden' | 'workshop' | 'beacon' | 'boardwalk'
+  kind: 'garden' | 'workshop' | 'beacon' | 'boardwalk' | 'assembly'
   name: string
   position: IslandPoint
   progress: number
@@ -29,6 +29,22 @@ export type IslandProject = {
   completed_at?: string | null
   cost_per_action: Partial<Record<'materials' | 'water' | 'ideas' | 'energy', number>>
   reward: string
+  blueprint_id?: string
+  assembly?: {
+    family: 'hold' | 'contain' | 'support'
+    parts: IslandAssemblyPart[]
+    context: Record<string, number>
+  }
+  benefit?: { kind: 'task_yield_bonus'; resource: string; eligible_actions: string[]; amount: number }
+}
+
+export type IslandAssemblyPart = {
+  kind: 'beam' | 'panel' | 'vessel' | 'connector'
+  resident_id: string
+  position: { x: number; y: number; z: number }
+  rotation: 0 | 90
+  geometry: { width: number; height: number; depth: number; length: number }
+  material_assumption: string
 }
 export type IslandMemory = { id: string; at: string; text: string; kind: string }
 export type IslandAgent = {
@@ -74,6 +90,17 @@ export type IslandSimulation = {
 
 const bounded = (value: number, min: number, max: number) => Math.max(min, Math.min(max, Number.isFinite(value) ? value : min))
 const smooth = (value: number) => value * value * (3 - 2 * value)
+
+/** A recipe reveals whole rigid parts as actual work lands; it never stretches them. */
+export function assemblyPartPresentation(part: IslandAssemblyPart, index: number, count: number, progress: number) {
+  const geometry = part.geometry ?? { width: .6, height: .4, depth: .4, length: .6 }
+  return {
+    width: bounded(geometry.width, .04, 3), height: bounded(geometry.height, .04, 3),
+    depth: bounded(geometry.depth, .04, 3), length: bounded(geometry.length, .04, 3),
+    solid: bounded(progress, 0, 1) >= (index + 1) / Math.max(1, count),
+    position: { x: bounded(part.position?.x ?? 0, -3, 3), y: bounded(part.position?.y ?? 0, 0, 3), z: bounded(part.position?.z ?? 0, -3, 3) },
+  }
+}
 
 /** Positions are bounded even if a stale or malformed snapshot reaches the renderer. */
 export function safeIslandPoint(point: IslandPoint): IslandPoint {
