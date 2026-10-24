@@ -42,12 +42,20 @@
 /* This switch changes the island scene's presentation, never the simulation. */
 .colony-presentation-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 12px;min-height:42px}
 .colony-presentation-bar>span{font-size:8px;font-weight:800;letter-spacing:1.1px;color:#77654f}
-.colony-presentation-switch{display:inline-flex;gap:3px;padding:3px;border:1.5px solid var(--ink);background:#ede4d1;box-shadow:2px 2px var(--ink)}
-.colony-presentation-switch>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:7px 13px;border:1px solid transparent;background:transparent;color:var(--ink);font-size:11px;font-weight:800;cursor:pointer}
-.colony-presentation-switch>button[aria-pressed=true]{border-color:var(--ink);background:#d7ead8;box-shadow:1px 1px var(--ink)}
-.colony-presentation-switch>button:last-child[aria-pressed=true]{background:var(--yellow);color:#234d47}
-.colony-presentation-switch>button:not([aria-pressed=true]):hover{background:#fff8e8}
-.colony-presentation-switch>button:focus-visible{outline:3px solid #28766d;outline-offset:3px}
+.colony-perspective-toggle{display:inline-flex;align-items:center;gap:8px;min-height:40px;border:0;border-radius:5px;padding:5px 0 5px 8px;background:transparent;color:#655b4f;font-size:10px;font-weight:700;cursor:pointer}
+.colony-perspective-toggle:hover{color:var(--ink)}
+.colony-perspective-toggle:focus-visible{outline:3px solid #28766d;outline-offset:3px}
+.colony-switch-track{display:block;position:relative;width:35px;height:20px;border:1px solid #897d6d;border-radius:12px;background:#d4cbbb;transition:background .2s ease}
+.colony-switch-track>i{display:block;position:absolute;width:14px;height:14px;left:2px;top:2px;background:#fff9e9;border:1px solid #827866;border-radius:50%;box-shadow:0 1px 2px #201e2920;transition:transform .2s ease}
+.colony-perspective-toggle[aria-checked=true]{color:#335e54}
+.colony-perspective-toggle[aria-checked=true] .colony-switch-track{background:#779d8f;border-color:#426e60}
+.colony-perspective-toggle[aria-checked=true] .colony-switch-track>i{transform:translateX(15px);border-color:#426e60}
+.colony-current-task>p,.colony-current-task>small{display:block;font-size:10px;line-height:1.7;margin:9px 0 0;color:#526250}
+.colony-agent-totals{flex-wrap:wrap}
+.colony-agent-totals>small{flex-basis:100%;font-size:9px;line-height:1.7;color:#6a5943}
+.colonies-focused .colony-crew>button{grid-template-columns:35px 112px}
+.colony-crew-task{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.colony-crew-task[data-working=true]{color:#2d6d58}
 .colony-scene.presentation-factory{background:#333d44;border-color:#475158;box-shadow:0 8px 24px #18242b26}
 .colony-scene.presentation-factory .colony-map-caption{color:#e7f1e9;text-shadow:0 1px 2px #182d2d,0 0 5px #182d2d}
 .colony-scene.presentation-factory .colony-scene-tag{background:#263239ed;color:#dce4e5;border:1px solid #71818a;box-shadow:none;letter-spacing:.7px}.colony-scene.presentation-factory .colony-camera-controls button{background:#263239ed;color:#dce4e5;border-color:#71818a;box-shadow:none}
@@ -58,5 +66,5 @@
 .colony-representation-note b{display:block;font-size:11px;line-height:1.6}
 .colony-representation-note span,.colony-representation-note small{display:block;font-size:10px;line-height:1.7;margin-top:3px;color:#5d6c57}
 .colony-representation-note small{font-size:9px}
-@media(max-width:520px){.colony-presentation-bar{margin-bottom:11px;gap:10px}.colony-presentation-bar>span{font-size:7px;letter-spacing:.6px}.colony-presentation-switch>button{padding:7px 10px;min-height:36px;font-size:10px}}
-@media(prefers-reduced-motion:reduce){.colony-scene-transition{display:none;animation:none}}
+@media(max-width:520px){.colony-presentation-bar{margin-bottom:11px;gap:10px}.colony-presentation-bar>span{font-size:7px;letter-spacing:.6px}.colony-perspective-toggle{font-size:9px;gap:7px}.colonies-focused .colony-crew>button{grid-template-columns:31px 106px}}
+@media(prefers-reduced-motion:reduce){.colony-scene-transition{display:none;animation:none}.colony-switch-track,.colony-switch-track>i{transition:none}}
