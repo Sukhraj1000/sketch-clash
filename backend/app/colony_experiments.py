@@ -16,6 +16,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .repository import StoreError
 
 RULE_VERSION = 'island-laboratory-v1'
+BENCHMARK_VERSION = 'island-production-v1'
+# Normal island work has a declared bounded operating envelope. Passing a tiny
+# prototype test does not authorize a bonus for that normal production workload.
+PRODUCTION_BENCHMARKS = {
+    'hold': {'wind_force': 1, 'load': 1, 'duration': 10},
+    'contain': {'volume': .3, 'distance': 2},
+    'support': {'span': .6, 'load': .2},
+}
 Family = Literal['hold', 'contain', 'support']
 
 
@@ -67,7 +75,8 @@ class BlueprintProposal(StrictModel):
     purpose: str = Field(min_length=8, max_length=300)
     family: Family
     parts: list[AssemblyPart] = Field(min_length=1, max_length=12)
-    experiment_id: str = Field(min_length=1, max_length=128)
+    experiment_id: str = Field(min_length=1, max_length=128,
+                              description='A successful current-version experiment whose result.production_validation.eligible is true; low-load prototypes need a production benchmark retest.')
     position: PartPosition = Field(default_factory=lambda: PartPosition(x=0, z=-.8))
 
     @model_validator(mode='after')
@@ -87,6 +96,16 @@ def context_for(family: str, context: dict | ExperimentContext) -> dict:
             'contain': ('volume', 'distance', 'tilt_degrees'),
             'support': ('span', 'load', 'support_count')}[family]
     return {key: getattr(value, key) for key in keys}
+
+
+def production_validation(family: str, context: dict, success: bool) -> dict:
+    required = PRODUCTION_BENCHMARKS[family]
+    unmet = [{'field': field, 'required_minimum': minimum, 'observed': context.get(field)}
+             for field, minimum in required.items() if context.get(field, -1) < minimum]
+    return {'eligible': bool(success and not unmet), 'benchmark_version': BENCHMARK_VERSION,
+            'required_context': deepcopy(required), 'unmet_requirements': unmet,
+            'detail': ('The tested arrangement covers the declared normal island workload.' if success and not unmet else
+                       'A successful production benchmark is still required; this result remains valid only for its tested conditions.')}
 
 
 def physical_properties(features: list[str], visual_spec: dict | None = None) -> dict:
@@ -194,6 +213,7 @@ def simulate_experiment(family: str, properties: list[dict], context: dict | Exp
     rounded = {key: round(value, 6) if isinstance(value, float) else value for key, value in measures.items()}
     return {'rule_version': RULE_VERSION, 'family': family, 'context': c, 'success': success,
             'measurements': rounded, 'summary': reason, 'authority': 'deterministic_simulation',
+            'production_validation': production_validation(family, c, success),
             'replay': {'duration_seconds': min(8, c.get('duration', 4)),
                        'motion': {'hold': 'wind_test', 'contain': 'transfer_test', 'support': 'load_test'}[family],
                        'measurements': rounded}}
@@ -222,6 +242,11 @@ def validate_blueprint(proposal: BlueprintProposal | dict, dossiers: dict[str, d
         raise StoreError('A construction needs a successful current-version test of these ordered participants.', 422, 'blueprint_evidence_mismatch')
     if experiment.get('property_fingerprints') != [dossiers[identifier]['property_fingerprint'] for identifier in ids]:
         raise StoreError('The tested objects changed; this design needs a new experiment.', 422, 'blueprint_evidence_stale')
+    operational = production_validation(value.family, experiment['context'], experiment['result']['success'])
+    if not operational['eligible']:
+        missing = ', '.join(f"{row['field']} >= {row['required_minimum']}" for row in operational['unmet_requirements'])
+        raise StoreError('This prototype has not covered normal island work. Run a successful retest with ' + missing +
+                         ' before proposing a production construction.', 422, 'production_benchmark_not_met')
     primary = {'hold': {'panel', 'connector'}, 'contain': {'vessel'}, 'support': {'beam', 'panel'}}[value.family]
     if value.parts[0].kind not in primary:
         raise StoreError('The first construction part must match the tested function.', 422, 'blueprint_function_mismatch')
@@ -239,8 +264,10 @@ def validate_blueprint(proposal: BlueprintProposal | dict, dossiers: dict[str, d
     parts = [{**part.model_dump(), 'geometry': deepcopy(dossiers[part.resident_id]['simulation_properties']['geometry']),
               'material_assumption': dossiers[part.resident_id]['simulation_properties']['material_assumption']}
              for part in value.parts]
+    benefit = {**deepcopy(BENEFITS[value.family]), 'benchmark_version': BENCHMARK_VERSION,
+               'operating_context': deepcopy(PRODUCTION_BENCHMARKS[value.family])}
     return {'parts': parts, 'work_required': work,
             'cost_per_action': per_action, 'minimum_actions': actions,
             'maximum_cost_at_base_work': {resource: amount * actions for resource, amount in per_action.items()},
-            'benefit': deepcopy(BENEFITS[value.family]), 'context': deepcopy(experiment['context']),
+            'benefit': benefit, 'context': deepcopy(experiment['context']),
             'rule_version': RULE_VERSION, 'manufacturing_basis': 'island_materials_reproduce_tested_shape_assumptions'}

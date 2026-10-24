@@ -1,5 +1,6 @@
 """Analytical experiments and durable learning: isolated worlds, no provider calls."""
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -233,6 +234,37 @@ def test_failed_experiment_cannot_unlock_a_construction(research):
     assert exc.value.code == 'blueprint_evidence_mismatch'
 
 
+@pytest.mark.parametrize('family,subject,context', [
+    ('hold', 'weight', {'wind_force': .01}),
+    ('contain', 'tank', {'volume': .01, 'distance': 0}),
+    ('support', 'beam', {'span': .1, 'load': .01}),
+])
+def test_successful_tiny_prototype_cannot_earn_normal_work_bonus(research, family, subject, context):
+    repo, learning, scope = research
+    test = learning.run_experiment(scope, 'agent-' + subject, experiment(family, [subject], **context), 'prototype')
+    assert test['result']['success']
+    operational = test['result']['production_validation']
+    assert not operational['eligible'] and operational['unmet_requirements']
+    before = deepcopy(repo._data)
+    with pytest.raises(StoreError) as exc:
+        learning.propose_blueprint(scope, 'agent-' + subject, proposal(test), 'unearned-production')
+    assert exc.value.code == 'production_benchmark_not_met'
+    assert 'retest' in str(exc.value) and repo._data == before
+
+
+def test_retesting_a_prototype_at_production_load_unlocks_only_declared_envelope(research):
+    _, learning, scope = research
+    prototype = learning.run_experiment(scope, 'agent-weight', experiment(wind_force=.01), 'prototype')
+    benchmark = learning.run_experiment(scope, 'agent-weight', {**experiment(wind_force=1),
+                                                              'reply_to_finding_id': prototype['finding_id']}, 'benchmark')
+    assert benchmark['result']['production_validation']['eligible']
+    blueprint = learning.propose_blueprint(scope, 'agent-weight', proposal(benchmark), 'qualified-bench')
+    assert blueprint['benefit']['operating_context'] == {'wind_force': 1, 'load': 1, 'duration': 10}
+    assert blueprint['benefit']['benchmark_version'] == 'island-production-v1'
+    assert blueprint['benefit']['amount'] == 1
+    assert learning.snapshot(scope)['tools']['blueprint']['production_benchmarks']['hold']['wind_force'] == 1
+
+
 def test_completed_build_activates_only_matching_task_bonus_and_is_idempotent(research):
     repo, learning, scope = research
     test = learning.run_experiment(scope, 'agent-weight', experiment(), 'stable')
@@ -280,6 +312,56 @@ async def test_memory_adapter_exposes_exact_fallback_without_embedding_calls(res
     result = await learning.retrieve(scope, 'water carrier', NeverEmbed())
     assert result['status'] == 'exact_only'
     assert (await learning.prepare_embeddings(scope, NeverEmbed()))['status'] == 'exact_only'
+
+
+@pytest.mark.asyncio
+async def test_vector_retrieval_uses_actual_scoped_evidence_and_never_trusts_foreign_hits(research):
+    repo, learning, scope = research
+    test = learning.run_experiment(scope, 'agent-weight', experiment(), 'vector-test')
+    foreign = {**repo._data[FINDINGS][test['finding_id']], '_id': 'foreign-vector', 'id': 'foreign-vector',
+               'world_id': colony_world_id(repo.world_id, 'losers')}
+    repo.transaction(lambda tx: tx.put(FINDINGS, foreign))
+    class Collection:
+        pipeline = None
+        def list_search_indexes(self, name):
+            return [{'name': name, 'queryable': True}]
+        def aggregate(self, pipeline, **kwargs):
+            self.pipeline = pipeline
+            return [{'id': test['finding_id'], 'score': .9}, {'id': 'foreign-vector', 'score': 1}]
+    collection = Collection()
+    repo.db = {FINDINGS: collection}
+    class Embedder:
+        config = SimpleNamespace(model='fixture-embedding', dimensions=3)
+        calls = 0
+        async def embed(self, *args, **kwargs):
+            self.calls += 1
+            return [1, 0, 0]
+    embedder = Embedder()
+    prepared = await learning.prepare_embeddings(scope, embedder)
+    assert prepared['prepared'] == 1 and embedder.calls == 1
+    assert (await learning.prepare_embeddings(scope, embedder))['prepared'] == 0 and embedder.calls == 1
+    recalled = await learning.retrieve(scope, 'stable wind hold', embedder)
+    assert recalled['status'] == 'atlas_vector_search' and embedder.calls == 2
+    assert [finding['id'] for finding in recalled['findings']] == [test['finding_id']]
+    assert 'embedding' not in recalled['findings'][0]
+    assert collection.pipeline[0]['$vectorSearch']['filter']['world_id'] == scope
+    assert collection.pipeline[0]['$vectorSearch']['filter']['rule_version'] == RULE_VERSION
+
+
+@pytest.mark.asyncio
+async def test_absent_vector_index_is_observable_and_does_not_spend_embedding_call(research):
+    repo, learning, scope = research
+    test = learning.run_experiment(scope, 'agent-weight', experiment(), 'not-indexed')
+    class Collection:
+        def list_search_indexes(self, name):
+            return []
+    class NoEmbed:
+        async def embed(self, *args, **kwargs):
+            raise AssertionError('An unavailable index must not cause a paid query embedding.')
+    repo.db = {FINDINGS: Collection()}
+    result = await learning.retrieve(scope, 'stable wind', NoEmbed())
+    assert result['status'] == 'vector_index_unavailable'
+    assert result['findings'][0]['id'] == test['finding_id']
 
 
 def test_label_change_with_same_accepted_evidence_does_not_change_dossier_properties(research):

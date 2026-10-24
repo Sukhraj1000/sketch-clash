@@ -12,7 +12,7 @@ import re
 
 from pydantic import ValidationError
 
-from .colony_experiments import (BlueprintProposal, ExperimentSpec, RULE_VERSION, canonical_digest,
+from .colony_experiments import (BlueprintProposal, ExperimentSpec, RULE_VERSION, PRODUCTION_BENCHMARKS, canonical_digest,
                                 context_for, physical_properties, simulate_experiment, validate_blueprint)
 from .repository import StoreError, key_for
 
@@ -376,6 +376,8 @@ class ColonyLearningStore:
                                             'support': {'purpose': 'Cover a span within load and deflection limits.', 'context_fields': ['span', 'load', 'support_count']}},
                                         'support_rule': 'First subject spans two banks; each extra subject can provide one intermediate support.'},
                                     'blueprint': {'requires': 'Successful current-version experiment of the same ordered resident IDs.',
+                                        'production_benchmarks': deepcopy(PRODUCTION_BENCHMARKS),
+                                        'production_rule': 'An experiment must succeed at these minimum operating conditions before its blueprint can earn a normal-work bonus. Easier tests remain valid prototypes; retest them.',
                                         'maximum_parts': 12, 'primary_kinds': {'hold': ['panel', 'connector'], 'contain': ['vessel'], 'support': ['beam', 'panel']},
                                         'arrangement': 'Primary part at (0,0,0); extra part i at x=(i/part_count-0.5)*tested_span, y=z=0. All rotations zero.',
                                         'construction': 'Costs and bonus are calculated by the server. Crew agreement and actual reserved build work are required.'},
