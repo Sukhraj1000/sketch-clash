@@ -14,9 +14,10 @@ async function sourceModule(url) {
   if (modules.has(url.href)) return modules.get(url.href)
   const { code: transformed } = await transformWithOxc(readFileSync(url, 'utf8'), url.pathname, { jsx: { runtime: 'automatic' } })
   let code = transformed.replace(/^\s*import\s+['"][^'"]+\.css['"];?\s*$/gm, '')
-  for (const match of [...code.matchAll(/\bfrom\s+(['"])([^'"]+)\1/g)]) {
-    const specifier = match[2]
-    if (specifier === './FighterReview') { code = code.replace(match[0], 'from '+JSON.stringify('data:text/javascript,export default function UnusedReview(){return null}')); continue }
+  // Match actual import declarations, not UI copy containing words like "from".
+  for (const match of [...code.matchAll(/(^import\s+[^;]*?\s+from\s+)(['"])([^'"]+)\2/gm)]) {
+    const specifier = match[3]
+    if (specifier === './FighterReview') { code = code.replace(match[0], match[1]+JSON.stringify('data:text/javascript,export default function UnusedReview(){return null}')); continue }
     let resolved
     if (specifier.startsWith('.')) {
       let dependency = new URL(specifier, url)
@@ -24,7 +25,7 @@ async function sourceModule(url) {
       assert.ok(dependency, `Resolve local import ${specifier}`)
       resolved = await sourceModule(dependency)
     } else resolved = import.meta.resolve(specifier)
-    code = code.replace(match[0], `from ${JSON.stringify(resolved)}`)
+    code = code.replace(match[0], `${match[1]}${JSON.stringify(resolved)}`)
   }
   const result = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`
   modules.set(url.href, result)

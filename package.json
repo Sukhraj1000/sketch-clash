@@ -12,6 +12,7 @@
     "test:factory-scene": "node scripts/verify-factory-scene.mjs",
     "test:robot-tasks": "node scripts/verify-robot-tasks.mjs",
     "test:project-benefits": "node scripts/verify-project-benefits.mjs",
+    "test:agent-behavior": "node scripts/verify-agent-behavior.mjs",
     "test:playground": "node scripts/verify-playground.mjs",
     "test:receipts": "node scripts/verify-receipt-presentation.mjs",
     "setup:gemini": "node scripts/setup-gemini.mjs",

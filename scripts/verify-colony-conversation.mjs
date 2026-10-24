@@ -30,7 +30,7 @@ async function sourceModule(url) {
   return result
 }
 try {
-  const { LiveConversation } = await import(await sourceModule(new URL('../src/components/ColonyResearch.tsx', import.meta.url)))
+  const { LiveConversation, ColonyResearch } = await import(await sourceModule(new URL('../src/components/ColonyResearch.tsx', import.meta.url)))
   const colony = {
     id: 'winners', name: 'Winner Island', characters: [], metrics: {}, board: [],
     island: { enabled: true, paused: false, agents: [{ id: 'pencil', assignment: 'auto', assignment_origin: 'executor' }], events: [], projects: [] },
@@ -71,6 +71,14 @@ try {
   assert.match(saved, /I can support the garden with a stable surface\./)
   assert.match(saved, /Message: saved-message/)
   assert.doesNotMatch(saved, /No saved model messages are loaded/)
+  const knowledge = { rule_version: 'fixture', dossiers: [{ id: 'd', resident_id: 'mug', display_name: 'Mug', revision: 2, simulation_properties: { apparent_cavity: null, cavity_model: { status: 'declared_simulation_cavity', authority: 'declared_game_capability', detail: 'Photograph evidence is still unavailable.' } } }], experiments: [{ id: 'old', family: 'contain', status: 'completed', evidence_status: 'superseded_properties', hypothesis: 'Historical test', result: { success: true, production_validation: { eligible: true } } }], findings: [{ id: 'current', claim: 'A current supported claim', evidence_status: 'current', status: 'supported' }], historical_findings: [{ id: 'history', claim: 'An earlier unsupported claim', evidence_status: 'superseded_properties' }], research: [] }
+  const lab = renderToStaticMarkup(createElement(ColonyResearch, { colony: { ...colony, learning: knowledge } }))
+  assert.match(lab, /Visual cavity unknown/)
+  assert.match(lab, /DECLARED GAME CAPABILITY/)
+  assert.match(lab, /HISTORICAL TEST/)
+  assert.match(lab, /Earlier findings · preserved history/)
+  assert.match(lab, /1 CURRENT FINDINGS/)
+  assert.doesNotMatch(lab, /Solid proxy|Tested for the normal island workload|>SUPPORTED</, 'Old test cannot claim current capability or production readiness')
   assert.equal(requests, 0)
   console.log('Conversation SSR checks passed: local/Gemini pauses, other-island ownership, accurate empty history and saved messages preserved without API calls.')
 } finally {

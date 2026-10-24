@@ -18,6 +18,9 @@ export type IslandTask = {
   requested_action?: string | null
   requested_decision_id?: string | null
   action_switched?: boolean
+  decision_origin?: string
+  decision_id?: string | null
+  council_id?: string | null
 }
 export type IslandProject = {
   id: string
@@ -76,6 +79,7 @@ export type IslandEvent = {
   receipt_version?: string; action_id?: string; actor_id?: string; actor_name?: string
   decision_origin?: string; decision_id?: string | null; decision_run_id?: string | null; decision_evidence?: string
   reserved_cost?: Partial<IslandResources>; execution_origin?: string
+  council_id?: string | null
   scheduling_reason?: string; requested_action?: string | null; requested_decision_id?: string | null; action_switched?: boolean
 }
 export type IslandSimulation = {

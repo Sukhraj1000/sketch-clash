@@ -19,13 +19,21 @@ export type ColonyBoardEntry = {
 }
 export type ColonyAgent = IslandAgent & {
   assignment_origin?: 'player' | 'model' | 'deterministic' | 'executor'
+  decision_origin?: string; decision_reason?: string; last_decision_at?: string
   intent?: string; contribution?: Record<string, number>
   contributions?: { resources: Record<string, number>; work: number; cooperative_units: number }
 }
 export type ColonyCandidate = {
   project_id: string; name: string; target_level: number; feasible: boolean; remaining_work: number; remaining_actions: number
+  complete?: boolean; incoming_resources?: Record<string, number>
   required_resources: Record<string, number>; available_resources: Record<string, number>; gatherable_resources: string[]
   missing_capabilities: string[]; reason: string
+}
+export type ColonyBehavior = {
+  status: 'work_in_progress' | 'funded_work' | 'gathering_work' | 'design_available' | 'research_available' | 'waiting_for_change' | 'no_residents'
+  reason: string; missing_capabilities: string[]; funded_project_ids: string[]
+  research_options: { family: string; resident_id: string; evidence_basis: string }[]
+  wake_on: string[]; fingerprint: string
 }
 export type ColonyOpinion = {
   agent_id: string; character_id: string; actor_name: string; project_id: string | null
@@ -54,6 +62,7 @@ export type Colony = {
   }
   council?: ColonyCouncil[]
   learning?: ColonyLearning
+  behavior?: ColonyBehavior
 }
 export type ColonyRun = {
   id: string; colony_id: ColonyId; agent_id?: string; agent_name?: string; status: string
@@ -129,4 +138,9 @@ export function numberMetric(metrics: ColonyMetrics, keys: string[], fallback = 
 }
 
 export type LearningRecord = { id: string; [key: string]: any }
-export type ColonyLearning = { rule_version: string; capability_fingerprint?: string; last_change?: { new_resident_ids?: string[]; reopened_research_ids?: string[] }; retrieval?: {status: string; detail?: string}; dossiers: LearningRecord[]; findings: LearningRecord[]; experiments: LearningRecord[]; blueprints: LearningRecord[]; research: LearningRecord[] }
+export type ObjectDossier = LearningRecord & {
+  evidence_version?: string; revision?: number
+  simulation_properties?: { material_assumption?: string; apparent_cavity?: boolean | null; unknowns?: string[]
+    cavity_model?: { status: string; authority: string; evidence: string[]; detail: string } }
+}
+export type ColonyLearning = { rule_version: string; capability_fingerprint?: string; last_change?: { new_resident_ids?: string[]; reopened_research_ids?: string[] }; retrieval?: {status: string; detail?: string}; dossiers: ObjectDossier[]; findings: LearningRecord[]; historical_findings?: LearningRecord[]; experiments: LearningRecord[]; blueprints: LearningRecord[]; research: LearningRecord[] }

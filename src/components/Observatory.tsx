@@ -10,6 +10,7 @@ import { startIndependentPoll } from '../lib/independentPolling'
 import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
 import { colonyActivity, emptyActivityWindow } from '../lib/colonyActivity'
 import { startEventReconciliation } from '../lib/observatoryFeed'
+import AgentBehaviorReview from './AgentBehaviorReview'
 
 const time = (value: string) => new Date(value).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'})
 const short = (value?: string | null) => value ? `${value.slice(0, 8)}…` : '—'
@@ -381,6 +382,8 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
 
     <div className="obs-contribution-notice" role="status">{Object.values(dataWarnings).some(Boolean) ? Object.values(dataWarnings).filter(Boolean).join(' ') : 'Data sources loaded independently of the event stream.'}<br/>Island state: {snapshot && snapshotAt ? time(snapshotAt) : 'unavailable'} · Metrics: {metrics && metricsSnapshot ? time(metricsSnapshot.at) : 'unavailable'} · Council history: {sessionsAt ? time(sessionsAt) : 'unavailable'}</div>
     <section className="obs-metrics" aria-label="Measured activity over the last hour"><div><span><Sparkles size={13}/> MODEL REQUESTS</span><strong>{metrics ? modelRequests : '—'}</strong><small>Recorded in the last hour{metrics?.event_counts_sampled ? ' · sampled' : ''}</small></div><div><span><BrainCircuit size={13}/> MODEL TOKENS</span><strong>{metrics ? totalTokens.toLocaleString() : '—'}</strong><small>Provider-reported token usage</small></div><div><span><FlaskConical size={13}/> EXPERIMENTS</span><strong>{metrics ? experiments : '—'}</strong><small>Completed with recorded evidence</small></div><div><span><Timer size={13}/> TRACE LATENCY</span><strong>{metrics ? `${metrics.totals.mean_duration_ms.toLocaleString()} ms` : '—'}</strong><small>Mean across instrumented operations</small></div><div><span><Database size={13}/> STORED SPANS</span><strong>{metrics ? metrics.totals.count.toLocaleString() : '—'}</strong><small>{metrics?.totals.errors || 0} error spans · {metrics?.dropped_spans || 0} export drops</small></div></section>
+
+    <AgentBehaviorReview snapshot={snapshot} island={island} inspectReceipt={inspectReceipt}/>
 
     <section className="obs-contributions" aria-label="Character contributions from saved receipts">
       <header><div><span className="obs-eyebrow">MEASURED ISLAND EFFECTS</span><h2>WHO CHANGED THE ISLAND?</h2><p>Completed actions in the last {contributions?.window_minutes || 60} minutes, counted from saved receipts. A completed action only counts as useful here if it adds stock or project work.</p></div><span className="obs-contribution-window">{contributions ? `${contributions.receipt_count} receipts · through ${time(contributions.to)}` : 'Reading saved receipts…'}<small>Current state · also shown during replay</small></span></header>
