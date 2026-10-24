@@ -1,0 +1,320 @@
+{
+  "project_id": "encode26lon-3446",
+  "evaluation_batches_paused": true,
+  "actual_generation_requests": 13,
+  "distinct_models": 12,
+  "generated_text_responses": 0,
+  "prompt": "Reply with exactly OK.",
+  "output_token_ceiling_per_request": 128,
+  "model_discovery_succeeded": true,
+  "method": "Official google-genai SDK 2.33.0 with a transport guard limiting each probe to one outgoing HTTP request. Responses captured before SDK error handling. No retries transmitted. No application/evaluation workers started.",
+  "client_note": "For the three Interactions probes, SDK configuration normalized retry attempts=0 to one retry. The request guard blocked that retry before transmission, after the original HTTP429 had already been captured. The later client RuntimeError is not the provider error; the original response is recorded below.",
+  "limitations": "Availability test only; listing a model does not guarantee generation entitlement. Skipped media generation, streaming/live, managed/research agents, deprecated models and duplicate aliases. No billing settings, stored key or application model selection changed.",
+  "results": [
+    {
+      "model": "gemini-4-argon",
+      "api": "interactions",
+      "started_at_utc": "2026-10-24T13:06:56.068580+00:00",
+      "response_received_at_utc": "2026-10-24T13:06:56.595114+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:06:56 GMT",
+        "retry-after": "30",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "code": "too_many_requests"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "api": "interactions",
+      "started_at_utc": "2026-10-24T13:07:26.602780+00:00",
+      "response_received_at_utc": "2026-10-24T13:07:26.816411+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:07:26 GMT",
+        "retry-after": "30",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "code": "too_many_requests"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-4-argon",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:07:55.782441+00:00",
+      "response_received_at_utc": "2026-10-24T13:07:55.983244+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-argon:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:07:55 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "api": "interactions",
+      "started_at_utc": "2026-10-24T13:07:56.823658+00:00",
+      "response_received_at_utc": "2026-10-24T13:07:57.062001+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/interactions",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:07:57 GMT",
+        "retry-after": "30",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "code": "too_many_requests"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.1-flash-lite",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:06.487157+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:06.704084+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:06 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.5-flash",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:06.707225+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:06.883378+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:06 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.6-flash",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:06.886665+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:07.049773+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:07 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:07.052300+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:07.271244+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:07 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3.1-pro-preview",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:07.275319+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:07.485008+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:07 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-3-flash-preview",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:07.487410+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:07.690538+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:07 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemma-4-31b-it",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:07.692819+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:07.860894+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:07 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemma-4-26b-a4b-it",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:07.864164+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:08.099072+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:08 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    },
+    {
+      "model": "gemini-robotics-er-2-preview",
+      "api": "generateContent",
+      "started_at_utc": "2026-10-24T13:08:08.101460+00:00",
+      "response_received_at_utc": "2026-10-24T13:08:08.301804+00:00",
+      "method": "POST",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-robotics-er-2-preview:generateContent",
+      "http_status": 429,
+      "headers": {
+        "date": "Sat, 24 Oct 2026 13:08:08 GMT",
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "provider_error": {
+        "code": 429,
+        "message": "Your billing account has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/billing to manage your billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#tier-spend-caps. ",
+        "status": "RESOURCE_EXHAUSTED"
+      },
+      "prompt": "Reply with exactly OK.",
+      "max_output_tokens": 128,
+      "store": false,
+      "http_requests_sent": 1,
+      "responded_with_text": false
+    }
+  ],
+  "pause_verified_after_probes": {
+    "checked_at_utc": "2026-10-24T13:08:36.866508+00:00",
+    "evaluation_paused": true,
+    "evaluation_job_count": 0,
+    "database_writes": false
+  }
+}
