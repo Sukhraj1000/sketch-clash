@@ -437,6 +437,7 @@ class _ColonyIsland(IslandStore):
         return 'explore'
 
     def _schedule(self, state, agent, start):
+        resources_before_reservation = deepcopy(state['resources'])
         project = self._choose_project(state)
         action = self._choose_action(state, agent, project)
         if action not in agent['allowed_actions']:
@@ -449,7 +450,9 @@ class _ColonyIsland(IslandStore):
                 'ends_at': _iso(start + timedelta(seconds=duration)), 'duration_seconds': duration,
                 'from': deepcopy(agent['position']), 'to': deepcopy(agent['position']), 'gain': {},
                 'progress_gain': 0, 'project_id': None, 'resource': None, 'xp_gain': 3,
-                'sdk_version': SDK_VERSION, 'decision_origin': 'deterministic', 'decision_id': None}
+                'sdk_version': SDK_VERSION,
+                'decision_origin': 'player' if agent.get('assignment_origin') == 'player' and agent['assignment'] == action else 'deterministic',
+                'decision_id': None}
         if action == 'build' and project:
             work = min(2 + ('measure' in agent['allowed_actions']) + (agent['level'] - 1) // 5,
                        project['required_progress'] - project['progress'] - project['reserved_progress'])
@@ -503,6 +506,7 @@ class _ColonyIsland(IslandStore):
             agent.pop('pending_decision_id', None)
             agent['assignment'] = 'auto'
             agent['assignment_origin'] = 'deterministic'
+        self._record_reservation(task, agent, resources_before_reservation, state['resources'])
         agent['task'], agent['updated_at'] = task, _iso(start)
 
     def _board(self, tx):
@@ -529,7 +533,9 @@ class _ColonyIsland(IslandStore):
                      island_id=self.repo.colony_id, actor_id=value['actor_id'], actor_name=value['actor_name'],
                      session_id=value.get('session_id'), message=value.get('interpretation') or value.get('text', ''),
                      data={'message_id': identifier, 'message_kind': kind, 'origin': value['origin'],
-                           'reply_to_id': value.get('reply_to_id'), 'project_id': value.get('project_id')})
+                           'reply_to_id': value.get('reply_to_id'), 'project_id': value.get('project_id'),
+                           'receipt_ids': deepcopy(value.get('receipt_ids', [])),
+                           'evidence_kind': 'execution_report' if value.get('receipt_ids') else 'board_message'})
         return value
 
     def _request(self, tx, state, agent, resource, quantity, project_id, now, identifier, origin='deterministic', note=''):
@@ -689,14 +695,29 @@ class _ColonyIsland(IslandStore):
             if completed_project and completed_project.get('kind') == 'assembly' and completed_project['level'] >= completed_project['max_level']:
                 ColonyLearningStore(self.repo.parent).complete_blueprint_tx(tx, self.world_id, completed_project)
         receipt = tx.get('islandEvents', task['id'])
+        if (not receipt or receipt.get('world_id') != self.world_id
+                or receipt.get('character_id') != agent['character_id'] or receipt.get('action_id') != task['id']):
+            raise StoreError('Completed work has no matching committed action receipt.', 503, 'island_receipt_invariant')
+        decision = tx.get('colonyDecisions', task['decision_id']) if task.get('decision_id') else None
+        accepted_decision = bool(decision and decision.get('world_id') == self.world_id
+                                 and decision.get('actor_id') == agent['id']
+                                 and decision.get('character_id') == agent['character_id']
+                                 and decision.get('status') == 'accepted')
         receipt.update(colony_id=self.repo.colony_id, sdk_version=SDK_VERSION,
                        decision_origin=task.get('decision_origin', 'deterministic'), decision_id=task.get('decision_id'),
+                       decision_run_id=decision.get('run_id') if accepted_decision else None,
+                       decision_evidence='accepted_decision' if accepted_decision else
+                                         'missing_reference' if task.get('decision_id') else 'not_applicable',
                        request_id=task.get('request_id'), commitment_id=task.get('commitment_id'))
         tx.put('islandEvents', receipt)
         record_event(tx, self.repo.root_world_id, event_id=key_for(receipt['id'], 'completed'), kind='task.completed',
                      island_id=self.repo.colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
                      message=receipt['description'], data={'receipt_id': receipt['id'], 'resource_delta': receipt['resource_delta'],
-                         'project_id': task.get('project_id'), 'decision_id': task.get('decision_id'), 'progress_delta': receipt.get('progress_delta', 0)})
+                         'project_id': task.get('project_id'), 'decision_id': task.get('decision_id'),
+                         'decision_origin': receipt['decision_origin'], 'execution_origin': receipt['execution_origin'],
+                         'receipt_version': receipt['receipt_version'], 'reserved_cost': receipt['reserved_cost'],
+                         'resource_net_delta': receipt['resource_net_delta'],
+                         'progress_delta': receipt.get('progress_delta', 0)}, at=_iso(at))
         contributions = agent['contributions']
         for resource, quantity in receipt['resource_delta'].items():
             contributions['resources'][resource] += quantity
@@ -1000,7 +1021,10 @@ class ColoniesStore(DeliberationMixin):
                                  kind='agent.message' if row.get('origin') == 'model' else 'research.recorded',
                                  island_id=colony_id, actor_id=agent['id'], actor_name=agent['display_name'],
                                  session_id=provenance.get('session_id'), message=row.get('interpretation') or row.get('text', ''),
-                                 data={'message_id': row['id'], 'reply_to_id': row.get('reply_to_id'), 'model': row.get('model'), 'origin': row.get('origin'), 'run_id': run_id})
+                                 data={'message_id': row['id'], 'reply_to_id': row.get('reply_to_id'), 'model': row.get('model'),
+                                       'origin': row.get('origin'), 'run_id': run_id,
+                                       'receipt_ids': deepcopy(row.get('receipt_ids', [])),
+                                       'evidence_kind': 'execution_report' if row.get('receipt_ids') else 'board_message'})
             tx.put('islandAgents', agent)
             state['revision'] += 1
             tx.put('islandState', state)

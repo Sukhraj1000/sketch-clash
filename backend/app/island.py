@@ -16,6 +16,7 @@ from typing import Any
 from .repository import StoreError, key_for, public
 
 SIMULATION_VERSION = 'object-island-v1'
+RECEIPT_VERSION = 'island-action-v2'
 MAX_AGENTS = 40
 MAX_RESOURCE = 1000
 MAX_CATCH_UP_SECONDS = 120
@@ -75,13 +76,6 @@ AFFORDANCES = (
     (('plant', 'flower', 'leaf', 'seed', 'tree'), 'tend', ['grow', 'nurture'],
      'Nursery keeper', 'Gentle and persistent', 'Good things grow one day at a time.', 'Make the island a greener place to live.'),
 )
-DISCOVERIES = (
-    'A sheltered cove', 'A promising seed patch', 'An old tide marker', 'A smooth pebble trail',
-    'A quiet reading spot', 'A sunlit lookout', 'A driftwood cache', 'A tiny crab crossing',
-    'A good place for a picnic', 'A pattern in the tides', 'A sheltered planting nook', 'A singing shell',
-)
-
-
 def _time(value: str | datetime | float | int) -> datetime:
     if isinstance(value, datetime):
         result = value
@@ -286,6 +280,7 @@ class IslandStore:
         return next(project['level'] for project in state['projects'] if project['id'] == project_id)
 
     def _schedule(self, state: dict, agent: dict, start: datetime) -> None:
+        resources_before_reservation = deepcopy(state['resources'])
         project = self._choose_project(state)
         action = self._choose_action(state, agent, project)
         expedition_cost = {'materials': 2, 'water': 1, 'energy': 2} if action == 'explore' and project is None else {}
@@ -301,7 +296,8 @@ class IslandStore:
         task = {'id': task_id, 'kind': action, 'title': ACTION_LABELS[action], 'started_at': _iso(start),
                 'ends_at': _iso(start + timedelta(seconds=duration)), 'duration_seconds': duration,
                 'from': deepcopy(agent['position']), 'to': deepcopy(agent['position']),
-                'gain': {}, 'progress_gain': 0, 'project_id': None, 'resource': None, 'xp_gain': 3}
+                'gain': {}, 'progress_gain': 0, 'project_id': None, 'resource': None, 'xp_gain': 3,
+                'decision_origin': 'player' if agent['assignment'] == action else 'deterministic', 'decision_id': None}
         if expedition_cost:
             for key, amount in expedition_cost.items():
                 state['resources'][key] -= amount
@@ -339,8 +335,26 @@ class IslandStore:
             destination['x'] = round(destination['x'] + ((seed >> 6) % 5 - 2) * .10, 3)
             destination['z'] = round(destination['z'] + ((seed >> 9) % 5 - 2) * .10, 3)
             task.update({'resource': resource, 'gain': {resource: amount}, 'to': _position(destination)})
+        self._record_reservation(task, agent, resources_before_reservation, state['resources'])
         agent['task'] = task
         agent['updated_at'] = _iso(start)
+
+    def _record_reservation(self, task: dict, agent: dict, before: dict, after: dict) -> None:
+        """Freeze the scheduling evidence; subsequent decisions cannot relabel it."""
+        task.update(resources_before_reservation=deepcopy(before), resources_after_reservation=deepcopy(after),
+                    capability_basis={'object_type': agent['object_type'],
+                                      'capabilities': deepcopy(agent['capabilities']),
+                                      'allowed_action': task['kind'] in agent['allowed_actions'],
+                                      'declared_yield': deepcopy(agent.get('action_yields', {}).get(task['kind'], {})),
+                                      'resource_sources': deepcopy(agent.get('resource_sources', {})),
+                                      'sdk_version': agent.get('sdk_version')})
+
+    @staticmethod
+    def _project_evidence(project: dict | None) -> dict | None:
+        if project is None:
+            return None
+        return {key: deepcopy(project.get(key)) for key in
+                ('id', 'name', 'level', 'progress', 'required_progress', 'reserved_progress', 'status')}
 
     def _memory(self, agent: dict, entry: dict) -> None:
         agent['memory'] = [*agent['memory'], entry][-MAX_MEMORY:]
@@ -350,6 +364,9 @@ class IslandStore:
         # This journal key is also the durable idempotency boundary for every resource effect.
         if tx.get('islandEvents', task['id']):
             raise StoreError('The action journal and current task disagree.', 503, 'island_invariant')
+        resources_before = deepcopy(state['resources'])
+        project_before = self._project_evidence(self._project(state, task['project_id'])) if task.get('project_id') else None
+        agent_before = {'xp': agent['xp'], 'level': agent['level'], 'position': deepcopy(agent['position'])}
         deltas = {}
         for key, amount in task['gain'].items():
             before = state['resources'][key]
@@ -387,12 +404,20 @@ class IslandStore:
         elif task['kind'] == 'explore':
             state['expeditions'] += 1
             discovery_id = key_for(task['id'], 'discovery')
+            gains = ', '.join(f'{amount} {key}' for key, amount in deltas.items() if amount)
             discovery = {'id': discovery_id, 'at': _iso(at), 'character_id': agent['character_id'],
-                         'title': DISCOVERIES[int(task['id'][:8], 16) % len(DISCOVERIES)]}
+                         'title': f'Shoreline survey: {gains}' if gains else 'Shoreline survey: storage full',
+                         'receipt_id': task['id'], 'origin': 'local_executor',
+                         'position': deepcopy(task['to']), 'resource_delta': deepcopy(deltas)}
             state['discoveries'] = [*state['discoveries'], discovery][-24:]
-            description = f"{agent['display_name']} found {discovery['title'].lower()} and brought back supplies."
+            description = (f"{agent['display_name']} completed a shoreline survey and added {gains} to shared stock."
+                           if gains else f"{agent['display_name']} completed a shoreline survey; full storage prevented a resource gain.")
         if deltas and task['kind'] != 'explore':
-            description = f"{agent['display_name']} brought back " + ', '.join(f'{amount} {key}' for key, amount in deltas.items()) + '.'
+            gains = ', '.join(f'{amount} {key}' for key, amount in deltas.items() if amount)
+            description = (f"{agent['display_name']} completed {title.lower()} and added {gains} to shared stock."
+                           if gains else f"{agent['display_name']} completed {title.lower()}; full storage prevented a resource gain.")
+        if task['kind'] == 'rest':
+            description = f"{agent['display_name']} rested; no resources or construction work were added."
         old_level = agent['level']
         agent['xp'] = min(1000000, agent['xp'] + task['xp_gain'])
         agent['level'] = min(MAX_LEVEL, 1 + math.isqrt(agent['xp'] // 24))
@@ -402,7 +427,25 @@ class IslandStore:
         event = {'_id': task['id'], 'id': task['id'], 'world_id': self.world_id, 'at': _iso(at),
                  'kind': task['kind'], 'character_id': agent['character_id'], 'title': title,
                  'description': description, 'resource_delta': deltas, 'project_id': task.get('project_id'),
-                 'progress_delta': progress_delta, 'xp_gain': task['xp_gain'], 'sequence': agent['completed_actions']}
+                 'progress_delta': progress_delta, 'xp_gain': task['xp_gain'], 'sequence': agent['completed_actions'],
+                 'receipt_version': RECEIPT_VERSION, 'execution_origin': 'local_executor',
+                 'action_id': task['id'], 'actor_id': agent['id'], 'actor_name': agent['display_name'],
+                 'decision_origin': task.get('decision_origin', 'deterministic'), 'decision_id': task.get('decision_id'),
+                 'started_at': task['started_at'], 'duration_seconds': task['duration_seconds'],
+                 'resources_before': resources_before, 'resources_after': deepcopy(state['resources']),
+                 'reserved_cost': deepcopy(task.get('cost', {})),
+                 'resource_net_delta': {key: deltas.get(key, 0) - task.get('cost', {}).get(key, 0)
+                                        for key in RESOURCE_KEYS if deltas.get(key, 0) or task.get('cost', {}).get(key, 0)},
+                 'resources_before_reservation': deepcopy(task.get('resources_before_reservation')),
+                 'resources_after_reservation': deepcopy(task.get('resources_after_reservation')),
+                 'reservation_evidence': 'recorded' if 'resources_before_reservation' in task else 'legacy_task',
+                 'project_before': project_before,
+                 'project_after': self._project_evidence(self._project(state, task['project_id'])) if task.get('project_id') else None,
+                 'agent_before': agent_before,
+                 'agent_after': {'xp': agent['xp'], 'level': agent['level'], 'position': deepcopy(agent['position'])},
+                 'capability_basis': deepcopy(task.get('capability_basis')),
+                 'effect_scope': 'abstract_island_ledger',
+                 'effect_note': 'The local executor applies declared action yields and project work; this is not an observed real-world discovery.'}
         tx.put('islandEvents', event)
         self._memory(agent, {'id': task['id'], 'at': _iso(at), 'text': description, 'kind': task['kind']})
         if milestone:
