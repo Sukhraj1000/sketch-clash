@@ -614,6 +614,14 @@ class _ColonyIsland(IslandStore):
         requests = self._requests(tx)
         existing = next((row for row in requests if row['resource'] == resource and row.get('project_id') == project_id), None)
         if existing:
+            if origin == 'model':
+                # The work request has one owner; a later speaker gets a separate
+                # immutable message, not permission to rewrite the owner's turn.
+                return self._new_board(tx, agent, 'reflection', now, identifier,
+                        request_id=existing['id'], project_id=existing.get('project_id'),
+                        resource=resource, text=note or f'Requested {quantity} {resource} for the shared project.',
+                        origin=origin, request_reused=True, verified=False,
+                        effect='References an existing shared request. No new request, offer or delivery was created.')
             return existing
         if len(requests) >= 16:
             raise StoreError('The colony board has enough open work. Finish or expire an existing request.', 429, 'board_full')
@@ -1117,6 +1125,8 @@ class ColoniesStore(DeliberationMixin):
                     origin='model' if value.reason else 'executor', evidence=learning_results))
             for row in records:
                 if provenance:
+                    if row['actor_id'] != agent['id'] or row['world_id'] != island.world_id:
+                        raise StoreError('A published turn must own its board message.', 503, 'board_author_invariant')
                     row.update({key: deepcopy(provenance[key]) for key in ('session_id', 'reply_to_id', 'seen_message_ids', 'model', 'turn_index', 'trace_id', 'span_id') if key in provenance})
                     row['council_id'] = provenance.get('session_id')
                     row['run_id'] = run_id
