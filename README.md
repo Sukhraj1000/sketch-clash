@@ -12,8 +12,10 @@ The research question is **“Can human feedback help AI create more reliable an
 
 Dependencies, vision weights and backend credentials are already configured. Preserve the ignored `.env.local`.
 
+The project lives at `~/Projects/sketch-clash`. Its original Codex `outputs/sketch-clash` location is a compatibility symlink to this same directory, so older saved commands and links still work.
+
 ```sh
-cd /Users/sukhrajkalon/Documents/Codex/2026-10-23/i-w/outputs/sketch-clash
+cd /Users/sukhrajkalon/Projects/sketch-clash
 npm run dev
 ```
 
