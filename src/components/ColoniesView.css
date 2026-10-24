@@ -68,3 +68,27 @@
 .colony-representation-note small{font-size:9px}
 @media(max-width:520px){.colony-presentation-bar{margin-bottom:11px;gap:10px}.colony-presentation-bar>span{font-size:7px;letter-spacing:.6px}.colony-perspective-toggle{font-size:9px;gap:7px}.colonies-focused .colony-crew>button{grid-template-columns:31px 106px}}
 @media(prefers-reduced-motion:reduce){.colony-scene-transition{display:none;animation:none}.colony-switch-track,.colony-switch-track>i{transition:none}}
+
+/* Keep the living world first; saved improvements stay visible beside it. */
+.colony-motion-note{font-size:10px;line-height:1.7;color:#6d6252;margin:13px 2px 17px!important;max-width:88ch}
+.colony-built-improvements{padding:16px 0 8px;border-top:1px solid #b9aa90}
+.colony-built-improvements>div:first-child{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.colony-built-improvements>div:first-child>b{font-size:10px;font-weight:600;color:#6c614e}
+.colony-built-improvements>p{font-size:10px;line-height:1.7;color:#736653;margin:8px 0 11px!important}
+.colony-built-strip{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 12px;scrollbar-width:thin;scroll-snap-type:x proximity}
+.colony-built-strip>button{flex:0 0 205px;scroll-snap-align:start;text-align:left;padding:12px 13px;background:#fff9eb;border:1px solid #b5ac97;border-top:3px solid #619080;min-height:116px}
+.colony-built-strip>button[aria-pressed=true]{background:#fff0b9;border-color:#39382c;border-top-color:#39382c;box-shadow:2px 2px #39382c}
+.colony-built-strip>button>span{display:flex;align-items:center;gap:6px;font-size:8px;font-weight:800;color:#456e5d;letter-spacing:.5px}
+.colony-built-strip>button>span>svg:last-child{margin-left:auto;color:#6f6b59}
+.colony-built-strip strong{display:block;font-size:12px;line-height:1.5;margin:9px 0 6px}
+.colony-built-strip small{display:block;font-size:10px;line-height:1.6;color:#346d53}
+.colony-built-strip small[data-benefit=redundant],.colony-built-strip small[data-benefit=unavailable]{color:#7c6952}
+.colony-build-benefit{padding:15px 13px;margin:18px 0;background:#e6eedf;border-left:3px solid #548571}
+.colony-build-benefit>span{display:block;font-size:8px;font-weight:800;letter-spacing:1px;color:#466550}
+.colony-build-benefit>strong{display:block;font-size:17px;line-height:1.4;margin:7px 0}
+.colony-build-benefit>p{font-size:11px;line-height:1.8;color:#53644e}
+.colony-build-benefit.benefit-planned,.colony-build-benefit.benefit-redundant,.colony-build-benefit.benefit-unavailable{background:#efe9d9;border-left-color:#ad9364}
+.colony-build-origin>b{display:block;font-size:8px;text-transform:uppercase;letter-spacing:.8px;color:#7e7059;margin-bottom:4px}
+.colony-built-date{display:flex;align-items:center;gap:6px}
+.colony-supplies-details>.colony-current-goal{margin-top:20px}
+@media(max-width:650px){.colony-built-improvements>div:first-child{align-items:flex-start;flex-direction:column;gap:8px}.colony-built-strip>button{flex-basis:185px}.colony-motion-note{font-size:10px}}
