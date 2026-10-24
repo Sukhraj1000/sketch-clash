@@ -183,6 +183,53 @@ async def test_read_only_evidence_routes_and_sanitized_receipt_fields():
     assert len(repo._data['islandEvents']) == 1 and len(repo._data['agentEvents']) == 1
 
 
+@pytest.mark.asyncio
+async def test_full_v2_receipt_api_preserves_provenance_and_schema_without_relaxing_redaction():
+    from backend.tests.test_colonies import Clock, battle
+    from app.colonies import ColoniesStore
+    clock = Clock()
+    repo = MemoryRepository(Settings(repository='memory', world_id='full-receipt-api-fixture'), clock)
+    battle(repo, 'full-receipt-battle', 'pencil', 'mug')
+    colony = ColoniesStore(repo)
+    colony.initialize()
+    clock.advance(20)
+    colony.advance()
+    event = next(row for row in Observatory(repo).events()['events'] if row['kind'] == 'task.completed')
+    receipt_id = event['data']['receipt_id']
+    def inject_untrusted_diagnostics(tx):
+        receipt = tx.get('islandEvents', receipt_id)
+        receipt['description'] = 'Observed key AIza' + 'x' * 30 + ' ' + 'detail ' * 1000
+        receipt['api_key'] = 'TOP_LEVEL_PRIVATE'
+        receipt['capability_basis'].update(api_key='NESTED_PRIVATE',
+                details=list(range(100)), nested={'a': {'b': {'c': {'d': {'e': {'f': 'too deep'}}}}}})
+        tx.put('islandEvents', receipt)
+    repo.transaction(inject_untrusted_diagnostics)
+    expected = ReceiptEvidence(repo).receipt_evidence(receipt_id)['receipts'][0]
+    assert len(expected) > 40  # Regression: the generic telemetry serializer truncated here.
+    before = deepcopy(repo._data)
+    app = FastAPI()
+    app.state.observatory = Observatory(repo)
+    register_observatory_routes(app)
+    paths = [f'/api/observatory/receipts/{receipt_id}/evidence',
+             f'/api/observatory/events/{event["id"]}/evidence']
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+        for path in paths:
+            response = await client.get(path)
+            assert response.status_code == 200
+            saved = response.json()['receipts'][0]
+            assert set(saved) == set(expected)
+            assert saved['provenance'] == expected['provenance']
+            assert saved['provenance']['reason'] and saved['provenance_status'] == 'verified'
+            assert saved['status'] == 'verified' and saved['committed'] is True
+            assert saved['decision_id'] is None and saved['scheduling_reason'] == expected['scheduling_reason']
+            assert saved['resources_after'] == expected['resources_after']
+            assert saved['resource_delta'] == expected['resource_delta']
+            assert len(saved['description']) == 1600 and len(saved['capability_basis']['details']) == 30
+            assert '[depth limited]' in response.text
+            assert 'AIza' not in response.text and 'PRIVATE' not in response.text and 'api_key' not in response.text
+    assert repo._data == before
+
+
 def test_actual_colony_completion_resolves_new_snapshots_and_matching_contributions():
     from backend.tests.test_colonies import Clock, battle
     from app.colonies import ColoniesStore

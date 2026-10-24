@@ -64,6 +64,21 @@ def _public(value: dict) -> dict:
     return {k: safe(v) for k, v in value.items() if k not in ('_id', 'expires_at')}
 
 
+def _safe_evidence(value: dict) -> dict:
+    """Preserve the receipt schema while bounding and redacting each payload.
+
+    ReceiptEvidence already projects a fixed whitelist of receipt fields. A v2
+    receipt exceeds safe()'s generic 40-field telemetry budget, so applying that
+    budget to the whole object silently deletes its provenance and status. Keep
+    the projected fields, but retain the normal limits inside each field and the
+    evidence reader's maximum of 24 receipts.
+    """
+    result = safe({key: item for key, item in value.items() if key != 'receipts'})
+    result['receipts'] = [{key: safe(item) for key, item in receipt.items() if not _PRIVATE.search(key)}
+                          for receipt in value.get('receipts', [])[:24]]
+    return result
+
+
 def record_event(tx, world_id: str, *, event_id: str, kind: str,
                  island_id: str | None = None, actor_id: str | None = None,
                  actor_name: str | None = None, session_id: str | None = None,
@@ -555,12 +570,12 @@ def register_observatory_routes(app: FastAPI):
     @app.get('/api/observatory/events/{event_id}/evidence')
     async def event_evidence(request: Request, event_id: str):
         result = await asyncio.to_thread(ReceiptEvidence(service(request).repository).event_evidence, event_id)
-        return safe(result)
+        return _safe_evidence(result)
 
     @app.get('/api/observatory/receipts/{receipt_id}/evidence')
     async def receipt_evidence(request: Request, receipt_id: str):
         result = await asyncio.to_thread(ReceiptEvidence(service(request).repository).receipt_evidence, receipt_id)
-        return safe(result)
+        return _safe_evidence(result)
 
     @app.get('/api/observatory/contributions')
     async def contributions(request: Request, island: str | None = None, window: int = 60):

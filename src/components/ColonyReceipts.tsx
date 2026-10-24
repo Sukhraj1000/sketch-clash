@@ -4,11 +4,12 @@ import type { Colony } from '../lib/colonies'
 import type { IslandEvent } from '../lib/island'
 import { observatory } from '../lib/observatory'
 import type { EventEvidence } from '../lib/observatory'
+import { receiptDecision, receiptEvidenceLabel, receiptResources, receiptRows } from '../lib/receiptPresentation'
 import './ColonyReceipts.css'
 
 const amount = (value: number) => Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '—'
 const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-const changes = (values: Record<string, number | undefined> = {}) => Object.entries(values).filter(([, value]) => typeof value === 'number' && value > 0).map(([key, value]) => `${amount(value!)} ${key}`)
+const changes = (values: unknown = {}) => Object.entries(receiptResources(values) ?? {}).filter(([, value]) => typeof value === 'number' && value > 0).map(([key, value]) => `${amount(value!)} ${key}`)
 export const receiptOutput = (receipt: IslandEvent) => [...changes(receipt.resource_delta), ...(receipt.progress_delta ? [`${amount(receipt.progress_delta)} build work`] : [])]
 export const recentActionReceipts = (colony: Colony) => colony.island.events.filter(event => Boolean(event.action_id)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
 
@@ -31,10 +32,10 @@ export function ReceiptEvidence({ receiptId }: { receiptId: string }) {
     {open && <div>
       {!evidence && !error && <p role="status"><LoaderCircle size={13} /> Reading the committed record…</p>}
       {error && <p role="alert">Receipt could not be checked: {error}</p>}
-      {evidence && <><p className="receipt-verification"><b>{evidence.status === 'verified' ? 'RECEIPT VERIFIED' : evidence.status.toUpperCase()}</b> {evidence.reason}</p>{evidence.receipts.map(receipt => <div key={receipt.id}>
-        <dl><div><dt>Added</dt><dd>{changes(receipt.resource_delta).join(' · ') || 'No resources added'}</dd></div><div><dt>Build work</dt><dd>{amount(receipt.progress_delta)}</dd></div><div><dt>Supplies spent</dt><dd>{receipt.resource_cost === null ? 'Not recorded on this historical receipt' : changes(receipt.resource_cost).join(' · ') || 'None'}</dd></div></dl>
-        <p><b>Decision evidence:</b> {receipt.provenance.reason}</p>
-        {receipt.resources_before && receipt.resources_after && <dl className="receipt-before-after">{Object.keys(receipt.resources_after).filter(resource => receipt.resources_before![resource] !== receipt.resources_after![resource]).map(resource => <div key={resource}><dt>{resource} at completion</dt><dd>{amount(receipt.resources_before![resource])} <ArrowRight size={11} /> {amount(receipt.resources_after![resource])}</dd></div>)}</dl>}
+      {evidence && <><p className="receipt-verification"><b>{receiptEvidenceLabel(evidence)}</b> {evidence.reason}</p>{receiptRows(evidence).map(receipt => <div key={receipt.id}>
+        <dl><div><dt>Added</dt><dd>{receiptResources(receipt.resource_delta) === null ? 'Resource gains not recorded' : changes(receipt.resource_delta).join(' · ') || 'No resources added'}</dd></div><div><dt>Build work</dt><dd>{amount(receipt.progress_delta)}</dd></div><div><dt>Supplies spent</dt><dd>{receiptResources(receipt.resource_cost) === null ? 'Not recorded on this historical receipt' : changes(receipt.resource_cost).join(' · ') || 'None'}</dd></div></dl>
+        <p><b>Decision evidence:</b> {receiptDecision(receipt).label}. {receiptDecision(receipt).reason}</p>
+        {receiptResources(receipt.resources_before) && receiptResources(receipt.resources_after) && <dl className="receipt-before-after">{Object.keys(receipt.resources_after!).filter(resource => receipt.resources_before![resource] !== receipt.resources_after![resource]).map(resource => <div key={resource}><dt>{resource} at completion</dt><dd>{amount(receipt.resources_before![resource])} <ArrowRight size={11} /> {amount(receipt.resources_after![resource])}</dd></div>)}</dl>}
         {receipt.effect_note && <p>{receipt.effect_note}</p>}
       </div>)}</>}
       <code>{receiptId}</code>
