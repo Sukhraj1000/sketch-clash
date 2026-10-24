@@ -41,3 +41,5 @@
 @media(max-width:650px){.ai-maintenance-note{align-items:flex-start;flex-wrap:wrap;padding:12px 5%;gap:8px 10px}.ai-maintenance-note>div{display:block;flex-basis:85%}.ai-maintenance-note>div>span{display:block;font-size:10px;margin-top:2px}.ai-maintenance-dot{margin-top:5px}.ai-maintenance-note button{margin-left:18px}}
 
 .camera-battle-entry{font-size:27px;max-width:100%;gap:14px}.camera-battle-entry:disabled{background:#e8e0ce;color:#625d59;box-shadow:3px 3px var(--ink);cursor:not-allowed}.demo-battle-available{background:var(--yellow);border:1.5px solid var(--ink);box-shadow:3px 3px var(--ink);padding:12px 17px;font-size:11px}.home-capture-paused{line-height:1.7;margin:15px 0 0}
+
+.object-battle-entry{font-size:27px;max-width:100%;gap:14px}.home-arena-label{font-size:8px;letter-spacing:.6px;font-weight:800;margin-top:-7px}.home-other-battles{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}.home-other-battles .demo-button{font-size:9px}.home-other-battles .demo-button:disabled{opacity:.5;cursor:not-allowed}.phase-object_battles .screen-wrap{min-height:65vh}
