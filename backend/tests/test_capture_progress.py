@@ -35,7 +35,7 @@ def test_progress_is_read_only_safe_and_terminal_state_cannot_regress():
     progress = repo.capture_progress(battle, cid)
     assert repo._data == before
     assert progress['stage'] == 'queued' and progress['attempt'] == 1
-    assert 'priority' in progress['message']
+    assert 'Island speed limits do not apply' in progress['message']
     assert 'untrusted' not in str(progress) and 'api_key' not in progress
     repo.fail_capture(battle, cid, 'fixture_failure')
     repo.update_capture_progress(battle, cid, {'stage': 'gemini_recognition'})
@@ -52,12 +52,19 @@ def test_progress_route_returns_stage_without_starting_recognition():
     class NoRecognition:
         async def recognize_capture(self, *args, **kwargs):
             raise AssertionError('Progress reads cannot perform recognition')
-    with TestClient(create_app(settings, repository=repo, recognizer=NoRecognition())) as client:
+    app = create_app(settings, repository=repo, recognizer=NoRecognition())
+    with TestClient(app) as client:
+        queue = app.state.provider_queue
+        queue.set_pacing('slow')
+        queue.clock = lambda: 100.
+        queue._last_dispatch = queue._last_background_dispatch = 100.
         repo.update_capture_progress(battle, capture['capture_id'], {'stage': 'queued'})
         response = client.get(f'/api/battles/{battle}/captures/{capture["capture_id"]}/progress')
         assert response.status_code == 200
         assert response.json()['stage'] == 'queued'
-        assert 'min_dispatch_interval_seconds' in response.json()['queue']
+        assert response.json()['queue']['min_dispatch_interval_seconds'] == 0
+        assert response.json()['queue']['dispatch_wait_seconds'] == 0
+        assert queue.status()['dispatch_wait_seconds'] == 60
         assert client.get(f'/api/battles/missing/captures/{capture["capture_id"]}/progress').status_code == 404
         assert client.get(f'/api/battles/{battle}/captures/missing/progress').status_code == 404
 

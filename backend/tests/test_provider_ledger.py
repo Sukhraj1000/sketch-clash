@@ -30,22 +30,23 @@ async def test_restart_keeps_all_model_category_allowance_and_exact_window_bound
     async def invoke(): calls.append(now[0]); return 'ok'
     first = factory(requests_per_day=2)
     await first.run('argon', invoke, 'council')
-    await first.run('embedding', invoke, 'embedding')
+    await first.run('argon', invoke, 'reflection')
     restarted = factory(requests_per_day=2); await restarted.load_ledger()
     assert restarted.status()['counter_scope'] == 'database_rolling_window'
     assert restarted.status()['local_usage']['requests_remaining_day'] == 0
     with pytest.raises(ProviderFailure) as failure:
-        await restarted.run('flash', invoke, 'recognition')
+        await restarted.run('argon', invoke, 'council')
     assert failure.value.diagnostic.category == 'local_daily_cap' and len(calls) == 2
     now[0] = calls[0]+86400.
-    await restarted.run('flash', invoke, 'recognition')
+    await restarted.run('argon', invoke, 'council')
     assert len(calls) == 3 and restarted.status()['local_usage']['requests_last_24_hours'] == 2
 
 
 def admit(ledger, request, now, **limits):
     return ledger.admit(request, now, requests_per_minute=limits.get('minute', 4),
         requests_per_day=limits.get('day', 200), interval_seconds=limits.get('interval', 15.),
-        concurrency=limits.get('concurrency', 1), model='fixture', category='fixture')
+        concurrency=limits.get('concurrency', 1), model='fixture', category=limits.get('category', 'agent'),
+        priority=limits.get('priority'))
 
 
 def test_atomic_admission_prevents_two_workers_spending_the_last_allowance(setup):
@@ -66,7 +67,7 @@ def test_spacing_minute_cap_and_active_leases_are_shared_across_workers(setup):
     a, b = ProviderLedger(repo), ProviderLedger(repo)
     assert admit(a, 'a', now[0])['admitted']
     a.finish('a', now[0], outcome='completed')
-    assert admit(b, 'b', now[0]+1)['reason'] == 'local_dispatch_spacing'
+    assert admit(b, 'b', now[0]+1)['reason'] == 'local_background_spacing'
     assert admit(b, 'b', now[0]+15)['admitted']
     assert admit(a, 'c', now[0]+30)['reason'] == 'local_concurrency'
     b.finish('b', now[0]+30, outcome='completed')
@@ -193,6 +194,98 @@ async def test_stale_worker_obeys_shared_slow_pace_and_legacy_reload(setup):
     restarted = factory()
     ProviderControls(repo, restarted).load()
     assert restarted.pacing_mode == 'slow'
+
+
+@pytest.mark.asyncio
+async def test_restart_restores_background_clock_without_inheriting_a_recent_camera_dispatch(setup):
+    from app.provider_controls import ProviderControls
+    repo, now, factory = setup
+    first = factory()
+    await ProviderControls(repo, first).update('slow')
+    calls = []
+    async def call(): calls.append(now[0])
+    await first.run('argon', call, 'council')
+    await first.run('flash', call, 'recognition')
+    assert calls == [100000., 100000.]
+    snapshot = ProviderLedger(repo).snapshot(now[0])
+    assert snapshot['last_dispatch_at'] == 100000.
+    assert snapshot['last_background_dispatch_at'] == 100000.
+    restarted = factory(); await restarted.load_ledger()
+    assert restarted.pacing_mode == 'slow'
+    assert restarted.status(priority='foreground')['dispatch_wait_seconds'] == 0.
+    assert restarted.status(priority='background')['dispatch_wait_seconds'] == 60.
+    await restarted.run('argon', call, 'council')
+    assert calls == [100000., 100000., 100060.]
+    assert restarted.status()['local_usage']['requests_last_24_hours'] == 2
+    assert restarted.status()['local_usage']['all_requests_last_24_hours'] == 3
+
+
+@pytest.mark.asyncio
+async def test_late_ledger_snapshot_cannot_restore_older_pace_or_usage(setup):
+    from app.provider_controls import ProviderControls
+    repo, now, factory = setup
+    queue = factory(); controls = ProviderControls(repo, queue)
+    await controls.update('fast')
+    async def call(): return 'ok'
+    await queue.run('argon', call, 'council')
+    older = queue.ledger_snapshot
+    await controls.update('slow')
+    await queue.run('argon', call, 'reflection')
+    revision = queue.ledger_snapshot['revision']
+    assert revision > older['revision'] and now[0] == 100060.
+    queue._sync_ledger(older)  # A previously started normal-pool read returns late.
+    assert queue.ledger_snapshot['revision'] == revision
+    assert queue.pacing_mode == 'slow'
+    assert queue.status()['local_usage']['requests_last_24_hours'] == 2
+    assert queue.status()['local_usage']['all_requests_last_24_hours'] == 2
+    assert queue.status()['dispatch_wait_seconds'] == 60.
+
+
+def test_stale_worker_ledger_keeps_normal_requests_independent_but_cooldown_shared(setup):
+    repo, now, _ = setup
+    repo.transaction(lambda tx: ProviderLedger.pacing_in_transaction(tx, 'slow', now[0]))
+    a, b = ProviderLedger(repo), ProviderLedger(repo)
+    assert admit(a, 'island', now[0], category='council')['admitted']
+    # Island's active lease and exhausted daily allowance cannot block cameras.
+    assert admit(b, 'camera-a', now[0], category='recognition', day=1)['admitted']
+    assert admit(a, 'camera-b', now[0], category='recognition', day=1)['admitted']
+    assert admit(b, 'camera-c', now[0], category='recognition')['reason'] == 'local_concurrency'
+    assert admit(b, 'island-daily', now[0], category='reflection', day=1)['reason'] == 'local_daily_cap'
+    a.finish('island', now[0], outcome='completed')
+    assert admit(b, 'island-soon', now[0]+15, category='council')['wait_seconds'] == 45.
+    b.finish('camera-a', now[0], outcome='completed', cooldown_until=now[0]+75)
+    a.finish('camera-b', now[0], outcome='completed')
+    assert admit(a, 'camera-cooldown', now[0]+60, category='recognition')['reason'] == 'provider_cooldown'
+    assert admit(a, 'island-cooldown', now[0]+60, category='council')['reason'] == 'provider_cooldown'
+    assert admit(a, 'camera-next', now[0]+75, category='recognition', day=1)['admitted']
+    assert admit(a, 'island-next', now[0]+75, category='reflection')['admitted']
+    rows = repo._data[COLLECTION][LEDGER_ID]['reservations']
+    assert [row['scope'] for row in rows] == ['island', 'interactive', 'interactive', 'interactive', 'island']
+    assert len(rows) == 5
+
+
+@pytest.mark.parametrize('category,island', [
+    ('recognition', False), ('recognition_embedding', False), ('embedding', False),
+    ('council', True), ('reflection', True), ('evaluation_recognition', False),
+    ('quality', False), (None, True)])
+def test_legacy_reservations_keep_all_usage_and_attribute_unknown_history_to_islands(setup, category, island):
+    repo, now, _ = setup
+    ledger = ProviderLedger(repo)
+    ledger.seed_cutover([now[0]], now[0])
+    def legacy(tx):
+        ProviderLedger.pacing_in_transaction(tx, 'slow', now[0])
+        record = tx.get(COLLECTION, LEDGER_ID)
+        if category: record['reservations'][0]['category'] = category
+        tx.put(COLLECTION, record)
+    repo.transaction(legacy)
+    snapshot = ledger.snapshot(now[0])
+    assert snapshot['timestamps'] == [now[0]]
+    assert snapshot['island_timestamps'] == ([now[0]] if island else [])
+    assert snapshot['last_background_dispatch_at'] == (now[0] if island else None)
+    result = admit(ledger, 'next-island', now[0]+15, category='council')
+    assert result['admitted'] is (not island)
+    if island:
+        assert result['reason'] == 'local_background_spacing' and result['wait_seconds'] == 45.
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,8 @@ class Settings:
     colony_proposal_model: str = 'gemini-4-argon'
     colony_reply_model: str = 'gemini-3.8-flash'
     colony_session_interval_seconds: int = 120
+    # These legacy field names now scope automatic island AI only. Normal player
+    # requests have no application pacing or minute/day allowance.
     gemini_provider_concurrency: int = 1
     gemini_requests_per_minute: int = 4
     gemini_requests_per_day: int = 200
@@ -49,6 +51,8 @@ class Settings:
         load_dotenv(PROJECT_ROOT / '.env.local', override=False)
         def boolean(key: str, default: str = 'true') -> bool:
             return os.getenv(key, default).lower() in {'1', 'true', 'yes'}
+        def island_limit(name: str, legacy: str, default: str) -> int:
+            return int(os.getenv(name, os.getenv(legacy, default)))
         return cls(
             gemini_api_key=os.getenv('GEMINI_API_KEY', ''),
             gemini_key_source=key_source,
@@ -75,8 +79,8 @@ class Settings:
             colony_proposal_model=os.getenv('COLONY_PROPOSAL_MODEL', 'gemini-4-argon'),
             colony_reply_model=os.getenv('COLONY_REPLY_MODEL', 'gemini-3.8-flash'),
             colony_session_interval_seconds=max(15, int(os.getenv('COLONY_SESSION_INTERVAL_SECONDS', '120'))),
-            gemini_provider_concurrency=max(1, min(8, int(os.getenv('GEMINI_PROVIDER_CONCURRENCY', '1')))),
-            gemini_requests_per_minute=max(1, int(os.getenv('GEMINI_REQUESTS_PER_MINUTE', '4'))),
-            gemini_requests_per_day=max(1, int(os.getenv('GEMINI_REQUESTS_PER_DAY', '200'))),
-            gemini_max_pending=max(1, int(os.getenv('GEMINI_MAX_PENDING', '8'))),
+            gemini_provider_concurrency=max(1, min(8, island_limit('ISLAND_AI_CONCURRENCY', 'GEMINI_PROVIDER_CONCURRENCY', '1'))),
+            gemini_requests_per_minute=max(1, island_limit('ISLAND_AI_REQUESTS_PER_MINUTE', 'GEMINI_REQUESTS_PER_MINUTE', '4')),
+            gemini_requests_per_day=max(1, island_limit('ISLAND_AI_REQUESTS_PER_DAY', 'GEMINI_REQUESTS_PER_DAY', '200')),
+            gemini_max_pending=max(1, island_limit('ISLAND_AI_MAX_PENDING', 'GEMINI_MAX_PENDING', '8')),
         )

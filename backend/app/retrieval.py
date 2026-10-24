@@ -41,8 +41,12 @@ def vector_index_definition(dimensions: int = 768) -> dict:
 
 
 class AtlasRetriever:
-    def __init__(self, collection: Any = None, client: Any = None, config: RetrievalConfig | None = None, *, settings=None):
+    def __init__(self, collection: Any = None, client: Any = None, config: RetrievalConfig | None = None, *, settings=None,
+                 provider_category='embedding'):
         self.collection, self.client = collection, client
+        if provider_category not in ('embedding', 'island_embedding', 'evaluation_embedding'):
+            raise ValueError('Unknown embedding request category.')
+        self.provider_category = provider_category
         self.settings = settings
         self.config = config or RetrievalConfig()
         self.provider_queue = None
@@ -63,7 +67,7 @@ class AtlasRetriever:
             async def invoke():
                 return await asyncio.wait_for(self.client.aio.models.embed_content(model=self.config.model, contents=prepared,
                     config={"output_dimensionality": self.config.dimensions, **options}), timeout=self.config.timeout_seconds)
-            response = await self.provider_queue.run(self.config.model, invoke, category='embedding',
+            response = await self.provider_queue.run(self.config.model, invoke, category=self.provider_category,
                 prepare=getattr(self.client, 'check_admission', None)) if self.provider_queue else await invoke()
         vector = [float(x) for x in response.embeddings[0].values]
         if len(vector) != self.config.dimensions or not all(math.isfinite(x) for x in vector):

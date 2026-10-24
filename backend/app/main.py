@@ -49,7 +49,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         from .provider_queue import ProviderQueue
         app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency, paused=settings.ai_paused,
             requests_per_minute=settings.gemini_requests_per_minute,
-            requests_per_day=settings.gemini_requests_per_day, max_pending=settings.gemini_max_pending)
+            requests_per_day=settings.gemini_requests_per_day, max_pending=settings.gemini_max_pending,
+            interactive_concurrency=settings.recognition_concurrency)
         app.state.repository = repository
         app.state.store_error = None
         app.state.provider_controls = None
@@ -165,7 +166,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             try:
                 from .retrieval import AtlasRetriever, RetrievalConfig
                 memory_embedder = AtlasRetriever(client=getattr(app.state.recognizer, 'client', None),
-                    config=RetrievalConfig(model=settings.embedding_model or 'gemini-embedding-2', dimensions=settings.embedding_dimensions), settings=settings)
+                    config=RetrievalConfig(model=settings.embedding_model or 'gemini-embedding-2', dimensions=settings.embedding_dimensions),
+                    settings=settings, provider_category='island_embedding')
                 memory_embedder.provider_queue = app.state.provider_queue
                 app.state.colony_planner = ColonyPlanner(app.state.repository, app.state.colonies, settings,
                                                         legacy_planner=app.state.island_planner, provider_queue=app.state.provider_queue,
@@ -327,10 +329,10 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     async def capture_progress(battle_id: str, capture_id: str):
         value = await asyncio.to_thread(repo().capture_progress, battle_id, capture_id)
         if value['status'] == 'processing' and value['stage'] == 'queued':
-            queue = await asyncio.to_thread(app.state.provider_queue.status)
+            queue = app.state.provider_queue.status(priority='foreground')
             value['queue'] = {key: queue.get(key) for key in ('wait_reason', 'dispatch_wait_seconds', 'foreground_waiting')}
             value['queue']['foreground_waiting'] = queue.get('scheduling', {}).get('waiting_foreground')
-            value['queue']['min_dispatch_interval_seconds'] = queue.get('local_limits', {}).get('min_dispatch_interval_seconds')
+            value['queue']['min_dispatch_interval_seconds'] = queue.get('interactive_limits', {}).get('min_dispatch_interval_seconds', 0)
         return value
 
     @app.post('/api/battles/{battle_id}/captures/{capture_id}/feedback')

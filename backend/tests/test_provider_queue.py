@@ -94,8 +94,9 @@ async def test_queue_honours_shared_cooldown_without_hidden_retry():
     with pytest.raises(ProviderFailure): await queue.run('model-a', fail, 'recognition')
     async def succeed(): calls.append('success'); return 'response'
     assert await queue.run('model-b', succeed, 'council') == 'response'
-    assert calls == ['failure', 'success'] and waits == [15]
-    assert queue.status()['local_usage']['requests_last_24_hours'] == 2
+    assert calls == ['failure', 'success'] and waits == [12]
+    assert queue.status()['local_usage']['requests_last_24_hours'] == 1
+    assert queue.status()['local_usage']['all_requests_last_24_hours'] == 2
     assert queue.status()['active'] == queue.status()['waiting'] == 0
 
 
@@ -234,15 +235,15 @@ async def drain_tasks():
 def test_default_caps_are_explicitly_local_and_restart_scoped():
     status = ProviderQueue().status()
     assert status['local_limits'] == {
-        'requests_per_minute': 4, 'requests_per_day': 200, 'max_pending': 8,
-        'min_dispatch_interval_seconds': 15., 'concurrency': 1}
+        'scope': 'island', 'requests_per_minute': 4, 'requests_per_day': 200, 'max_pending': 8,
+        'min_dispatch_interval_seconds': 15., 'background_min_dispatch_interval_seconds': 15., 'concurrency': 1}
     assert status['counter_scope'] == 'process_lifetime'
     assert status['last_error'] is status['last_local_error'] is None
     assert status['local_usage']['requests_remaining_day'] == 200
 
 
 @pytest.mark.asyncio
-async def test_mixed_models_and_services_share_spacing_and_strict_rolling_window():
+async def test_island_models_share_spacing_and_strict_rolling_window():
     now = [100.]
     dispatched = []
     async def sleep(seconds):
@@ -252,12 +253,12 @@ async def test_mixed_models_and_services_share_spacing_and_strict_rolling_window
     async def call(): dispatched.append(now[0]); return 'ok'
     for index in range(16):
         assert await queue.run('flash' if index % 2 else 'argon', call,
-                               'recognition' if index % 3 else 'agent') == 'ok'
+                               'reflection' if index % 3 else 'agent') == 'ok'
     assert dispatched == [100. + 15. * index for index in range(16)]
     for instant in dispatched:
         assert sum(instant - 60. < sent <= instant for sent in dispatched) <= 4
     assert queue.status()['local_usage'] == {
-        'requests_last_minute': 4, 'requests_last_24_hours': 16,
+        'scope': 'island', 'all_requests_last_24_hours': 16, 'requests_last_minute': 4, 'requests_last_24_hours': 16,
         'requests_remaining_minute': 0, 'requests_remaining_day': 184}
     now[0] = dispatched[-1] + 60.
     assert queue.status()['local_usage']['requests_last_minute'] == 0
@@ -330,7 +331,7 @@ async def test_cancellation_during_admission_sleep_never_spends_a_dispatch():
     await queue.run('first', call)
     cancelled = asyncio.create_task(queue.run('cancelled', call))
     await drain_tasks()
-    assert queue.status()['wait_reason'] == 'local_dispatch_spacing'
+    assert queue.status()['wait_reason'] == 'local_background_spacing'
     cancelled.cancel()
     with pytest.raises(asyncio.CancelledError): await cancelled
     assert queue.status()['local_usage']['requests_last_24_hours'] == 1

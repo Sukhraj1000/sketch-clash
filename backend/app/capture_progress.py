@@ -3,7 +3,7 @@ MESSAGES = {
     'registered': 'Photograph saved. Preparing local recognition.',
     'local_detection': 'Local YOLO is checking objects in the selected photograph.',
     'local_ocr': 'Local OCR is reading visible text in the selected photograph.',
-    'queued': 'Waiting for a Gemini slot. Player captures take priority over unsent island work; shared limits still apply.',
+    'queued': 'Waiting for a normal Gemini request slot. Island speed limits do not apply to your photograph.',
     'gemini_recognition': 'Gemini is checking the photograph and proposing your fighter.',
     'validation': 'Checking the proposed identity, fighter stats and appearance locally.',
     'repair': 'The proposal failed a local check. Preparing a bounded correction.',

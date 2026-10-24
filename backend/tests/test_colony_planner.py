@@ -540,5 +540,6 @@ async def test_resumed_winner_waits_for_current_six_turn_council_then_gets_next_
     assert following['colony_id'] == 'winners'
     assert worker.sessions()[0]['trigger'] == 'population_changed'
     assert worker.queue.pacing_mode == 'slow' and not worker.queue.paused
-    assert worker.queue.min_dispatch_interval_seconds == 60
+    assert worker.queue.min_dispatch_interval_seconds == 15
+    assert worker.queue.background_min_dispatch_interval_seconds == 60
     assert len(provider.calls) == 6  # Scheduling the next council does not invoke the SDK.

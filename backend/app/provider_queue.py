@@ -17,6 +17,7 @@ import re
 import time
 from uuid import uuid4
 from .provider_errors import LocalProviderControlError
+from .provider_ledger import request_scope
 
 FOREGROUND_BURST_LIMIT = 3
 
@@ -214,7 +215,7 @@ def diagnose_provider_error(exc, now=None):
 
 
 class ProviderQueue:
-    """Shared admission limits, independent of Google's quotas.
+    """Island-only pacing and budgets, with normal requests in a separate pool.
 
     Every dispatch counts, including failed or subsequently cancelled requests.
     A repository-backed ledger survives restarts and coordinates backend workers.
@@ -222,26 +223,35 @@ class ProviderQueue:
     Admission is claimed only after a concurrency slot becomes available.
     """
     def __init__(self, concurrency=1, clock=time.time, sleep=asyncio.sleep, *, paused=False,
-                 requests_per_minute=4, requests_per_day=200, max_pending=8, ledger=None):
+                 requests_per_minute=4, requests_per_day=200, max_pending=8, ledger=None,
+                 interactive_concurrency=2):
         self.clock, self.sleep = clock, sleep
         self.paused = bool(paused)
         self.concurrency = max(1, int(concurrency))
+        self.interactive_concurrency = max(1, int(interactive_concurrency))
+        self.interactive_max_pending = max(8, self.interactive_concurrency * 4)
         self.requests_per_minute = max(1, int(requests_per_minute))
         self.requests_per_day = max(1, int(requests_per_day))
         self.max_pending = max(1, int(max_pending))
         self.pacing_mode = 'fast'
+        # These artificial ceilings belong only to autonomous island work.
         self.min_dispatch_interval_seconds = 60. / self.requests_per_minute
+        self.background_min_dispatch_interval_seconds = self.min_dispatch_interval_seconds
         self._pacing_changed = asyncio.Event()
         self.semaphore = asyncio.Semaphore(self.concurrency)
+        self.interactive_semaphore = asyncio.Semaphore(self.interactive_concurrency)
         self._admission_lock = asyncio.Lock()
         self._pending_requests = {}
         self._foreground_streak = 0
         self._minute_dispatches = deque()
         self._day_dispatches = deque()
+        self._all_dispatches = deque()
         self._last_dispatch = None
+        self._last_background_dispatch = None
         self.cooldown_until = 0.
         # waiting retains its original meaning internally: active + pending.
         self.waiting = self.active = self.completed = self.throttled = 0
+        self._active_scopes = {scope: 0 for scope in ('island', 'interactive', 'evaluation')}
         self.local_rejected = 0
         self.last_error = self.last_local_error = None
         self.ledger = ledger
@@ -250,11 +260,17 @@ class ProviderQueue:
 
     def _sync_ledger(self, snapshot):
         if snapshot is None: return
+        # Independent request pools can complete their storage reads out of
+        # order. An older snapshot must not roll back usage or island pace.
+        if self.ledger_snapshot and snapshot['revision'] < self.ledger_snapshot['revision']:
+            return
         now = self.clock()
-        stamps = sorted(snapshot['timestamps'])
+        stamps = sorted(snapshot['island_timestamps'])
+        self._all_dispatches = deque(sorted(stamp for stamp in snapshot['timestamps'] if stamp > now-86400.))
         self._day_dispatches = deque(stamp for stamp in stamps if stamp > now-86400.)
         self._minute_dispatches = deque(stamp for stamp in stamps if stamp > now-60.)
-        self._last_dispatch = snapshot['last_dispatch_at']
+        self._last_dispatch = snapshot.get('last_background_dispatch_at')
+        self._last_background_dispatch = snapshot.get('last_background_dispatch_at')
         self.cooldown_until = max(self.cooldown_until, snapshot.get('cooldown_until', 0))
         if snapshot.get('pacing_mode'):
             self.set_pacing(snapshot['pacing_mode'])
@@ -286,8 +302,9 @@ class ProviderQueue:
                     'min_dispatch_interval_seconds': 60. / (self.requests_per_minute * fraction)}
                    for mode, fraction in (('slow', .25), ('steady', .5), ('fast', 1.))]
         selected = next(option for option in options if option['mode'] == self.pacing_mode)
-        return {'mode': self.pacing_mode, 'options': options, 'paused': self.paused,
+        return {'mode': self.pacing_mode, 'scope': 'island', 'options': options, 'paused': self.paused,
                 'effective_requests_per_minute': selected['requests_per_minute'],
+                'background_min_dispatch_interval_seconds': selected['min_dispatch_interval_seconds'],
                 'hard_limit_requests_per_minute': self.requests_per_minute}
 
     def set_pacing(self, mode):
@@ -296,7 +313,7 @@ class ProviderQueue:
         if mode == self.pacing_mode:
             return
         self.pacing_mode = mode
-        self.min_dispatch_interval_seconds = 60. / self.pacing()['effective_requests_per_minute']
+        self.background_min_dispatch_interval_seconds = 60. / self.pacing()['effective_requests_per_minute']
         # Each waiter owns the old event, so a change wakes all of them without
         # an event.clear race. In-flight operations and quota history stay intact.
         changed, self._pacing_changed = self._pacing_changed, asyncio.Event()
@@ -319,6 +336,8 @@ class ProviderQueue:
             self._minute_dispatches.popleft()
         while self._day_dispatches and self._day_dispatches[0] <= now - 86400.:
             self._day_dispatches.popleft()
+        while self._all_dispatches and self._all_dispatches[0] <= now - 86400.:
+            self._all_dispatches.popleft()
 
     def _reject_local(self, category, message, retry_after_seconds=None):
         diagnostic = ProviderDiagnostic(category, message, retryable=False,
@@ -327,21 +346,22 @@ class ProviderQueue:
         self.last_local_error = diagnostic.public()
         raise ProviderFailure(diagnostic)
 
-    def _require_daily_allowance(self, now, *, refreshed=False):
+    def _require_daily_allowance(self, now, *, refreshed=False, scope='island'):
+        if scope != 'island': return
         # Another worker may have added or released a known-undispatched
         # reservation. Only the transaction may decide a durable admission.
         if self.ledger and not refreshed: return
         if len(self._day_dispatches) >= self.requests_per_day:
             self._reject_local('local_daily_cap',
-                'The local Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
+                'The island agent safety cap for the last 24 hours is reached. No request was sent to Google.',
                 max(0., self._day_dispatches[-self.requests_per_day] + 86400. - now))
 
-    def _wait_condition(self, now):
+    def _wait_condition(self, now, scope='island'):
         candidates = [(max(0., self.cooldown_until - now), 'provider_cooldown')]
-        if self._last_dispatch is not None:
-            candidates.append((max(0., self._last_dispatch + self.min_dispatch_interval_seconds - now),
-                               'local_dispatch_spacing'))
-        if len(self._minute_dispatches) >= self.requests_per_minute:
+        if scope == 'island' and self._last_background_dispatch is not None:
+            candidates.append((max(0., self._last_background_dispatch + self.background_min_dispatch_interval_seconds - now),
+                               'local_background_spacing'))
+        if scope == 'island' and len(self._minute_dispatches) >= self.requests_per_minute:
             candidates.append((max(0., self._minute_dispatches[0] + 60. - now), 'local_minute_cap'))
         delay, reason = max(candidates, key=lambda item: item[0])
         return delay, reason if delay > 0 else None
@@ -350,8 +370,25 @@ class ProviderQueue:
         changed, self._pacing_changed = self._pacing_changed, asyncio.Event()
         changed.set()
 
-    def _next_waiter(self):
-        ready = [row for row in self._pending_requests.values() if not row.get('preparing')]
+    @staticmethod
+    def _pool(scope):
+        return 'island' if scope == 'island' else 'normal'
+
+    def _semaphore(self, scope):
+        return self.semaphore if scope == 'island' else self.interactive_semaphore
+
+    def _next_waiter(self, scope=None):
+        ready = [row for row in self._pending_requests.values() if not row.get('preparing')
+                 and (scope is None or self._pool(row['scope']) == self._pool(scope))]
+        if not ready: return None
+        now = self.clock()
+        # A council's future Slow slot must not hold an interactive request.
+        # Fairness applies only once the background work is actually eligible.
+        eligible = [row for row in ready if self._wait_condition(now, row['scope'])[0] <= 0]
+        if not eligible:
+            earliest = min(self._wait_condition(now, row['scope'])[0] for row in ready)
+            eligible = [row for row in ready if self._wait_condition(now, row['scope'])[0] == earliest]
+        ready = eligible
         foreground = [row for row in ready if row['priority'] == 'foreground']
         background = [row for row in ready if row['priority'] == 'background']
         # At most three ready foreground calls may pass a waiting background
@@ -361,7 +398,7 @@ class ProviderQueue:
         return next(iter(foreground or background), None)
 
     def _selected(self, waiter):
-        return self._next_waiter() is waiter
+        return self._next_waiter(waiter['scope']) is waiter
 
     def _dispatched(self, waiter):
         self._pending_requests.pop(waiter['id'], None)
@@ -372,32 +409,37 @@ class ProviderQueue:
             self._foreground_streak = 0
         self._wake_admission()
 
-    async def _wait_for_slot(self):
+    async def _wait_for_slot(self, semaphore):
         # The semaphore covers only admission transactions and actual calls,
         # never the Slow pacing sleep. Recheck priority after a slot opens.
-        await self.semaphore.acquire()
-        self.semaphore.release()
+        await semaphore.acquire()
+        semaphore.release()
         self._wake_admission()
 
     async def _admit(self, waiter, prepare=None, *, model='', category='agent'):
         identifier = waiter['id']
+        scope = waiter['scope']
+        semaphore = self._semaphore(scope)
         if self.ledger:
             await self.load_ledger()
-            self._require_daily_allowance(self.clock(), refreshed=True)
+            self._require_daily_allowance(self.clock(), refreshed=True, scope=scope)
         while True:
             self.require_enabled()
             async with self._admission_lock:
                 now = self.clock()
                 self._prune(now)
-                self._require_daily_allowance(now)
-                delay, _ = self._wait_condition(now)
+                self._require_daily_allowance(now, scope=scope)
+                delay, _ = self._wait_condition(now, scope)
                 changed = self._pacing_changed
-                selected, full = self._selected(waiter), self.semaphore.locked()
+                selected, full = self._selected(waiter), semaphore.locked()
             if not selected:
-                await changed.wait()
+                # Eligibility can change through time alone. Wake this waiter
+                # at its own boundary even if nobody dispatches or cancels.
+                if delay > 0: await self._wait_for_pacing(delay, changed)
+                else: await changed.wait()
                 continue
             if full:
-                await self._wait_for_slot()
+                await self._wait_for_slot(semaphore)
                 continue
             if delay > 0:
                 await self._wait_for_pacing(delay, changed)
@@ -417,14 +459,14 @@ class ProviderQueue:
             async with self._admission_lock:
                 now = self.clock()
                 self._prune(now)
-                self._require_daily_allowance(now)
-                delay, _ = self._wait_condition(now)
+                self._require_daily_allowance(now, scope=scope)
+                delay, _ = self._wait_condition(now, scope)
                 changed = self._pacing_changed
-                selected, full = self._selected(waiter), self.semaphore.locked()
+                selected, full = self._selected(waiter), semaphore.locked()
                 if selected and not full and delay <= 0:
                     # No await between the unlocked check and this immediate
                     # acquisition. Ownership transfers to run() only on success.
-                    await self.semaphore.acquire()
+                    await semaphore.acquire()
                     handed_off = False
                     try:
                         if self.ledger:
@@ -432,7 +474,8 @@ class ProviderQueue:
                                 admission = await asyncio.to_thread(self.ledger.admit, identifier, now,
                                     requests_per_minute=self.requests_per_minute, requests_per_day=self.requests_per_day,
                                     interval_seconds=self.min_dispatch_interval_seconds, concurrency=self.concurrency,
-                                    model=model, category=category)
+                                    model=model, category=category, priority=waiter['priority'],
+                                    interactive_concurrency=self.interactive_concurrency)
                             except Exception:
                                 self.ledger_error = 'Admission history could not be confirmed. No provider request was sent.'
                                 self._reject_local('local_ledger_unavailable', self.ledger_error, 5.)
@@ -440,26 +483,29 @@ class ProviderQueue:
                             if not admission['admitted']:
                                 if admission['reason'] == 'local_daily_cap':
                                     self._reject_local('local_daily_cap',
-                                        'The shared Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
+                                        'The island agent safety cap for the last 24 hours is reached. No request was sent to Google.',
                                         admission['wait_seconds'])
                                 delay = min(5., admission['wait_seconds']) if admission['reason'] == 'local_concurrency' else admission['wait_seconds']
                             else:
                                 handed_off = True
                         else:
-                            self._minute_dispatches.append(now)
-                            self._day_dispatches.append(now)
-                            self._last_dispatch = now
+                            self._all_dispatches.append(now)
+                            if scope == 'island':
+                                self._minute_dispatches.append(now)
+                                self._day_dispatches.append(now)
+                                self._last_dispatch = self._last_background_dispatch = now
                             handed_off = True
                         if handed_off:
                             self._dispatched(waiter)
                             return {'id': identifier, 'at': now}
                     finally:
                         if not handed_off:
-                            self.semaphore.release()
+                            semaphore.release()
             if not selected:
-                await changed.wait()
+                if delay > 0: await self._wait_for_pacing(delay, changed)
+                else: await changed.wait()
             elif full:
-                await self._wait_for_slot()
+                await self._wait_for_slot(semaphore)
             else:
                 await self._wait_for_pacing(delay, changed)
 
@@ -467,10 +513,12 @@ class ProviderQueue:
         self.require_enabled()
         now = self.clock()
         self._prune(now)
-        self._require_daily_allowance(now)
+        scope = request_scope(category)
+        self._require_daily_allowance(now, scope=scope)
         # No await between testing and incrementing: the pending bound is
         # atomic on this event loop, including callers waiting on a semaphore.
-        if self.waiting - self.active >= self.max_pending:
+        pending = sum(self._pool(row['scope']) == self._pool(scope) for row in self._pending_requests.values())
+        if pending >= (self.max_pending if scope == 'island' else self.interactive_max_pending):
             self._reject_local('local_queue_full',
                 'The local Gemini waiting queue is full. No request was sent to Google; try again after pending work completes.',
                 5.)
@@ -478,7 +526,7 @@ class ProviderQueue:
             priority = 'foreground' if category in ('recognition', 'recognition_embedding') else 'background'
         if priority not in ('foreground', 'background'):
             raise ValueError('Unknown provider queue priority.')
-        waiter = {'id': uuid4().hex, 'priority': priority, 'category': category, 'preparing': False}
+        waiter = {'id': uuid4().hex, 'priority': priority, 'category': category, 'scope': scope, 'preparing': False}
         self.waiting += 1
         self._pending_requests[waiter['id']] = waiter
         self._wake_admission()
@@ -487,6 +535,7 @@ class ProviderQueue:
             # a dispatch allowance. Preparation may rerun after a queue race.
             ticket = await self._admit(waiter, prepare, model=model, category=category)
             self.active += 1
+            self._active_scopes[scope] += 1
             outcome = 'uncertain'
             try:
                 # Storage admission yields; a pause may arrive while its
@@ -520,23 +569,27 @@ class ProviderQueue:
                     await asyncio.shield(self._finish_ledger(ticket, outcome))
                 finally:
                     self.active -= 1
-                    self.semaphore.release()
+                    self._active_scopes[scope] -= 1
+                    self._semaphore(scope).release()
                     self._wake_admission()
         finally:
             self.waiting -= 1
             self._pending_requests.pop(waiter['id'], None)
             self._wake_admission()
 
-    def status(self):
+    def status(self, *, priority='background'):
+        if priority not in ('foreground', 'background'):
+            raise ValueError('Unknown provider queue priority.')
         now = self.clock()
+        scope = 'interactive' if priority == 'foreground' else 'island'
         self._prune(now)
-        delay, reason = self._wait_condition(now)
+        delay, reason = self._wait_condition(now, scope)
         if self.paused:
             reason, delay = 'ai_paused', 0.
-        elif len(self._day_dispatches) >= self.requests_per_day:
+        elif scope == 'island' and len(self._day_dispatches) >= self.requests_per_day:
             reason = 'local_daily_cap'
             delay = max(0., self._day_dispatches[-self.requests_per_day] + 86400. - now)
-        elif not reason and self.active >= self.concurrency:
+        elif not reason and self._semaphore(scope).locked():
             reason = 'local_concurrency'
         return {'waiting': max(0, self.waiting - self.active), 'active': self.active,
                 'paused': self.paused, 'pause_reason': AI_PAUSE_REASON if self.paused else None,
@@ -546,23 +599,31 @@ class ProviderQueue:
                 'last_local_error': self.last_local_error, 'local_rejected': self.local_rejected,
                 'counter_scope': 'database_rolling_window' if self.ledger else 'process_lifetime',
                 'admission_ledger': {key: value for key, value in (self.ledger_snapshot or {}).items()
-                    if key not in ('timestamps', 'last_dispatch_at', 'cooldown_until')},
+                    if key not in ('timestamps', 'island_timestamps', 'last_dispatch_at', 'last_background_dispatch_at', 'cooldown_until')},
                 'admission_ledger_error': self.ledger_error,
-                'scheduling': {'policy': 'foreground_with_bounded_background_fairness',
+                'scheduling': {'policy': 'independent_island_and_normal_pools',
                     'scope': 'backend_process', 'foreground_burst_limit': FOREGROUND_BURST_LIMIT,
                     'waiting_foreground': sum(row['priority'] == 'foreground' for row in self._pending_requests.values()),
                     'waiting_background': sum(row['priority'] == 'background' for row in self._pending_requests.values()),
                     'next_category': (self._next_waiter() or {}).get('category')},
                 'pacing': self.pacing(),
-                'local_limits': {'requests_per_minute': self.requests_per_minute,
+                'scopes': {name: {'active': self._active_scopes[name],
+                    'waiting': sum(row['scope'] == name for row in self._pending_requests.values())}
+                    for name in self._active_scopes},
+                'interactive_limits': {'concurrency': self.interactive_concurrency,
+                    'min_dispatch_interval_seconds': 0., 'requests_per_minute': None,
+                    'requests_per_day': None, 'max_pending': self.interactive_max_pending},
+                'local_limits': {'scope': 'island', 'requests_per_minute': self.requests_per_minute,
                     'requests_per_day': self.requests_per_day, 'max_pending': self.max_pending,
                     'min_dispatch_interval_seconds': self.min_dispatch_interval_seconds,
+                    'background_min_dispatch_interval_seconds': self.background_min_dispatch_interval_seconds,
                     'concurrency': self.concurrency},
-                'local_usage': {'requests_last_minute': len(self._minute_dispatches),
+                'local_usage': {'scope': 'island', 'requests_last_minute': len(self._minute_dispatches),
                     'requests_last_24_hours': len(self._day_dispatches),
+                    'all_requests_last_24_hours': len(self._all_dispatches),
                     'requests_remaining_minute': max(0, self.requests_per_minute - len(self._minute_dispatches)),
                     'requests_remaining_day': max(0, self.requests_per_day - len(self._day_dispatches))},
-                'wait_reason': reason, 'dispatch_wait_seconds': round(delay, 2)}
+                'wait_scope': scope, 'wait_reason': reason, 'dispatch_wait_seconds': round(delay, 2)}
 
     def require_enabled(self):
         if self.paused:

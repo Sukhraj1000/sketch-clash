@@ -99,7 +99,7 @@ async def test_pause_while_waiting_prevents_all_evaluation_provider_calls(operat
     seed_case(repo, 'development')
     job = store.job(create_job(store)['id'])
     budget = JobBudget(store, job['id'])
-    queue = ProviderQueue()
+    queue = ProviderQueue(interactive_concurrency=1)
     provider = FakeClient([proposal()])
     provider.aio.models = SimpleNamespace(embed_content=AsyncMock())
     if operation == 'recognition':
@@ -118,7 +118,7 @@ async def test_pause_while_waiting_prevents_all_evaluation_provider_calls(operat
         retriever = AtlasRetriever(client=BudgetedEmbeddingClient(provider, budget))
         retriever.provider_queue = queue
         request = retriever.embed('fixture description')
-    await queue.semaphore.acquire()
+    await queue.interactive_semaphore.acquire()
     task = asyncio.create_task(request)
     try:
         for _ in range(100):
@@ -128,7 +128,7 @@ async def test_pause_while_waiting_prevents_all_evaluation_provider_calls(operat
         assert queue.waiting == 1
         store.set_evaluation_pause(True, reviewer='fixture', reason='Pause a queued batch before provider dispatch.')
     finally:
-        queue.semaphore.release()
+        queue.interactive_semaphore.release()
     with pytest.raises(StoreError) as exc:
         await task
     assert exc.value.code == 'evaluation_paused'

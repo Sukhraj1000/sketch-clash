@@ -111,7 +111,8 @@ class FrozenAtlasRetriever(AtlasRetriever):
         config = RetrievalConfig(**snapshot['retrieval_config'])
         collection = repository.db.characterTypes if hasattr(repository, 'db') else None
         wrapped = BudgetedEmbeddingClient(client, budget) if client is not None and budget is not None else None
-        super().__init__(collection=collection, client=wrapped, config=config, settings=repository.settings)
+        super().__init__(collection=collection, client=wrapped, config=config, settings=repository.settings,
+                         provider_category='evaluation_embedding')
 
     async def _unchanged(self):
         records = await asyncio.to_thread(_approved_records, self.repository)

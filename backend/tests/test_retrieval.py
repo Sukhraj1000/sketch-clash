@@ -85,3 +85,29 @@ async def test_persisting_canonical_kind_never_writes_world_membership():
     assert writes[0][0] == {'canonical_key': 'spoon'}
     assert '$setOnInsert' in writes[0][1]
     assert 'world_id' not in writes[0][1]['$setOnInsert']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('category,island_count', [('embedding', 0), ('island_embedding', 1), ('evaluation_embedding', 0)])
+async def test_embedding_work_is_charged_to_its_actual_scope(category, island_count):
+    from app.provider_queue import ProviderQueue
+    async def embed_content(**kwargs):
+        return SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 2.0, 3.0])])
+    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(embed_content=embed_content)))
+    retrieval = AtlasRetriever(client=client, config=RetrievalConfig(dimensions=3), provider_category=category)
+    retrieval.provider_queue = ProviderQueue()
+    await retrieval.embed('scope fixture')
+    usage = retrieval.provider_queue.status()['local_usage']
+    assert usage['requests_last_24_hours'] == island_count
+    assert usage['all_requests_last_24_hours'] == 1
+
+
+def test_runtime_island_memory_embeddings_use_the_island_budget():
+    from fastapi.testclient import TestClient
+    from backend.app.config import Settings
+    from backend.app.main import create_app
+    from backend.app.repository import MemoryRepository
+    settings = Settings(repository='memory', ai_paused=True)
+    app = create_app(settings, MemoryRepository(settings), object())
+    with TestClient(app):
+        assert app.state.colony_planner.memory_embedder.provider_category == 'island_embedding'

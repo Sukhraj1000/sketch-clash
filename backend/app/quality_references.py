@@ -147,7 +147,7 @@ class ApprovedReferences:
                     model=MODEL,
                     contents=[types.Part.from_bytes(data=media['data'], mime_type=media['mime_type'])],
                     config=types.EmbedContentConfig(output_dimensionality=DIMENSIONS)), TIMEOUT)
-            response = await self.provider_queue.run(MODEL, invoke, category='embedding',
+            response = await self.provider_queue.run(MODEL, invoke, category='evaluation_embedding' if budget else 'embedding',
                 prepare=getattr(budget, 'check', None)) if self.provider_queue else await invoke()
         if budget:
             # Unknown/failed provider outcomes deliberately keep the reservation pending.
