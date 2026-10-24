@@ -12,7 +12,7 @@ export type ObservatoryMetrics = { window_minutes: number; totals: {count: numbe
 export type CouncilSession = { id: string; island_id?: string; colony_id?: string; status: string; created_at: string; last_event_at?: string; event_count?: number }
 export type RequestPaceMode = 'slow' | 'steady' | 'fast'
 export type RequestPacing = {
-  mode: RequestPaceMode
+  mode: RequestPaceMode; scope: 'background'
   options: { mode: RequestPaceMode; label: string; requests_per_minute: number; min_dispatch_interval_seconds: number }[]
   effective_requests_per_minute: number; paused: boolean; persistence: string
   hard_limit_requests_per_minute: number; updated_at: string | null; revision: number

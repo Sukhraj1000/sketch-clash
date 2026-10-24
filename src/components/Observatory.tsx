@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Activity, ArrowLeft, ArrowRight, BrainCircuit, CheckCheck, ChevronRight, Database, FlaskConical, GitBranch, History, MessageSquare, Pause, Play, Radio, RefreshCw, ShieldCheck, SkipForward, Sparkles, Timer, WifiOff, X } from 'lucide-react'
 import { coloniesRequest } from '../lib/colonies'
-import type { ColoniesSnapshot } from '../lib/colonies'
+import type { ColoniesSnapshot, GeminiQueueStatus } from '../lib/colonies'
 import { eventCategory, eventLabel, mergeEvents, observatory } from '../lib/observatory'
 import type { AgentEvent, CouncilSession, ObservatoryMetrics, TraceDetail, RequestPacing, RequestPaceMode, Contributions, EventEvidence } from '../lib/observatory'
 import './Observatory.css'
@@ -20,11 +20,44 @@ const resourceSummary = (values: unknown, prefix = '') => { const ledger = recei
 const count = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
 const guardWaitLabels: Record<string, string> = {
   ai_paused: 'Gemini activity paused',
-  local_dispatch_spacing: 'Spacing requests',
+  local_dispatch_spacing: 'Shared Gemini safety spacing',
+  local_background_spacing: 'Island thinking pace',
   local_minute_cap: 'Local minute limit reached',
   local_daily_cap: 'Local 24-hour limit reached',
   local_concurrency: 'Waiting for the active request',
   provider_cooldown: 'Honouring a provider cooldown',
+}
+
+export function IslandPacingControls({ pacing, paceSaving, paceError, reasoningPaused, changePace }: {
+  pacing: RequestPacing | null; paceSaving: boolean; paceError: string; reasoningPaused: boolean; changePace: (next: RequestPaceMode) => void | Promise<void>
+}) {
+  return <section className="obs-pace" aria-label="Island AI request pace">
+      <div className="obs-pace-intro"><span className="obs-eyebrow"><Timer size={13}/> ISLAND AI REQUEST PACE</span><h2>SET THE ISLAND THINKING TEMPO</h2><p>Spaces out island discussions and other background AI work. Camera recognition gets priority and uses the shared safety limits.</p></div>
+      <div className="obs-pace-options" aria-label="Choose island AI pace">{pacing?.options.map(option => <button key={option.mode} aria-pressed={pacing.mode === option.mode} disabled={paceSaving} onClick={() => void changePace(option.mode)}><strong>{option.label}</strong><span>Up to {option.requests_per_minute} / minute</span><small>At least {option.min_dispatch_interval_seconds}s apart</small></button>)}{!pacing && <p>Reading the saved island AI pace…</p>}</div>
+      <div className="obs-pace-state" role="status">{paceSaving ? 'Saving the island AI pace…' : paceError ? paceError : pacing ? <><b>{pacing.paused || reasoningPaused ? 'Gemini remains paused.' : `Background ceiling: ${pacing.effective_requests_per_minute} request${pacing.effective_requests_per_minute === 1 ? '' : 's'} per minute.`}</b> {pacing.paused || reasoningPaused ? 'The selected island pace will apply when Gemini is resumed.' : 'This is a maximum for background work; demand and shared limits may send fewer requests.'} <span>All requests share the daily cap, concurrency limits and provider cooldowns. Local actions and replay run at their own speed.</span></> : 'Existing safety limits remain in force.'}</div>
+    </section>
+}
+
+export function GeminiSafeguards({ providerQueue, reasoningPaused }: { providerQueue?: GeminiQueueStatus; reasoningPaused: boolean }) {
+  const localLimits = providerQueue?.local_limits
+  if (!localLimits) return null
+  const localUsage = providerQueue?.local_usage
+  const guardPaused = reasoningPaused || providerQueue?.paused
+  const guardWait = providerQueue?.wait_reason
+  const guardStatus = guardPaused ? 'Gemini activity paused' : guardWait ? (guardWaitLabels[guardWait] || 'Waiting before dispatch') : 'Ready within local limits'
+  return <section className="obs-guardrails" aria-label="Current local Gemini safeguards">
+      <header><span><ShieldCheck size={14}/> SHARED GEMINI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
+      <dl>
+        <div><dt>SHARED REQUEST LIMIT</dt><dd>{count(localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} reserved in the last minute · at least {count(localLimits.min_dispatch_interval_seconds)}s apart</small></div>
+        <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
+        <div><dt>SHARED QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.active)} active · {count(providerQueue?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
+      </dl>
+      <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
+      <p className="obs-guard-note">These application safety limits cover camera recognition and island AI. They are not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The rolling request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
+      {providerQueue?.admission_ledger?.historical_usage_unknown && !providerQueue.admission_ledger.rolling_window_complete && <p className="obs-guard-note">Earlier usage was not fully recorded. Known requests were carried forward conservatively; complete rolling coverage starts after the first 24 hours.</p>}
+      {providerQueue?.admission_ledger_error && <p className="obs-guard-note" role="alert">Saved request budget is unavailable. New model requests are blocked until storage recovers.</p>}
+      {providerQueue?.last_local_error?.message && <p className="obs-guard-note"><b>Last local limit event:</b> {providerQueue.last_local_error.message}</p>}
+    </section>
 }
 
 export default function Observatory({ onBack, aiPaused=false }: { onBack?: () => void; aiPaused?: boolean }) {
@@ -167,9 +200,9 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
       }, result => {
         if (result.revision === paceRevision.current) {
           if (result.value) {setPacing(result.value); setPaceError('')}
-          else setPaceError('Request pace is unavailable. The existing backend limits remain in force.')
+          else setPaceError('Island AI pace is unavailable. The existing backend limits remain in force.')
         }
-      }, () => setPaceError('Request pace is unavailable. The existing backend limits remain in force.'), controller.signal),
+      }, () => setPaceError('Island AI pace is unavailable. The existing backend limits remain in force.'), controller.signal),
       startIndependentPoll(() => observatory.contributions(controller.signal), value => {
         setContributions(value); setContributionError('')
       }, () => {setContributions(null); setContributionError('Saved contribution totals are unavailable.')}, controller.signal),
@@ -269,7 +302,7 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
     if (paceSaving || next === pacing?.mode) return
     paceRevision.current += 1; setPaceSaving(true); setPaceError('')
     try {setPacing(await observatory.setPacing(next))}
-    catch (problem) {setPaceError(problem instanceof Error ? problem.message : 'Could not save request pace.')}
+    catch (problem) {setPaceError(problem instanceof Error ? problem.message : 'Could not save island AI pace.')}
     finally {paceRevision.current += 1; setPaceSaving(false)}
   }
 
@@ -280,11 +313,6 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
   const reasoningPaused = aiPaused || Boolean(snapshot?.planner?.paused)
   const reasoningIssue = snapshot?.planner?.error
   const providerQueue = snapshot?.planner?.provider_queue
-  const localLimits = providerQueue?.local_limits
-  const localUsage = providerQueue?.local_usage
-  const guardPaused = reasoningPaused || providerQueue?.paused
-  const guardWait = providerQueue?.wait_reason
-  const guardStatus = guardPaused ? 'Gemini activity paused' : guardWait ? (guardWaitLabels[guardWait] || 'Waiting before dispatch') : 'Ready within local limits'
   const totalTokens = metrics?.totals.total_tokens || (metrics?.totals.input_tokens || 0) + (metrics?.totals.output_tokens || 0)
   const modelRequests = Object.entries(metrics?.event_counts || {}).filter(([key]) => /model.requested/.test(key)).reduce((sum, [, count]) => sum + count, 0)
   const experiments = Object.entries(metrics?.event_counts || {}).filter(([key]) => /experiment.completed/.test(key)).reduce((sum, [, count]) => sum + count, 0)
@@ -317,25 +345,8 @@ export default function Observatory({ onBack, aiPaused=false }: { onBack?: () =>
 
     {reasoningIssue && !reasoningPaused && <div className="obs-notice obs-model-notice" role="status"><Sparkles size={15}/><span><strong>Last recorded discussion issue.</strong> {reasoningIssue}</span><button onClick={() => setCategory('model')}>Inspect model events <ArrowRight size={13}/></button></div>}
 
-    <section className="obs-pace" aria-label="Gemini request pace">
-      <div className="obs-pace-intro"><span className="obs-eyebrow"><Timer size={13}/> ACTUAL API REQUEST PACE</span><h2>SET THE THINKING TEMPO</h2><p>Spaces out real Gemini requests across all workers. Local actions finish at their own pace.</p></div>
-      <div className="obs-pace-options" aria-label="Choose request pace">{pacing?.options.map(option => <button key={option.mode} aria-pressed={pacing.mode === option.mode} disabled={paceSaving} onClick={() => void changePace(option.mode)}><strong>{option.label}</strong><span>Up to {option.requests_per_minute} / minute</span><small>At least {option.min_dispatch_interval_seconds}s apart</small></button>)}{!pacing && <p>Reading the saved request pace…</p>}</div>
-      <div className="obs-pace-state" role="status">{paceSaving ? 'Saving the request pace…' : paceError ? paceError : pacing ? <><b>{pacing.paused || reasoningPaused ? 'Gemini remains paused.' : `Admission ceiling: ${pacing.effective_requests_per_minute} requests per minute.`}</b> {pacing.paused || reasoningPaused ? 'The selected pace will apply when Gemini is resumed.' : 'This sets a maximum; work demand and safety limits may send fewer requests.'} <span>Daily request cap, concurrency limits and provider cooldowns still apply. This does not change replay speed.</span></> : 'Existing safety limits remain in force.'}</div>
-    </section>
-
-    {localLimits && <section className="obs-guardrails" aria-label="Current local Gemini safeguards">
-      <header><span><ShieldCheck size={14}/> GEMINI SAFEGUARDS</span><small>Current backend state · also shown during replay</small></header>
-      <dl>
-        <div><dt>REQUEST PACE</dt><dd>{count(pacing?.effective_requests_per_minute ?? localLimits.requests_per_minute)}<span> / minute</span></dd><small>{count(localUsage?.requests_last_minute)} reserved in the last minute · at least {count(pacing?.options.find(option => option.mode === pacing.mode)?.min_dispatch_interval_seconds ?? localLimits.min_dispatch_interval_seconds)}s apart</small></div>
-        <div><dt>ROLLING 24 HOURS</dt><dd>{count(localUsage?.requests_last_24_hours)}<span> / {count(localLimits.requests_per_day)} requests</span></dd><small>{count(localUsage?.requests_remaining_day)} local requests remaining</small></div>
-        <div><dt>SHARED QUEUE</dt><dd>{count(localLimits.concurrency)}<span> at a time</span></dd><small>{count(providerQueue?.active)} active · {count(providerQueue?.waiting)} waiting · {count(localLimits.max_pending)} waiting slots</small></div>
-      </dl>
-      <p className="obs-guard-status"><span className={`obs-status-dot ${!guardPaused && !guardWait ? 'is-on' : ''}`}/><strong>{guardStatus}</strong>{!guardPaused && (providerQueue?.dispatch_wait_seconds || 0) > 0 && <span>Next admission check in about {count(Math.ceil(providerQueue!.dispatch_wait_seconds!))}s</span>}</p>
-      <p className="obs-guard-note">These are application safety limits, not Google quotas. {providerQueue?.counter_scope === 'database_rolling_window' ? 'The rolling request budget is saved in MongoDB and survives backend restarts. Counts include failed or uncertain reservations.' : 'This backend is using process-local counters; those reset when it restarts.'}</p>
-      {providerQueue?.admission_ledger?.historical_usage_unknown && !providerQueue.admission_ledger.rolling_window_complete && <p className="obs-guard-note">Earlier usage was not fully recorded. Known requests were carried forward conservatively; complete rolling coverage starts after the first 24 hours.</p>}
-      {providerQueue?.admission_ledger_error && <p className="obs-guard-note" role="alert">Saved request budget is unavailable. New model requests are blocked until storage recovers.</p>}
-      {providerQueue?.last_local_error?.message && <p className="obs-guard-note"><b>Last local limit event:</b> {providerQueue.last_local_error.message}</p>}
-    </section>}
+    <IslandPacingControls pacing={pacing} paceSaving={paceSaving} paceError={paceError} reasoningPaused={reasoningPaused} changePace={changePace}/>
+    <GeminiSafeguards providerQueue={providerQueue} reasoningPaused={reasoningPaused}/>
 
     <section className="obs-reading-guide" aria-label="What the activity means">
       <div><span>01</span><p><b>THE PLAN</b><small>{reasoningPaused?'Gemini paused. Existing discussions remain readable.':'Resident messages are proposals, not completed work.'}</small></p></div>

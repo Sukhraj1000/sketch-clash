@@ -59,6 +59,12 @@ try {
   assert.match(waiting, /The shared council is with Loser Island · turn 3 of 6/)
   assert.doesNotMatch(waiting, /Council in progress\.|This crew has the current council turn/)
 
+  const separateRates = render(colony, { ...planner, provider_queue: { local_limits: { min_dispatch_interval_seconds: 15, background_min_dispatch_interval_seconds: 60 } } })
+  assert.match(separateRates, /Island AI requests are spaced at least 60 seconds apart/)
+  assert.doesNotMatch(separateRates, /spaced at least 15 seconds apart/, 'The shared camera safeguard must not be shown as the island discussion pace')
+  const legacyRate = render(colony, { ...planner, provider_queue: { local_limits: { min_dispatch_interval_seconds: 60 } } })
+  assert.match(legacyRate, /Island AI requests are spaced at least 60 seconds apart/)
+
   const message = { id: 'saved-message', kind: 'reflection', origin: 'model', text: 'Saved thought', interpretation: 'I can support the garden with a stable surface.', session_id: 'saved-session', run_id: 'saved-run', turn_index: 0, actor_name: 'Pencil', status: 'open', created_at: '2026-10-24T12:00:00Z' }
   const saved = render({ ...colony, board: [message], island: { ...colony.island, paused: true } }, { ...planner, paused: true }, { paused: true })
   assert.match(saved, /Island paused\./)

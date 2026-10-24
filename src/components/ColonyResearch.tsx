@@ -17,12 +17,12 @@ export function LiveConversation({ colony, planner, paused = false, canThink = t
   const conversation = messages.filter(m => m.session_id === session).sort((a, b) => (a.turn_index ?? 0) - (b.turn_index ?? 0) || Date.parse(a.created_at) - Date.parse(b.created_at))
   const receipts = recentActionReceipts(colony)
   const queue = planner?.provider_queue
-  const interval = queue?.local_limits?.min_dispatch_interval_seconds
+  const interval = queue?.local_limits?.background_min_dispatch_interval_seconds ?? queue?.local_limits?.min_dispatch_interval_seconds
   const activity = colonyActivity(colony, planner, paused)
   return <section className="research-conversation" aria-label="Actual agent conversation">
     <div className="research-heading"><div><span><MessageCircle size={14}/> SEPARATE AGENTS. ONE SHARED BOARD.</span><h2>The crew’s conversation.</h2></div><a href="#/observatory">WATCH UNDER THE HOOD <ArrowRight size={15}/></a></div>
     <p>These are saved Gemini responses from separate resident turns. Each speaker reads the earlier discussion. Accepted plans run through the local executor; their completed work appears below.</p>
-    <div className="research-live-status" role="status" data-activity={activity.tone}><Timer size={15}/><span><b>{activity.label}.</b> {activity.detail}{activity.tone !== 'paused' && activity.tone !== 'unavailable' && interval ? ` Requests are spaced at least ${Math.ceil(interval)} seconds apart.` : ''}</span></div>
+    <div className="research-live-status" role="status" data-activity={activity.tone}><Timer size={15}/><span><b>{activity.label}.</b> {activity.detail}{activity.tone !== 'paused' && activity.tone !== 'unavailable' && interval ? ` Island AI requests are spaced at least ${Math.ceil(interval)} seconds apart.` : ''}</span></div>
     {sessions.length > 1 && <label className="research-select">CONVERSATION <select value={session} onChange={e => setChosen(e.target.value)}>{sessions.map((s, i) => <option key={s} value={s}>{i === 0 ? 'Latest discussion' : `Earlier discussion ${i}`}</option>)}</select></label>}
     {!conversation.length ? <div className="research-empty"><MessageCircle/><h3>No saved model messages are loaded for this island.</h3><p>{activity.detail} {canThink ? 'Use “Gather the crew” to request a discussion. The board shows responses only after they are saved.' : 'Existing messages remain readable when available; no conversation is generated for display.'}</p></div> : <div className="research-transcript">{conversation.map((m, index) => {
       const resident = colony.characters.find(c => c.id === m.character_id)

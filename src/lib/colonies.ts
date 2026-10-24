@@ -65,7 +65,7 @@ export type GeminiQueueStatus = {
   paused?: boolean; active?: number; waiting?: number; completed?: number; throttled?: number
   local_limits?: {
     requests_per_minute?: number; requests_per_day?: number; max_pending?: number
-    min_dispatch_interval_seconds?: number; concurrency?: number
+    min_dispatch_interval_seconds?: number; background_min_dispatch_interval_seconds?: number; concurrency?: number
   }
   local_usage?: {
     requests_last_minute?: number; requests_last_24_hours?: number
