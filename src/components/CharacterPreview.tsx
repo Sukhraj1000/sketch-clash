@@ -2,11 +2,12 @@ import { characterDisplayScale } from './objectPresentation'
 import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { AmbientLight, Box3, Color, DirectionalLight, Group, Mesh, Scene, Vector3, WebGLRenderTarget } from 'three'
+import { AmbientLight, Box3, Color, DirectionalLight, Group, Mesh, PerspectiveCamera, Scene, Vector3, WebGLRenderTarget } from 'three'
 import { Camera, Check, CircleAlert, RotateCw } from 'lucide-react'
 import { animateCharacterBody, CharacterShape } from './WorldScene'
 import type { CharacterActivity, CharacterVisual } from './WorldScene'
 import './CharacterPreview.css'
+import { previewFraming } from './previewFraming'
 
 export type RenderReport = {
   status: 'checking' | 'passed' | 'failed' | 'unavailable'
@@ -37,8 +38,9 @@ function PreviewRig({ fighter, motion, turning, onReport, onCanvas }: { fighter:
   const sampledChecks = useRef({ finite: true, bounds: true, visible: true })
   const sampledErrors = useRef<string[]>([])
   const sampledBounds = useRef({ width: 0, height: 0, depth: 0 })
+  const framedViewport = useRef('')
   const asset = useRef<'pending' | 'ready' | 'failed'>(fighter.visual_spec.template_id === 'generic' ? 'pending' : 'ready')
-  const { camera, gl } = useThree()
+  const { camera, gl, size: viewport } = useThree()
   const assetState = useCallback((state: 'ready' | 'failed') => { asset.current = state }, [])
   useEffect(() => {
     onCanvas(gl.domElement)
@@ -55,6 +57,19 @@ function PreviewRig({ fighter, motion, turning, onReport, onCanvas }: { fighter:
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     root.current.rotation.y = turning && !reduce ? time * .45 : -.28
     animateCharacterBody(body.current, fighter.visual_spec.animation_style, motion, time, 0, reduce)
+    const frameKey = `${viewport.width}:${viewport.height}`
+    if (asset.current !== 'pending' && framedViewport.current !== frameKey && camera instanceof PerspectiveCamera) {
+      root.current.updateWorldMatrix(true, true)
+      const box = new Box3().setFromObject(root.current)
+      if (!box.isEmpty() && [...box.min.toArray(), ...box.max.toArray()].every(Number.isFinite)) {
+        const frame = previewFraming(box, viewport.width / Math.max(1, viewport.height), camera.fov)
+        const center = new Vector3(0, frame.centerY, 0)
+        camera.position.copy(new Vector3(.9, .65, 1.8).normalize().multiplyScalar(frame.distance).add(center))
+        camera.lookAt(center)
+        camera.updateMatrixWorld()
+        framedViewport.current = frameKey
+      }
+    }
     if (verified.current) return
     if (asset.current === 'pending' && time < 12) return
     frames.current += 1
@@ -160,13 +175,13 @@ export default function CharacterPreview({ fighter, label, scope, compact = fals
     } catch { publish({ ...report, status: 'failed', errors: [...report.errors, 'PNG capture was unavailable.'] }) }
   }
   return <div className={`character-preview ${compact ? 'is-compact' : ''}`}>
-    <div className="character-preview-heading"><span>{scope ?? label ?? 'Fighter preview'}</span><span aria-label={`3D check ${report.status}`} className={`preview-verdict is-${report.status}`}>{report.status === 'passed' ? <Check size={12} /> : report.status === 'checking' ? <RotateCw size={12} /> : <CircleAlert size={12} />}{report.status === 'passed' ? '3D checked' : report.status === 'checking' ? 'Checking 3D' : `3D ${report.status}`}</span></div>
+    <div className="character-preview-heading"><span>{scope ?? label ?? 'Fighter preview'}</span><span aria-label={`Rendering check ${report.status}`} title="Checks geometry, visibility and animation. You decide whether the character resembles your object." className={`preview-verdict is-${report.status}`}>{report.status === 'passed' ? <Check size={12} /> : report.status === 'checking' ? <RotateCw size={12} /> : <CircleAlert size={12} />}{report.status === 'passed' ? 'Render OK' : report.status === 'checking' ? 'Checking render' : `Render ${report.status}`}</span></div>
     <div className="character-preview-stage">
       {supported === true && <PreviewBoundary key={identity} onError={runtimeError}><Canvas shadows="percentage" dpr={[1, 1.5]} camera={{ position: presentation === 'hero' ? [2.4, 1.9, 3.6] : [2.8, 2.5, 5.8], fov: presentation === 'hero' ? 32 : 42, near: .1, far: 30 }} onCreated={({ camera }) => { camera.lookAt(0, presentation === 'hero' ? .7 : 1.3, 0); camera.updateProjectionMatrix() }} gl={{ antialias: true, preserveDrawingBuffer: true, powerPreference: 'low-power' }} aria-label={`${fighter.display_name ?? fighter.object_type ?? 'Object'} procedural character preview`}><PreviewRig fighter={fighter} motion={motion} turning={turning} onReport={publish} onCanvas={saveCanvas} /></Canvas></PreviewBoundary>}
       {supported === null && <span className="preview-unavailable">Opening the character studio…</span>}
       {(supported === false || report.status === 'failed') && <div className="preview-unavailable"><CircleAlert size={25} /><span>{report.errors[0] ?? '3D preview unavailable.'}</span></div>}
     </div>
     {!compact && <div className="character-preview-controls"><div>{(['idle', 'rest', 'wander'] as const).map(state => <button type="button" key={state} aria-pressed={motion === state} onClick={() => setMotion(state)}>{state}</button>)}</div><button type="button" aria-pressed={turning} disabled={supported !== true} onClick={() => setTurning(value => !value)} title="Turntable"><RotateCw size={14} /><span>Turntable</span></button><button type="button" disabled={report.status !== 'passed'} onClick={capture} title="Download preview PNG"><Camera size={14} /><span>PNG</span></button></div>}
-    {!compact && <p className="character-preview-note">Procedural character from the saved appearance and accepted visible features. A 3D check verifies rendering, not a reconstruction of your photo.</p>}
+    <p className="character-preview-note">{compact ? 'Stylised character · compare its shape with your photograph.' : 'Procedural character from the saved appearance and accepted visible features. Render OK checks visibility and animation; confirm resemblance against your photograph.'}</p>
   </div>
 }

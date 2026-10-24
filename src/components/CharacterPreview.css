@@ -12,5 +12,5 @@
 .character-preview-controls button { border:0; background:none; font-size:9px; display:flex; gap:5px; align-items:center; padding:7px 8px; color:var(--ink); text-transform:capitalize; }
 .character-preview-controls button[aria-pressed=true] { color:#fffaf0; background:var(--ink); }
 .character-preview-controls button:disabled { opacity:.45; cursor:not-allowed; }
-.character-preview-note { margin:0; padding:0 12px 11px; color:#898072; font-size:8px; line-height:1.6; }
+.character-preview-note { margin:0; padding:9px 12px 11px; color:#716859; font-size:9px; line-height:1.6; }
 @media(max-width:560px) { .character-preview-stage { height:260px; } .character-preview-heading { font-size:9px; } .character-preview-controls button { font-size:8px; padding:7px; } }
