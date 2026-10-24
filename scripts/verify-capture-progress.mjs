@@ -93,6 +93,7 @@ try {
   const replacements = {
     '../lib/api': new URL('../src/lib/api.ts', import.meta.url).href,
     '../lib/imageInput': new URL('../src/lib/imageInput.ts', import.meta.url).href,
+    '../lib/captureTimer': new URL('../src/lib/captureTimer.ts', import.meta.url).href,
     './FighterReview': 'data:text/javascript,export default function UnusedReview(){return null}',
     react: import.meta.resolve('react'), 'react/jsx-runtime': import.meta.resolve('react/jsx-runtime'), 'lucide-react': import.meta.resolve('lucide-react'),
   }

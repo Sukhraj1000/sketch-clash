@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { Camera, Check, Crop, ImageUp, RotateCcw, ScanLine, X } from 'lucide-react'
+import { Camera, Check, Crop, ImageUp, Pause, RotateCcw, ScanLine, X } from 'lucide-react'
+import { captureTimerActive } from '../lib/captureTimer'
 import { cameraFailureMessage, captureVideoFrame, clampImageCrop, normalizeImage } from '../lib/imageInput'
 import type { ImageCrop, NormalizedImage } from '../lib/imageInput'
 import { LEGACY_THEME, type RoundTheme, type ThemeValidation, type FeedbackInput, type CorrectionInput, type CaptureProgress, type CaptureProgressListener } from '../lib/api'
@@ -197,10 +198,9 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
     return () => observer.disconnect()
   }, [])
 
-  // Time runs only while framing or selecting. Permission and recognition never consume it.
+  // Time runs only while framing or selecting. Recognition and human review never consume it.
   useEffect(() => {
-    const active = stage === 'camera' && frameReady || ['selection', 'recognized', 'recapture'].includes(stage)
-    if (!active || confirming) return
+    if (!captureTimerActive(stage, frameReady, confirming)) return
     let previous = performance.now()
     const interval = window.setInterval(() => {
       const now = performance.now()
@@ -420,10 +420,10 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
       <div className="sketch-heading-copy">
         <span className="sketch-eyebrow"><span /> PLAYER {player} / {stage === 'recognized' ? 'THE REVIEW' : 'CAPTURE STUDIO'}</span>
         <h1>{stage === 'recognized' ? <>A LITTLE MORE <em>YOU.</em></> : <>FIND YOUR <em>CHAMPION.</em></>}</h1>
-        <p>{stage === 'recognized' ? 'A real subject. A fictional fighter. Check its identity and round eligibility.' : theme.instructions}</p>
+        <p>{stage === 'recognized' ? 'Check the identity, appearance and round eligibility. Your capture timer is paused.' : theme.instructions}</p>
       </div>
-      <div className={`sketch-clock ${remaining <= 10 && started ? 'sketch-clock-urgent' : ''}`} aria-label={`${remaining} seconds of active capture time remaining`} title="Paused while permission or recognition is pending. Nothing submits automatically.">
-        <Camera size={20} aria-hidden="true" /><span>{String(remaining).padStart(2, '0')}<small>s</small></span>
+      <div className={`sketch-clock ${remaining <= 10 && captureTimerActive(stage, frameReady, confirming) ? 'sketch-clock-urgent' : ''}`} aria-label={`${stage === 'recognized' ? 'Capture timer paused for review. ' : ''}${remaining} seconds of active capture time remaining`} title="Paused during review, permission and recognition. Nothing submits automatically.">
+        {stage === 'recognized' ? <Pause size={20} aria-hidden="true" /> : <Camera size={20} aria-hidden="true" />}<span>{String(remaining).padStart(2, '0')}<small>s</small></span>
         <div className="sketch-clock-track"><div style={{ transform: `scaleX(${remaining / Math.max(1, duration)})` }} /></div>
       </div>
     </div>
