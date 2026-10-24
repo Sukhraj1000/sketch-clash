@@ -45,6 +45,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         app.state.colony_runtime = None
         app.state.colony_planner = None
         app.state.observatory = None
+        app.state.arena = None
         from .provider_queue import ProviderQueue
         app.state.provider_queue = ProviderQueue(settings.gemini_provider_concurrency, paused=settings.ai_paused)
         app.state.repository = repository
@@ -77,6 +78,14 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
         retriever = getattr(getattr(app.state.recognizer, 'catalog', None), 'retriever', None)
         if retriever:
             retriever.provider_queue = app.state.provider_queue
+        if app.state.repository:
+            try:
+                from .arena import ArenaStore
+                app.state.arena = ArenaStore(app.state.repository)
+                await asyncio.to_thread(app.state.arena.ensure_indexes)
+            except Exception as exc:
+                logger.warning('arena_startup_unavailable category=%s', type(exc).__name__)
+                app.state.arena = None
         if app.state.repository:
             from .observability import Observatory
             app.state.observatory = Observatory(app.state.repository)
@@ -180,6 +189,8 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
     register_observatory_routes(app)
     from .provider_diagnostics import register_provider_diagnostics
     register_provider_diagnostics(app)
+    from .arena import register_arena_routes
+    register_arena_routes(app)
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin, 'http://localhost:5173'],
                        allow_methods=['GET', 'POST', 'PATCH', 'DELETE'], allow_headers=['Content-Type', 'X-Request-ID'], allow_credentials=True)
 
