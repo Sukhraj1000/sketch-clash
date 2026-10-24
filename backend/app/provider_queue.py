@@ -18,6 +18,8 @@ import time
 from uuid import uuid4
 from .provider_errors import LocalProviderControlError
 
+FOREGROUND_BURST_LIMIT = 3
+
 AI_PAUSE_REASON = 'AI requests are paused for local development during the Gemini credit outage. Saved island work and Atlas persistence continue.'
 
 
@@ -232,6 +234,8 @@ class ProviderQueue:
         self._pacing_changed = asyncio.Event()
         self.semaphore = asyncio.Semaphore(self.concurrency)
         self._admission_lock = asyncio.Lock()
+        self._pending_requests = {}
+        self._foreground_streak = 0
         self._minute_dispatches = deque()
         self._day_dispatches = deque()
         self._last_dispatch = None
@@ -342,29 +346,73 @@ class ProviderQueue:
         delay, reason = max(candidates, key=lambda item: item[0])
         return delay, reason if delay > 0 else None
 
-    async def _admit(self, prepare=None, *, model='', category='agent'):
-        identifier = uuid4().hex
+    def _wake_admission(self):
+        changed, self._pacing_changed = self._pacing_changed, asyncio.Event()
+        changed.set()
+
+    def _next_waiter(self):
+        ready = [row for row in self._pending_requests.values() if not row.get('preparing')]
+        foreground = [row for row in ready if row['priority'] == 'foreground']
+        background = [row for row in ready if row['priority'] == 'background']
+        # At most three ready foreground calls may pass a waiting background
+        # call. Dict insertion order preserves FIFO within each priority class.
+        if background and self._foreground_streak >= FOREGROUND_BURST_LIMIT:
+            return background[0]
+        return next(iter(foreground or background), None)
+
+    def _selected(self, waiter):
+        return self._next_waiter() is waiter
+
+    def _dispatched(self, waiter):
+        self._pending_requests.pop(waiter['id'], None)
+        if waiter['priority'] == 'foreground' and any(
+                row['priority'] == 'background' for row in self._pending_requests.values()):
+            self._foreground_streak = min(FOREGROUND_BURST_LIMIT, self._foreground_streak + 1)
+        else:
+            self._foreground_streak = 0
+        self._wake_admission()
+
+    async def _wait_for_slot(self):
+        # The semaphore covers only admission transactions and actual calls,
+        # never the Slow pacing sleep. Recheck priority after a slot opens.
+        await self.semaphore.acquire()
+        self.semaphore.release()
+        self._wake_admission()
+
+    async def _admit(self, waiter, prepare=None, *, model='', category='agent'):
+        identifier = waiter['id']
         if self.ledger:
             await self.load_ledger()
             self._require_daily_allowance(self.clock(), refreshed=True)
         while True:
             self.require_enabled()
-            # Never hold this lock across sleep or a provider call. A second
-            # task must recheck the same shared windows after every wake-up.
             async with self._admission_lock:
                 now = self.clock()
                 self._prune(now)
                 self._require_daily_allowance(now)
                 delay, _ = self._wait_condition(now)
                 changed = self._pacing_changed
+                selected, full = self._selected(waiter), self.semaphore.locked()
+            if not selected:
+                await changed.wait()
+                continue
+            if full:
+                await self._wait_for_slot()
+                continue
             if delay > 0:
                 await self._wait_for_pacing(delay, changed)
                 continue
-            # Refresh local observations only when a dispatch is eligible. The
-            # callback must not call a provider or hold the admission lock: another
-            # request may win while local persistence is being read.
+            # A slow local preparation does not reserve a provider slot. Other
+            # ready callers may proceed, and this observation is revalidated if
+            # priority or spacing changes while preparation is in progress.
             if prepare is not None:
-                await prepare()
+                waiter['preparing'] = True
+                self._wake_admission()
+                try:
+                    await prepare()
+                finally:
+                    waiter['preparing'] = False
+                    self._wake_admission()
             self.require_enabled()
             async with self._admission_lock:
                 now = self.clock()
@@ -372,34 +420,50 @@ class ProviderQueue:
                 self._require_daily_allowance(now)
                 delay, _ = self._wait_condition(now)
                 changed = self._pacing_changed
-                if delay <= 0:
-                    if self.ledger:
-                        try:
-                            admission = await asyncio.to_thread(self.ledger.admit, identifier, now,
-                                requests_per_minute=self.requests_per_minute, requests_per_day=self.requests_per_day,
-                                interval_seconds=self.min_dispatch_interval_seconds, concurrency=self.concurrency,
-                                model=model, category=category)
-                        except Exception:
-                            self.ledger_error = 'Admission history could not be confirmed. No provider request was sent.'
-                            self._reject_local('local_ledger_unavailable', self.ledger_error, 5.)
-                        self._sync_ledger(admission['snapshot'])
-                        if admission['admitted']:
+                selected, full = self._selected(waiter), self.semaphore.locked()
+                if selected and not full and delay <= 0:
+                    # No await between the unlocked check and this immediate
+                    # acquisition. Ownership transfers to run() only on success.
+                    await self.semaphore.acquire()
+                    handed_off = False
+                    try:
+                        if self.ledger:
+                            try:
+                                admission = await asyncio.to_thread(self.ledger.admit, identifier, now,
+                                    requests_per_minute=self.requests_per_minute, requests_per_day=self.requests_per_day,
+                                    interval_seconds=self.min_dispatch_interval_seconds, concurrency=self.concurrency,
+                                    model=model, category=category)
+                            except Exception:
+                                self.ledger_error = 'Admission history could not be confirmed. No provider request was sent.'
+                                self._reject_local('local_ledger_unavailable', self.ledger_error, 5.)
+                            self._sync_ledger(admission['snapshot'])
+                            if not admission['admitted']:
+                                if admission['reason'] == 'local_daily_cap':
+                                    self._reject_local('local_daily_cap',
+                                        'The shared Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
+                                        admission['wait_seconds'])
+                                delay = min(5., admission['wait_seconds']) if admission['reason'] == 'local_concurrency' else admission['wait_seconds']
+                            else:
+                                handed_off = True
+                        else:
+                            self._minute_dispatches.append(now)
+                            self._day_dispatches.append(now)
+                            self._last_dispatch = now
+                            handed_off = True
+                        if handed_off:
+                            self._dispatched(waiter)
                             return {'id': identifier, 'at': now}
-                        if admission['reason'] == 'local_daily_cap':
-                            self._reject_local('local_daily_cap',
-                                'The shared Gemini safety cap for the last 24 hours is reached. No request was sent to Google.',
-                                admission['wait_seconds'])
-                        # Another worker can finish a lease early. Recheck that
-                        # lease periodically rather than waiting its full timeout.
-                        delay = min(5., admission['wait_seconds']) if admission['reason'] == 'local_concurrency' else admission['wait_seconds']
-                    else:
-                        self._minute_dispatches.append(now)
-                        self._day_dispatches.append(now)
-                        self._last_dispatch = now
-                        return {'id': identifier, 'at': now}
-            await self._wait_for_pacing(delay, changed)
+                    finally:
+                        if not handed_off:
+                            self.semaphore.release()
+            if not selected:
+                await changed.wait()
+            elif full:
+                await self._wait_for_slot()
+            else:
+                await self._wait_for_pacing(delay, changed)
 
-    async def run(self, model, operation, category='agent', *, prepare=None):
+    async def run(self, model, operation, category='agent', *, prepare=None, priority=None):
         self.require_enabled()
         now = self.clock()
         self._prune(now)
@@ -410,47 +474,58 @@ class ProviderQueue:
             self._reject_local('local_queue_full',
                 'The local Gemini waiting queue is full. No request was sent to Google; try again after pending work completes.',
                 5.)
+        if priority is None:
+            priority = 'foreground' if category in ('recognition', 'recognition_embedding') else 'background'
+        if priority not in ('foreground', 'background'):
+            raise ValueError('Unknown provider queue priority.')
+        waiter = {'id': uuid4().hex, 'priority': priority, 'category': category, 'preparing': False}
         self.waiting += 1
+        self._pending_requests[waiter['id']] = waiter
+        self._wake_admission()
         try:
-            async with self.semaphore:
-                # Local validation errors are not Google errors and do not spend
-                # a dispatch allowance. Preparation may rerun after a queue race.
-                ticket = await self._admit(prepare, model=model, category=category)
-                self.active += 1
-                outcome = 'uncertain'
-                try:
-                    # Storage admission yields; a pause may arrive while its
-                    # transaction is in flight. Do not dispatch after that pause.
-                    self.require_enabled()
-                    result = await operation()
-                    self.completed += 1
-                    outcome = 'completed'
-                    return result
-                except asyncio.CancelledError: raise
-                except LocalProviderControlError:
-                    # A wrapper can fail saving its budget after the SDK returns.
-                    # Do not misclassify that as Google failure or refund a call
-                    # that may already have happened. prepare prevents ordinary
-                    # paused work from reaching reservation in the first place.
+            # Local validation errors are not Google errors and do not spend
+            # a dispatch allowance. Preparation may rerun after a queue race.
+            ticket = await self._admit(waiter, prepare, model=model, category=category)
+            self.active += 1
+            outcome = 'uncertain'
+            try:
+                # Storage admission yields; a pause may arrive while its
+                # transaction is in flight. Do not dispatch after that pause.
+                self.require_enabled()
+                result = await operation()
+                self.completed += 1
+                outcome = 'completed'
+                return result
+            except asyncio.CancelledError: raise
+            except LocalProviderControlError:
+                # A wrapper can fail saving its budget after the SDK returns.
+                # Do not misclassify that as Google failure or refund a call
+                # that may already have happened. prepare prevents ordinary
+                # paused work from reaching reservation in the first place.
+                outcome = 'local_control'
+                raise
+            except Exception as exc:
+                if isinstance(exc, ProviderFailure) and exc.diagnostic.category == 'ai_paused':
                     outcome = 'local_control'
                     raise
-                except Exception as exc:
-                    if isinstance(exc, ProviderFailure) and exc.diagnostic.category == 'ai_paused':
-                        outcome = 'local_control'
-                        raise
-                    diagnostic = diagnose_provider_error(exc, self.clock())
-                    outcome = 'failed' if diagnostic.outcome_known else 'uncertain'
-                    self.last_error = diagnostic.public()
-                    if diagnostic.retryable:
-                        self.throttled += 1
-                        self.cooldown_until = max(self.cooldown_until, self.clock() + (diagnostic.retry_after_seconds or 5))
-                    raise ProviderFailure(diagnostic) from None
+                diagnostic = diagnose_provider_error(exc, self.clock())
+                outcome = 'failed' if diagnostic.outcome_known else 'uncertain'
+                self.last_error = diagnostic.public()
+                if diagnostic.retryable:
+                    self.throttled += 1
+                    self.cooldown_until = max(self.cooldown_until, self.clock() + (diagnostic.retry_after_seconds or 5))
+                raise ProviderFailure(diagnostic) from None
+            finally:
+                try:
+                    await asyncio.shield(self._finish_ledger(ticket, outcome))
                 finally:
-                    try:
-                        await asyncio.shield(self._finish_ledger(ticket, outcome))
-                    finally:
-                        self.active -= 1
-        finally: self.waiting -= 1
+                    self.active -= 1
+                    self.semaphore.release()
+                    self._wake_admission()
+        finally:
+            self.waiting -= 1
+            self._pending_requests.pop(waiter['id'], None)
+            self._wake_admission()
 
     def status(self):
         now = self.clock()
@@ -473,6 +548,11 @@ class ProviderQueue:
                 'admission_ledger': {key: value for key, value in (self.ledger_snapshot or {}).items()
                     if key not in ('timestamps', 'last_dispatch_at', 'cooldown_until')},
                 'admission_ledger_error': self.ledger_error,
+                'scheduling': {'policy': 'foreground_with_bounded_background_fairness',
+                    'scope': 'backend_process', 'foreground_burst_limit': FOREGROUND_BURST_LIMIT,
+                    'waiting_foreground': sum(row['priority'] == 'foreground' for row in self._pending_requests.values()),
+                    'waiting_background': sum(row['priority'] == 'background' for row in self._pending_requests.values()),
+                    'next_category': (self._next_waiter() or {}).get('category')},
                 'pacing': self.pacing(),
                 'local_limits': {'requests_per_minute': self.requests_per_minute,
                     'requests_per_day': self.requests_per_day, 'max_pending': self.max_pending,
