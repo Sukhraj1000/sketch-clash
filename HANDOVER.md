@@ -1,6 +1,18 @@
 # Sketch Clash handover — 24 October 2026
 
-## Current increment — rotating briefs, resemblance and useful research
+## Current increment — cached retail pricing
+
+Camera pricing uses an Atlas-backed reference cache, 11 checked retailer examples across five narrow categories, and bounded Gemini URL Context refreshes of those same independently curated URLs. The initially requested Google Search cache was replaced after checking Google's grounding terms, which prohibit collecting grounded results into a shared database. No Google Search calls or cached grounded output are included. No eBay calls run in the active capture service.
+
+`priceCache` has transactional ownership leases, scoped category keys, 24-hour freshness and five-minute negative caching. `priceQuoteSnapshots` retains immutable history. Source age is checked at reads so a restart or delayed write cannot renew an old starter. Price validation requires two or more matching single-product GBP references. The UI exposes provenance and expiry without describing references as appraisals. Existing frozen battles/residents remain intact; new capture prices never raise the 1% damage cap, and either unknown price neutralises both bonuses.
+
+Live check on 24 October: `gemini-3.8-flash` successfully retrieved both approved Wilko ruler pages and returned supported £1.49 references. IKEA page retrievals returned `error` despite completed Gemini interactions; no price was inferred from those failures. Fresh independently checked IKEA starters remain usable until their source-age expiry. Future inaccessible refreshes stay neutral. Three small interactive checks were made; no evaluation batch ran and island usage remained 200/200 on Slow.
+
+Verification: **793 backend tests passed; 3 opt-in Mongo tests skipped in the default run.** The new real Atlas cache test passed separately in an isolated generated database, with cleanup verified. It covers concurrent lease ownership, process restart, fencing and immutable revisions. Pricing/theme frontend checks and the production build passed; the existing large WorldScene bundle warning remains. Browser review → acceptance → battle → report passed with saved real recognition fixtures in memory, not a new live photo-recognition call. Fixture images were submitted through the isolated HTTP API because Chrome extension file-upload access was disabled; normal UI recovery and gameplay then continued. The £2 mug shows three sources; the insulated bottle remains unknown, so every hit has zero price premium. Desktop and 390px mobile layouts passed without horizontal overflow. Screenshots outside Git: `../sketch-clash-pricing-receipts.png`, `../sketch-clash-pricing-mobile.png`.
+
+After the live backend restart, all five category receipts were recovered from Atlas, including the real Gemini ruler result. Both shores retained exactly their four residents. Slow, paused evaluations and the existing 200/200 island allowance were preserved; no billing, quota or data reset occurred. Startup/cache reads made no model calls. Existing battles and residents were not repriced. Unsupported categories and failed expired-source refreshes remain neutral.
+
+## Previous increment — rotating briefs, resemblance and useful research
 
 New camera rounds save one rotating brief shared by both players. Eight themes cover everyday, kitchen, desk, tools, animals, nature, play and wearables. Recognition identity feeds conservative deterministic eligibility checks; a definite mismatch blocks confirm/start, unknown identity requests clarification, and old battles keep their original unrestricted policy. Recovery does not reroll. Correcting the identity or retaking remains available. Off-theme status stays consistent in the review and capture footer.
 
