@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { computeTaskPose, safeIslandPoint } from '../src/lib/island.ts';
 import { objectSilhouette } from '../src/components/objectIdentity.ts';
+import { vesselPresentation } from '../src/components/vesselPresentation.ts';
 import { objectPose } from '../src/components/objectMotion.ts';
 import { characterDisplayScale, displayIslandPoint, residentDisplayPose, residentDisplaySlots } from '../src/components/objectPresentation.ts';
 import { readFileSync } from 'node:fs';
@@ -152,3 +153,61 @@ assert.ok(dimensions.ruler.y/dimensions.ruler.x>1.8,'The actual ruler silhouette
 assert.ok(dimensions.television.x/dimensions.television.y>1,'The actual TV remains a landscape display');
 assert.ok(dimensions.microwave.x/dimensions.microwave.y>1.15,'The actual microwave remains a wide appliance');
 console.log('Actual JSX geometry checks passed: grounded feet/ankles and recognizable pencil, ruler, TV, microwave, pitcher, phone and battery dimensions.');
+
+// Reproduce the actual accepted handled-bottle description that previously
+// became a narrow-neck bottle, without its private capture or saved identity.
+const bottle = {canonical_type_id:'bottle',object_type:'bottle',visual_spec:{template_id:'bottle',accessories:['cap','handle'],proportions:{width:.9,height:1.2}},observed_object:{canonical_type_id:'bottle',label:'water bottle',visible_features:['cylindrical insulated tumbler/bottle body','light blue flip lid with drink spout cover','sturdy side carry handle']}};
+const bottleBefore=structuredClone(bottle);
+const tumbler=vesselPresentation(bottle);
+assert.equal(tumbler.kind,'tumbler','Accepted tumbler evidence removes the invented narrow neck');
+assert.equal(tumbler.neckHeight,0);
+assert.equal(tumbler.handle,true,'The saved/observed side handle is rendered');
+assert.equal(tumbler.lid,true);
+assert.equal(tumbler.spout,true,'Only an explicitly observed drink spout is added');
+assert.equal(tumbler.basis,'accepted_features');
+assert.deepEqual(bottle,bottleBefore,'Rendering never rewrites accepted object evidence or saved appearance');
+const legacy=vesselPresentation({...bottle,observed_object:null});
+assert.equal(legacy.kind,'bottle','Missing historical shape evidence does not invent a tumbler');
+assert.equal(legacy.handle,true,'Historical accepted handle accessories are respected even without observations');
+assert.equal(legacy.spout,false,'A cap alone does not invent a drink spout');
+const unhandled=vesselPresentation({...bottle,visual_spec:{...bottle.visual_spec,accessories:[]},observed_object:{visible_features:['cylindrical body','possibly a handle behind the bottle','lid is not visible']}});
+assert.equal(unhandled.handle,false,'Uncertain features do not become geometry');
+assert.equal(unhandled.lid,false);
+assert.equal(unhandled.kind,'bottle','A cylindrical bottle alone does not imply a neckless tumbler');
+const denied=vesselPresentation({...bottle,observed_object:{visible_features:['no handle','without a lid','tumbler-like body is unclear']}});
+assert.equal(denied.handle,false,'Explicit absent features override decorative legacy accessories');
+assert.equal(denied.lid,false);
+assert.equal(denied.kind,'bottle');
+assert.equal(vesselPresentation({...bottle,observed_object:{canonical_type_id:'mug',visible_features:['wide tumbler body','drink spout']}}).kind,'bottle','Conflicting observation identities cannot override the accepted object');
+assert.equal(vesselPresentation({...bottle,observed_object:{canonical_type_id:'phone',visible_features:['wide tumbler body','drink spout']}}).kind,'bottle','Unrelated observations cannot add vessel features');
+assert.equal(vesselPresentation({...bottle,observed_object:{canonical_type_id:'bottle',label:'coffee mug',visible_features:['wide tumbler body','drink spout']}}).kind,'bottle','A contradictory observed label cannot refine the accepted silhouette');
+assert.equal(vesselPresentation({...bottle,object_type:'mug'}),null,'Conflicting known object identities get no vessel refinement');
+assert.equal(vesselPresentation({...bottle,visual_spec:{...bottle.visual_spec,template_id:'generic'}}),null,'Unsupported generic objects keep their existing photo fallback');
+const mug=vesselPresentation({object_type:'mug',canonical_type_id:'mug',visual_spec:{template_id:'mug',accessories:['handle'],proportions:{width:1.1,height:1}},observed_object:{canonical_type_id:'mug',visible_features:['ceramic body','curved side handle','open top']}});
+assert.equal(mug.kind,'mug');assert.equal(mug.lid,false);assert.equal(mug.neckHeight,0);
+for(const width of [.7,1,1.4,NaN]) for(const height of [.7,1,1.4,Infinity]) {
+  const shape=vesselPresentation({...bottle,visual_spec:{...bottle.visual_spec,proportions:{width,height}}});
+  assert.ok([shape.bodyHeight,shape.radiusTop,shape.radiusBottom,shape.neckHeight,shape.lidRadius].every(Number.isFinite),'Malformed proportions cannot poison the rig');
+  assert.ok(shape.bodyHeight>=1 && shape.bodyHeight<1.5 && shape.radiusTop>.4 && shape.radiusTop<.5,'Saved ratios refine the body within conservative bounds');
+}
+const {default:VesselShape}=await import(componentModule('../src/components/VesselShape.tsx',{'./ObjectRig':rigUrl,three:import.meta.resolve('three')}));
+const vesselBounds={};
+for(const [kind,shape] of [['tumbler',tumbler],['legacy',legacy],['mug',mug],['unhandled',unhandled]]) {
+  const named=new Map();
+  const tree=VesselShape({shape,color:'#5BCBF5',accent:'#8BE3F8',feet:true,eyes:true,arms:true});
+  const box=geometryBounds(tree,undefined,named);const size=box.getSize(new THREE.Vector3());
+  assert.ok(size.x<1.6 && size.y<2.1 && size.z<1.3,`${kind} remains bounded and recognizable`);
+  assert.ok(box.min.y>-.01 && box.min.y<.03,`${kind} actual feet remain grounded`);
+  assert.equal(named.has('sc-vessel-handle'),shape.handle);
+  assert.equal(named.has('sc-vessel-lid'),shape.lid);
+  assert.equal(named.has('sc-vessel-neck'),shape.neckHeight>0);
+  if(shape.handle) {
+    const handle=named.get('sc-vessel-handle'),body=named.get('sc-vessel-body');
+    assert.ok(handle.max.x>body.max.x+.25,'Actual side handle extends beyond the body');
+    assert.ok(handle.min.x<body.max.x && handle.min.y>body.min.y && handle.max.y<body.max.y+.1,'The handle intersects the body securely rather than floating');
+  }
+  vesselBounds[kind]=named.get('sc-vessel-body').getSize(new THREE.Vector3());
+}
+assert.ok(vesselBounds.tumbler.x>vesselBounds.unhandled.x*1.25,'Actual tumbler body is visibly broader than an ordinary bottle');
+assert.ok(vesselBounds.mug.x/vesselBounds.mug.y>.85,'Actual mug remains a broad cup, not a thin bottle');
+console.log('Evidence-backed vessel checks passed: actual handled tumbler, capped bottle and open mug geometry; conservative uncertainty/conflict handling; bounded proportions; immutable observations; same shared island and preview renderer.');

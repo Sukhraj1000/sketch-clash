@@ -2,6 +2,7 @@ import { Component, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, Box, Check, ChevronRight, Flag, Globe2, Grid2X2, Hammer, Lightbulb, LoaderCircle, Maximize2, Pause, Play, RefreshCw, Sparkles, Target, Waves, X, Zap } from 'lucide-react'
 import type { IslandAgent, IslandProject, IslandSimulation } from '../lib/island'
+import type { ObservedAppearance } from './vesselPresentation'
 import './WorldView.css'
 
 export type WorldCharacter = {
@@ -11,6 +12,7 @@ export type WorldCharacter = {
   object_type: string
   display_name: string
   image_ref: string
+  observed_object?: ObservedAppearance
   visual_spec: {
     template_id: 'mug' | 'bottle' | 'generic' | 'plant' | 'book' | 'ball'
     palette: string[]

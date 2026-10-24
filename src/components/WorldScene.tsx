@@ -17,6 +17,8 @@ import AgentTaskBadge from './AgentTaskBadge'
 import { advanceRobotWheels, approachResidentPosition, residentAmbientMotion, robotWorkPose } from './robotMotion'
 import type { RobotWheelState } from './robotMotion'
 import ObjectShapes from './ObjectShapes'
+import VesselShape from './VesselShape'
+import { vesselPresentation } from './vesselPresentation'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
 import { objectSilhouette } from './objectIdentity'
 import { objectPose } from './objectMotion'
@@ -63,7 +65,7 @@ function PhotoBadge({ image, onAssetState }: { image: string; onAssetState?: (st
   return <group position={[0, .68, .302]}><mesh><planeGeometry args={[.74, .73]} /><meshBasicMaterial color={PAPER} /></mesh>{texture && <mesh position={[0, 0, .004]}><planeGeometry args={[width, height]} /><meshBasicMaterial map={texture} toneMapped={false} /></mesh>}</group>
 }
 
-export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type' | 'canonical_type_id'>>
+export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type' | 'canonical_type_id' | 'observed_object'>>
 
 export function CharacterShape({ character, onAssetState }: { character: CharacterVisual; onAssetState?: (state: 'ready' | 'failed') => void }) {
   const spec = character.visual_spec
@@ -75,10 +77,11 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
   const arms = spec.accessories.includes('arms')
   const template = spec.template_id
   const silhouette = objectSilhouette(template, character.object_type, character.canonical_type_id)
+  const vessel = silhouette ? null : vesselPresentation(character)
   useEffect(() => { if (silhouette || template !== 'generic') onAssetState?.('ready') }, [silhouette, template, onAssetState])
-  return <group name="sc-character" userData={{ rigKey: `${template}:${silhouette ?? 'photo'}:${spec.accessories.join(',')}` }}>
-    {feet && !silhouette && <Feet />}
-    {silhouette ? <ObjectShapes kind={silhouette} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : template === 'mug' ? <group>
+  return <group name="sc-character" userData={{ rigKey: `${template}:${silhouette ?? vessel?.kind ?? 'photo'}:${vessel?.handle}:${vessel?.lid}:${spec.accessories.join(',')}` }}>
+    {feet && !silhouette && !vessel && <Feet />}
+    {silhouette ? <ObjectShapes kind={silhouette} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : vessel ? <VesselShape shape={vessel} color={color} accent={accent} feet={feet} eyes={eyes} arms={arms} /> : template === 'mug' ? <group>
       <mesh position={[0, .67, 0]} castShadow><cylinderGeometry args={[.48, .43, .96, 12]} /><Material color={color} /></mesh>
       <mesh position={[0, 1.154, 0]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[.37, 12]} /><Material color="#6D5142" /></mesh>
       <mesh position={[0, 1.15, 0]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[.427, .055, 5, 12]} /><Material color={accent} /></mesh>

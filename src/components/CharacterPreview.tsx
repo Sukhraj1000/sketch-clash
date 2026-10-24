@@ -133,7 +133,7 @@ export default function CharacterPreview({ fighter, label, scope, compact = fals
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const onReportRef = useRef(onReport)
   onReportRef.current = onReport
-  const identity = JSON.stringify([fighter.visual_spec, fighter.image_ref, fighter.object_type, fighter.canonical_type_id])
+  const identity = JSON.stringify([fighter.visual_spec, fighter.image_ref, fighter.object_type, fighter.canonical_type_id, fighter.observed_object])
   const valid = validSpec(fighter)
   const publish = useCallback((value: RenderReport) => { setReport(value); onReportRef.current?.(value) }, [])
   const saveCanvas = useCallback((value: HTMLCanvasElement) => { canvas.current = value }, [])
@@ -167,6 +167,6 @@ export default function CharacterPreview({ fighter, label, scope, compact = fals
       {(supported === false || report.status === 'failed') && <div className="preview-unavailable"><CircleAlert size={25} /><span>{report.errors[0] ?? '3D preview unavailable.'}</span></div>}
     </div>
     {!compact && <div className="character-preview-controls"><div>{(['idle', 'rest', 'wander'] as const).map(state => <button type="button" key={state} aria-pressed={motion === state} onClick={() => setMotion(state)}>{state}</button>)}</div><button type="button" aria-pressed={turning} disabled={supported !== true} onClick={() => setTurning(value => !value)} title="Turntable"><RotateCw size={14} /><span>Turntable</span></button><button type="button" disabled={report.status !== 'passed'} onClick={capture} title="Download preview PNG"><Camera size={14} /><span>PNG</span></button></div>}
-    {!compact && <p className="character-preview-note">Procedural character · matched studio lighting. A 3D check verifies rendering, not resemblance or appeal.</p>}
+    {!compact && <p className="character-preview-note">Procedural character from the saved appearance and accepted visible features. A 3D check verifies rendering, not a reconstruction of your photo.</p>}
   </div>
 }
