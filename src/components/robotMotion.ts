@@ -27,7 +27,37 @@ export function robotTaskState(task: IslandTask | null | undefined, position: Is
   return { ...pose, phase, label }
 }
 
-/** Mechanical work poses only. No gait, squash, arbitrary patrols or output particles. */
+/** A short, local stroll while waiting is scenery, never a task or contribution.
+ * The exact same offset is used by the object and industrial appearances. */
+export function residentAmbientMotion(task: IslandTask | null | undefined, position: IslandPoint, timeMs: number, seconds: number, seed = 0, reducedMotion = false) {
+  const still = { x: 0, z: 0, heading: .6, moving: false, ambient: false }
+  const state = robotTaskState(task, position, timeMs)
+  if (reducedMotion || state.phase !== 'waiting' || !Number.isFinite(seconds) || !Number.isFinite(seed)) return still
+  if (task && (!Number.isFinite(Date.parse(task.started_at)) || timeMs < Date.parse(task.started_at))) return still
+  const time = Math.max(0, seconds)
+  const phase = time * .34 + seed * .013
+  const fade = Math.min(1, time / 1.5)
+  const direction = Math.sin(seed * .71) < 0 ? -1 : 1
+  return {
+    x: Math.sin(phase) * .55 * fade,
+    z: Math.cos(phase) * .34 * direction * fade,
+    heading: Math.atan2(Math.cos(phase) * .55, -Math.sin(phase) * .34 * direction),
+    moving: time > 0,
+    ambient: true,
+  }
+}
+
+/** Smooth a newly assigned job out of its ambient pose without teleporting.
+ * This controls the mesh only; saved destinations and task timing are untouched. */
+export function approachResidentPosition(current: IslandPoint, target: IslandPoint, delta: number, reducedMotion = false) {
+  const distance = Math.hypot(target.x - current.x, target.z - current.z)
+  const step = reducedMotion ? 1 : Math.min(1, Math.max(0, Number.isFinite(delta) ? delta : 0) * 2.8 / Math.max(.0001, distance))
+  const x = current.x + (target.x - current.x) * step, z = current.z + (target.z - current.z) * step
+  const radius = Math.hypot(x, z)
+  return radius > 5.25 ? { x: x * 5.25 / radius, z: z * 5.25 / radius } : { x, z }
+}
+
+/** Mechanical work poses only. Ambient strolling never runs a work tool. */
 export function robotWorkPose(kind: IslandTaskKind | undefined, working: boolean, travelling: boolean, seconds: number, reducedMotion = false) {
   const time = Number.isFinite(seconds) ? seconds : 0
   const beat = reducedMotion ? 0 : Math.sin(time * 3.5)

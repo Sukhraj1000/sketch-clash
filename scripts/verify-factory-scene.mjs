@@ -34,7 +34,9 @@ const { default: FactoryEnvironment } = await import(componentModule('../src/com
 const { default: IslandStructure } = await import(componentModule('../src/components/IslandStructures.tsx', {
   './FactoryStructures': structuresUrl,
   '../lib/island': new URL('../src/lib/island.ts', import.meta.url).href,
-  react: sourceUrl('export const useRef = value => ({ current: value }); export const useEffect = () => {};'),
+  '../lib/projectBenefits': new URL('../src/lib/projectBenefits.ts', import.meta.url).href,
+  './ProjectMapLabel': sourceUrl('export default () => null;'),
+  react: sourceUrl('export const useRef = value => ({ current: value }); export const useEffect = () => {}; export const useState = value => [value, () => {}];'),
   '@react-three/fiber': sourceUrl('export const useFrame = () => {};'),
   three: import.meta.resolve('three'),
 }));
@@ -139,7 +141,19 @@ const assembly = frozen({ ...baseProject, kind: 'assembly', progress: 60, bluepr
     { kind: 'connector', resident_id: 'clip', position: { x: .5, y: 0, z: -.1 }, rotation: 0, geometry: { width: .3, height: .4, depth: .3, length: .3 }, material_assumption: 'metal' },
   ],
 } });
-assert.equal(FactoryStructureVisual({ project: assembly, progress: .6 }), null, 'Factory decoration cannot replace an approved object assembly');
+const assemblySites = new Set();
+for (const family of ['support', 'hold', 'contain']) {
+  const project = { ...assembly, assembly: { ...assembly.assembly, family } };
+  const initial = scene(FactoryStructureVisual({ project, progress: 0 }));
+  const finished = scene(FactoryStructureVisual({ project, progress: 1 }));
+  assert.ok(finished.geometry.length > initial.geometry.length, 'The installed fixture appears only as actual construction progresses');
+  assert.ok(finished.named.has(`factory-fixture-${family}`), 'Each approved family gains a readable fitted worksite');
+  const size = finished.bounds.getSize(new THREE.Vector3());
+  assert.ok(size.x < 2 && size.z < 1.5 && size.y < .6, 'Worksite fittings stay within the existing saved site and below the real object recipe');
+  assert.ok(![...finished.named.keys()].some(name => name.startsWith('assembly-part-')), 'Factory site fittings do not invent or replace source-object parts');
+  assemblySites.add(JSON.stringify(finished.geometry));
+}
+assert.equal(assemblySites.size, 3, 'Support, holding and containment have distinct fixtures');
 const assemblySnapshot = JSON.stringify(assembly);
 const assemblyViews = [];
 for (const presentation of ['island', 'factory']) {

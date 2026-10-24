@@ -129,10 +129,41 @@ function ServiceWalkway({ progress }: { progress: number }) {
   </group>
 }
 
+/** A fitted worksite supports the approved object recipe; its parts stay in the shared renderer. */
+function AssemblyFixture({ project, progress }: { project: IslandProject; progress: number }) {
+  const family = project.assembly?.family
+  return <group name={`factory-fixture-${family ?? 'unknown'}`}>
+    <FloorMark width={1.8} depth={1.35} color={progress >= 1 ? '#85AC98' : FACTORY.yellow} />
+    {progress > 0 && <>
+      <Box position={[0, .055, 0]} size={[1.65, .11, 1.18]} color={DARK_STEEL} material="steel" />
+      <Box position={[0, .12, 0]} size={[1.59, .025, 1.12]} color="#9AA5A7" material="steel" />
+      {[-.72, .72].flatMap(x => [-.47, .47].map(z => <mesh key={`${x}:${z}`} position={[x, .14, z]}><cylinderGeometry args={[.028, .028, .025, 6]} /><Paint color={DARK_STEEL} material="steel" /></mesh>))}
+    </>}
+    {progress > .45 && family === 'support' && [-.65, .65].map(x => <group key={x}>
+      <Box position={[x, .25, 0]} size={[.14, .22, 1]} color={FRAME} material="steel" />
+      <Box position={[x, .37, 0]} size={[.24, .045, 1.08]} color="#9BA7AA" material="steel" />
+      <Tube position={[x, .26, 0]} length={.86} radius={.018} rotation={[Math.PI / 2 - .22, 0, 0]} />
+    </group>)}
+    {progress > .45 && family === 'hold' && [-1, 1].flatMap(side => [-1, 1].map(front => <group key={`${side}:${front}`} position={[side * .66, .19, front * .43]}>
+      <Box size={[.12, .1, .12]} color="#728176" material="paint" />
+      <Tube position={[0, .07, 0]} length={.12} radius={.019} color={DARK_STEEL} />
+      <Box position={[side * -.08, .13, 0]} size={[.24, .035, .065]} color={FRAME} material="steel" />
+    </group>))}
+    {progress > .45 && family === 'contain' && [-1, 1].map(side => <group key={side}>
+      <Box position={[side * .69, .24, 0]} size={[.06, .24, .92]} color={FRAME} material="steel" />
+      <Box position={[0, .24, side * .49]} size={[1.4, .24, .04]} color="#718B92" material="steel" />
+    </group>)}
+    {progress >= 1 && <group position={[.73, .3, .5]}>
+      <Box size={[.18, .3, .08]} color={DARK_STEEL} material="paint" />
+      <Box position={[0, .075, .046]} size={[.1, .07, .012]} color="#91B8A1" material="glass" />
+    </group>}
+  </group>
+}
+
 /** Geometry only. The caller retains the same project, selection and committed progress. */
 export function FactoryStructureVisual({ project, progress: rawProgress }: { project: IslandProject; progress: number }) {
   const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(1, rawProgress)) : 0
-  if (project.kind === 'assembly') return null
+  if (project.kind === 'assembly') return <AssemblyFixture project={project} progress={progress} />
   return <group name={`factory-project-${project.kind}`}>
     <FloorMark width={project.kind === 'beacon' ? 1.3 : 2} depth={project.kind === 'beacon' ? 1.15 : 1.4} color={FACTORY.metal} />
     {project.kind === 'garden' ? <GrowShelves progress={progress} /> : project.kind === 'workshop' ? <FabricationBench progress={progress} /> : project.kind === 'beacon' ? <CommsTerminal progress={progress} /> : project.kind === 'boardwalk' ? <ServiceWalkway progress={progress} /> : null}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { robotTaskState, robotWorkPose, robotWheelAngle, advanceRobotWheels } from '../src/components/robotMotion.ts';
+import { robotTaskState, robotWorkPose, robotWheelAngle, advanceRobotWheels, residentAmbientMotion, approachResidentPosition } from '../src/components/robotMotion.ts';
 import { displayIslandPoint, residentDisplaySlots } from '../src/components/objectPresentation.ts';
 
 // Saved API-shaped fixtures only: no backend, mutable world or paid model calls.
@@ -141,5 +141,38 @@ assert.notDeepEqual(scan, plan, 'Planning and measuring are visibly different jo
 assert.notDeepEqual(drill, nozzle, 'Building cannot be displayed as watering');
 assert.deepEqual(robotWorkPose('rest', false, false, 2), idle);
 assert.deepEqual(robotWorkPose(undefined, false, false, 2), idle);
+
+// Ambient presentation is separate from authoritative travel and work. It must
+// remain visible between short tasks without pretending a resting crew produces.
+const atHub = frozen({ ...rest, from: { x: -.7, z: 1.1 }, to: { x: -.7, z: 1.1 } });
+const ambientSamples = [];
+for (let seconds = 0; seconds <= 120; seconds += .1) {
+  const ambient = residentAmbientMotion(atHub, atHub.from, started + seconds * 1000, seconds, 42);
+  assert.ok(Object.values(ambient).every(value => typeof value !== 'number' || Number.isFinite(value)));
+  assert.ok(Math.hypot(ambient.x, ambient.z) <= .65, 'Strolls stay close to the real rest destination');
+  assert.equal(ambient.ambient, true);
+  assert.equal(Object.hasOwn(ambient, 'working'), false, 'Ambient movement cannot invent productive work');
+  assert.equal(Object.hasOwn(ambient, 'gain'), false);
+  assert.equal(Object.hasOwn(ambient, 'receipt_id'), false);
+  ambientSamples.push(ambient);
+}
+assert.ok(Math.max(...ambientSamples.map(pose => pose.x)) - Math.min(...ambientSamples.map(pose => pose.x)) > 1, 'Idle movement is large enough to see on the map');
+for (const time of [started, started + 4_000, arrival + 1_000, started + duration + 1_000]) {
+  assert.equal(residentAmbientMotion(task, task.from, time, 20, 42).ambient, false, 'A saved active or stale job never receives an invented stroll');
+}
+assert.equal(residentAmbientMotion(rest, rest.from, started + 4_000, 20, 42).ambient, false, 'Actual return travel wins over ambient movement');
+assert.equal(residentAmbientMotion(atHub, atHub.from, started - 1_000, 20, 42).ambient, false, 'Future tasks cannot start strolling early');
+for (const badTime of [NaN, Infinity]) assert.equal(residentAmbientMotion(atHub, atHub.from, started, badTime, 42).ambient, false);
+assert.deepEqual(residentAmbientMotion(atHub, atHub.from, started + 10_000, 10, 42, true), residentAmbientMotion(atHub, atHub.from, started + 40_000, 40, 42, true), 'Reduced motion has no ambient route');
+let rendered = { x: -1, z: 1 };
+const destination = { x: 2, z: -2 };
+for (let frame = 0; frame < 200; frame++) {
+  const next = approachResidentPosition(rendered, destination, .016);
+  assert.ok(Math.hypot(next.x - rendered.x, next.z - rendered.z) <= .016 * 2.8 + 1e-9, 'New jobs ease out of ambient positions without teleporting');
+  rendered = next;
+}
+assert.deepEqual(rendered, destination, 'The mesh reaches the exact saved destination');
+assert.deepEqual(approachResidentPosition({ x: 0, z: 0 }, destination, .016, true), destination, 'Reduced motion updates directly without a transition');
+assert.ok(Math.hypot(...Object.values(approachResidentPosition({ x: 5, z: 0 }, { x: 6, z: 0 }, 1))) <= 5.25, 'Ambient offsets cannot leave the island');
 assert.equal(JSON.stringify(task), original, 'Animation and labels cannot mutate saved task data');
-console.log(`Robot task checks passed: ${samples} travel samples, authoritative work/standby/receipt phases, stationary wheels, paused clocks and ${mechanicalSamples} bounded task-specific mechanical poses.`);
+console.log(`Robot task checks passed: ${samples} travel samples, authoritative work/standby/receipt phases, stationary wheels, paused clocks, ${mechanicalSamples} bounded work poses and ${ambientSamples.length} honest ambient poses.`);

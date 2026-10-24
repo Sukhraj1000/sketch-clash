@@ -7,13 +7,14 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { safeIslandPoint } from '../lib/island'
 import type { IslandAgent, IslandSimulation, IslandTaskKind } from '../lib/island'
 import IslandStructure from './IslandStructures'
+import { projectBenefit } from '../lib/projectBenefits'
 import FactoryEnvironment from './FactoryEnvironment'
 import { WORLD_MAP_SURFACE_SCALE, WORLD_PATHS, WORLD_STATIONS, WORLD_STATION_BACKSETS, WORLD_TREES, WORLD_WAYFINDER, worldGroundDetails, worldGroundShape, worldRimDecor } from './worldMap'
 import FactoryLighting from './FactoryLighting'
 import FactoryWorkProp from './FactoryWorkProp'
 import RobotShape from './RobotShape'
 import AgentTaskBadge from './AgentTaskBadge'
-import { advanceRobotWheels, robotWheelAngle, robotWorkPose } from './robotMotion'
+import { advanceRobotWheels, approachResidentPosition, residentAmbientMotion, robotWorkPose } from './robotMotion'
 import type { RobotWheelState } from './robotMotion'
 import ObjectShapes from './ObjectShapes'
 import { ObjectArms as Arms, ObjectFace as Face, ObjectFeet as Feet } from './ObjectRig'
@@ -177,6 +178,7 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
   const elapsed = useRef(0)
   const arrivalReported = useRef(false)
   const wheels = useRef<RobotWheelState>({ distanceAngle: 0, angle: 0 })
+  const displayDistance = useRef(0)
   const now = useMemo(() => () => worldTime(clock), [clock])
   const spec = character.visual_spec
   const seed = Number.isFinite(spec.appearance_seed) ? spec.appearance_seed : 0
@@ -197,38 +199,44 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
     let taskVisible = false
     let taskTravelling = false
     let heading = .6
+    const previousX = root.current.position.x, previousZ = root.current.position.z
     const settle = reducedMotion ? 1 : Math.min(1, delta * 2)
     displaySlot.current.x += (slot.x - displaySlot.current.x) * settle
     displaySlot.current.z += (slot.z - displaySlot.current.z) * settle
     if (agent) {
       const pose = residentDisplayPose(agent.task, agent.position, worldTime(clock), displaySlot.current)
-      root.current.position.set(pose.x, .03, pose.z)
-      moving = pose.travelling && !clock.paused
-      working = pose.working
+      const ambient = residentAmbientMotion(agent.task, agent.position, worldTime(clock), time, seed, reducedMotion)
+      const display = approachResidentPosition(root.current.position, { x: pose.x + ambient.x, z: pose.z + ambient.z }, delta, reducedMotion)
+      if (!clock.paused) root.current.position.set(display.x, .03, display.z)
+      const catchingUp = Math.hypot(display.x - pose.x, display.z - pose.z) > .12 && !ambient.ambient
+      moving = (pose.travelling || ambient.moving || catchingUp) && !clock.paused
+      working = pose.working && !catchingUp
       taskTravelling = pose.travelling
       taskVisible = pose.progress > 0 && pose.progress < 1
-      heading = agent.task?.kind === 'rest' && !pose.travelling ? .6 : pose.heading
+      heading = ambient.ambient ? ambient.heading : catchingUp ? Math.atan2(pose.x - display.x, pose.z - display.z) : pose.heading
       // Face the actual station/project while working, rather than keeping the travel heading.
-      if (pose.working && workTarget) heading = Math.atan2(workTarget.x - pose.x, workTarget.z - pose.z)
+      if (working && workTarget) heading = Math.atan2(workTarget.x - pose.x, workTarget.z - pose.z)
     } else {
       const place = displayIslandPoint(home, displaySlot.current)
       root.current.position.set(place.x + (moving && !reducedMotion ? Math.sin(time * .22 + phase) * .3 : 0), .03, place.z + (moving && !reducedMotion ? Math.cos(time * .19 + phase) * .3 : 0))
       heading = moving ? Math.atan2(Math.cos(time * .22 + phase) * .22, -Math.sin(time * .19 + phase) * .19) : .2
     }
     const angleDelta = Math.atan2(Math.sin(heading - root.current.rotation.y), Math.cos(heading - root.current.rotation.y))
-    root.current.rotation.y += reducedMotion ? angleDelta : angleDelta * Math.min(1, delta * 5)
+    if (!clock.paused) root.current.rotation.y += reducedMotion ? angleDelta : angleDelta * Math.min(1, delta * 5)
     const taskKind = agent?.task?.kind
     const gesture = working || (taskTravelling && (taskKind === 'carry' || taskKind === 'forage')) ? taskKind : undefined
     animateCharacterBody(body.current, factory ? 'calm' : spec.animation_style, factory ? 'idle' : moving ? 'wander' : taskKind === 'rest' ? 'rest' : 'idle', time, phase, reducedMotion || clock.paused, gesture)
-    // Track the same real journey in both appearances, so the reveal never resets a wheel.
-    wheels.current = advanceRobotWheels(wheels.current, agent?.task?.id, robotWheelAngle(agent?.task, agent?.position ?? home, now()))
+    // Wheels follow rendered distance, including clearly labelled between-job strolls.
+    // Keeping this in the resident preserves the same motion through the reveal.
+    if (!clock.paused && !reducedMotion) displayDistance.current += Math.hypot(root.current.position.x - previousX, root.current.position.z - previousZ) / .12
+    wheels.current = advanceRobotWheels(wheels.current, 'resident-path', displayDistance.current)
     if (factory) {
       // A mobile industrial chassis rolls level; it never hops, stretches or blinks.
       body.current.position.y = 0
       body.current.rotation.set(0, 0, 0)
       const rig = characterRig(body.current)
       if (rig.eyes) rig.eyes.scale.y = 1
-      const mechanical = robotWorkPose(taskKind, working, taskTravelling, time, reducedMotion)
+      const mechanical = robotWorkPose(taskKind, working, taskTravelling, time, reducedMotion || clock.paused)
       if (rig.leftArm) rig.leftArm.rotation.set(mechanical.leftArmX, 0, mechanical.leftArmZ)
       if (rig.rightArm) rig.rightArm.rotation.set(mechanical.rightArmX, 0, mechanical.rightArmZ)
       rig.wheels.forEach(wheel => { if (wheel) wheel.rotation.y = reducedMotion ? 0 : -wheels.current.angle })
@@ -251,7 +259,7 @@ function Resident({ character, agent, clock, positions, slot, selected, onSelect
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .012, 0]}>{factory ? <ringGeometry args={[selected ? .39 : .3, selected ? .42 : .31, 48]} /> : <circleGeometry args={[selected ? .64 : .43, 20]} />}<meshBasicMaterial color={factory ? '#8AB2BC' : selected ? '#FFD166' : '#182B3C'} transparent opacity={factory ? selected ? .85 : 0 : selected ? .8 : .13} depthWrite={false} /></mesh>
     {selected && !factory && <mesh position={[0, 2 * displayScale[1], 0]} rotation={[0, 0, Math.PI]}><coneGeometry args={[.14, .22, 4]} /><Material color="#FF596E" /></mesh>}
     <group scale={displayScale}><group ref={body}>{factory ? <RobotShape character={character} allowedActions={agent?.allowed_actions} /> : <CharacterShape character={character} />}<group ref={work}>{factory ? <FactoryWorkProp kind={agent?.task?.kind} /> : <WorkProp kind={agent?.task?.kind} active={active && !clock.paused} reducedMotion={reducedMotion} />}</group></group></group>
-    {factory && agent && <AgentTaskBadge agent={agent} selected={selected} now={now} paused={clock.paused} />}
+    {agent && <AgentTaskBadge agent={agent} selected={selected} now={now} paused={clock.paused} reducedMotion={reducedMotion} height={factory ? 1.2 : Math.max(1.35, displayScale[1] * 1.95)} />}
   </group>
 }
 
@@ -378,33 +386,40 @@ function Atmosphere({ active, reducedMotion }: { active: boolean; reducedMotion:
   </group>
 }
 
-function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, positions, active, reducedMotion }: { onFailure: () => void; resetKey: number; followSelected: boolean; selectedId: string | null; positions: Map<string, Vector3>; active: boolean; reducedMotion: boolean }) {
+function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, selectedProjectId, projectTarget, positions, active, reducedMotion }: { onFailure: () => void; resetKey: number; followSelected: boolean; selectedId: string | null; selectedProjectId?: string | null; projectTarget?: { x: number; z: number }; positions: Map<string, Vector3>; active: boolean; reducedMotion: boolean }) {
   const { camera, size, gl, invalidate } = useThree()
   const orbit = useRef<OrbitControlsImpl>(null)
   const previousTarget = useRef(new Vector3())
+  const projectFocus = useRef<Vector3 | null>(null)
   useEffect(() => {
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix(); invalidate() }
   }, [camera, size.width, size.height, invalidate])
   useEffect(() => {
+    projectFocus.current = null
     camera.position.set(9, 11, 13)
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix() }
     orbit.current?.target.set(0, .25, 0); orbit.current?.update(); invalidate()
   }, [resetKey, camera, invalidate])
+  useEffect(() => {
+    projectFocus.current = selectedProjectId && projectTarget ? new Vector3(projectTarget.x, .45, projectTarget.z) : null
+    invalidate()
+  }, [selectedProjectId, projectTarget?.x, projectTarget?.z, invalidate])
   useEffect(() => {
     const failure = (event: Event) => { event.preventDefault(); onFailure() }
     gl.domElement.addEventListener('webglcontextlost', failure)
     return () => gl.domElement.removeEventListener('webglcontextlost', failure)
   }, [gl, onFailure])
   useFrame((_, delta) => {
-    const target = selectedId ? positions.get(selectedId) : null
-    if (!active || !followSelected || !target || !orbit.current) return
+    const target = followSelected && selectedId ? positions.get(selectedId) : projectFocus.current
+    if (!active || !target || !orbit.current) return
     previousTarget.current.copy(orbit.current.target)
     orbit.current.target.lerp(target, reducedMotion ? 1 : Math.min(1, delta * 3))
     previousTarget.current.sub(orbit.current.target)
     camera.position.sub(previousTarget.current)
     orbit.current.update()
+    if (projectFocus.current && orbit.current.target.distanceTo(projectFocus.current) < .02) projectFocus.current = null
   })
-  return <OrbitControls ref={orbit} makeDefault target={[0, .25, 0]} enabled={active} enablePan enableZoom minZoom={12} maxZoom={115} minPolarAngle={.42} maxPolarAngle={1.25} enableDamping={!reducedMotion && active} dampingFactor={.09} />
+  return <OrbitControls ref={orbit} makeDefault target={[0, .25, 0]} onStart={() => { projectFocus.current = null }} enabled={active} enablePan enableZoom minZoom={12} maxZoom={115} minPolarAngle={.42} maxPolarAngle={1.25} enableDamping={!reducedMotion && active} dampingFactor={.09} />
 }
 
 export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, followSelected = false, presentation = 'island' }: SceneProps) {
@@ -417,6 +432,11 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
     const timestamp = Date.parse(paused ? simulation?.paused_at ?? simulation?.server_time ?? '' : simulation?.server_time ?? '')
     return { serverMs: Number.isFinite(timestamp) ? timestamp : Date.now(), receivedAt: performance.now(), paused }
   }, [simulation?.server_time, simulation?.paused, simulation?.paused_at])
+  const recentBuildId = useMemo(() => {
+    const useful = (simulation?.projects ?? []).filter(project => project.level > 0 && projectBenefit(project, simulation?.projects, simulation?.agents).status === 'active')
+    useful.sort((a, b) => Number(b.kind === 'assembly') - Number(a.kind === 'assembly') || (b.completed_at ?? '').localeCompare(a.completed_at ?? '') || a.id.localeCompare(b.id))
+    return useful[0]?.id
+  }, [simulation?.projects, simulation?.agents])
   const selectedAgent = selectedId ? agents.get(selectedId) : undefined
   const selectedSlot = selectedId ? slots.get(selectedId) ?? { x: 0, z: 0 } : { x: 0, z: 0 }
   const routeFrom = selectedAgent?.task ? displayIslandPoint(selectedAgent.task.from, selectedSlot) : null
@@ -424,13 +444,13 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
   return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, scroll to zoom, click a resident or building"}>
     <color attach="background" args={[factory ? '#333D44' : '#82CDE8']} />
-    <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} positions={positions.current} active={active} reducedMotion={reducedMotion} />
+    <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} selectedProjectId={selectedProjectId} projectTarget={simulation?.projects.find(project => project.id === selectedProjectId)?.position} positions={positions.current} active={active} reducedMotion={reducedMotion} />
     <ambientLight intensity={factory ? .25 : .55} />
     <fog attach="fog" args={[factory ? '#333D44' : '#9DDDEF', 25, 60]} />
     <hemisphereLight args={[factory ? '#DBE7EF' : '#FFF9DC', factory ? '#42494D' : '#83AA67', factory ? .75 : 1.4]} />
     <directionalLight position={[-5, 10, 7]} intensity={factory ? 2.1 : 2.4} color={factory ? '#F5F0E7' : '#FFFFFF'} castShadow shadow-mapSize={[1024, 1024]} shadow-camera-left={-8} shadow-camera-right={8} shadow-camera-top={8} shadow-camera-bottom={-8} shadow-normalBias={.04} />
     {factory ? <><FactoryLighting /><FactoryEnvironment seed={layoutSeed} /></> : <><Water active={active && !reducedMotion} /><Island seed={layoutSeed} /><Atmosphere active={active} reducedMotion={reducedMotion} /></>}
-    {simulation?.projects.map(project => <IslandStructure key={project.id} presentation={presentation} project={project} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
+    {simulation?.projects.map(project => <IslandStructure key={project.id} presentation={presentation} project={project} projects={simulation.projects} agents={simulation.agents} autoLabel={!selectedProjectId && !selectedId && project.id === recentBuildId} selected={project.id === selectedProjectId} onSelect={onProjectSelect} active={active && !clock.paused} reducedMotion={reducedMotion} />)}
     {routeFrom && routeTo && <Line points={[[routeFrom.x, .055, routeFrom.z], [routeTo.x, .055, routeTo.z]]} color="#FFF2AF" lineWidth={2} dashed dashSize={.14} gapSize={.09} />}
     {characters.slice(0, 40).map(character => {
       const agent = agents.get(character.id)

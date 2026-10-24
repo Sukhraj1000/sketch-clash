@@ -37,9 +37,13 @@ The live islands now show shared supply shortages, productive tasks and the gain
 
 ## Island / Factory appearance
 
-On the **Islands** page, use **Island / Factory** above the 3D scene to switch appearances. The factory shows the same residents as wheeled industrial robots and the same projects as metal grow racks, fabrication benches, equipment terminals and service walkways. Bevelled surfaces, local room reflections, concrete flooring and muted materials give this view a more realistic workshop appearance; object colours remain as small identification markings. Approved assemblies retain their tested parts. Select a robot to see its original object, capability-based robot module, abilities, current task and contributions in the existing inspector.
+On the **Islands** page, use the **Another perspective** switch above the 3D scene to reveal the factory. It shows the same residents as wheeled industrial robots and the same projects as metal grow racks, fabrication benches, equipment terminals and service walkways. Bevelled surfaces, local room reflections, concrete flooring and muted materials give this view a more realistic workshop appearance; object colours remain as small identification markings. Approved assemblies retain their tested parts, with distinct support, holding and containment fixtures around them. Select a robot to see its original object, capability-based robot module, abilities, current task and contributions in the existing inspector.
 
 The switch is local presentation only: it preserves selection, camera and task motion, adds no model calls or saved world changes, and defaults to Island when the page is reopened. Other pages keep their original appearance. Reduced-motion preferences skip the transition.
+
+The map comes first, with **Built into this world** cards showing saved structures, completed levels and actual delivery bonuses. Selecting a build pans toward its saved site and explains which crew roles can use it. Unfinished construction grants no new benefit; existing levels retain their effects during upgrades. Historical duplicate assemblies are labelled as shared bonuses, not additional yield. One recent useful build is labelled by default; selecting or hovering another reveals its details without covering the map in labels.
+
+Resident travel and work tools follow saved tasks in both views. Between jobs, residents make small ambient strolls around their waiting positions, explicitly labelled as adding no output. These strolls do not call Gemini, write world state or earn resources/XP. Pause stops movement and reduced-motion preferences disable continuous motion. Only completed simulation tasks contribute to the island.
 
 ## Object battles while Gemini is paused
 
