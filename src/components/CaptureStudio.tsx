@@ -49,9 +49,12 @@ function ToolbarButton({ children, label, disabled, selected, onClick }: { child
 
 function EvidenceDetails({ response }: { response: CaptureResponse }) {
   const evidence = response.evidence ?? {}
+  const support = evidence.identity_support
   return <details className="capture-evidence">
     <summary>How this fighter was prepared{response.degraded ? ' · limited evidence' : ''}</summary>
-    <p>Detection, text reading and model interpretation are separate evidence sources. Their scores are not interchangeable measures of certainty.</p>
+    <p>Local YOLO finds supported object classes. Local OCR reads printed text. Gemini interprets the selected photograph with that evidence. Their scores are not interchangeable measures of certainty.</p>
+    {support?.detail && <p><strong>Identity cross-check:</strong> {support.detail}</p>}
+    {(['detector','ocr'] as const).map(name=>evidence[name]?.detail&&<p key={name}><strong>{name==='detector'?'YOLO':'OCR'}:</strong> {evidence[name].detail}</p>)}
     <dl>{Object.entries(evidence).map(([name, value]) => <div key={name}><dt>{name.replaceAll('_', ' ')}</dt><dd>{typeof value === 'object' && value !== null ? String(value.status ?? 'reported') : String(value)}</dd></div>)}</dl>
     {response.detections?.length ? <p>Detected candidates: {response.detections.map(item => `${item.label}${typeof item.score === 'number' ? ` (detector score ${item.score.toFixed(2)})` : ''}`).join(', ')}.</p> : null}
     {response.trace?.length ? <ol>{response.trace.map((item, index) => <li key={index}>{typeof item === 'string' ? item : `${item.tool ?? item.name ?? item.stage ?? 'Check'}: ${item.status ?? (item.valid === true || item.ok === true ? 'passed' : item.valid === false || item.ok === false ? 'failed' : item.result?.ok === true ? 'passed' : 'reported')}${item.duration_ms != null ? ` (${item.duration_ms} ms)` : ''}`}</li>)}</ol> : null}
@@ -64,6 +67,7 @@ function EvidenceDetails({ response }: { response: CaptureResponse }) {
 export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel, initialResponse, onFeedback, onCorrect }: CaptureStudioProps) {
   const [stage, setStage] = useState<Stage>('handoff')
   const [remaining, setRemaining] = useState(duration)
+  const [processingSeconds, setProcessingSeconds] = useState(0)
   const remainingMs = useRef(duration * 1000)
   const [response, setResponse] = useState<CaptureResponse | null>(null)
   const [preview, setPreview] = useState('')
@@ -86,6 +90,13 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
   const mounted = useRef(true)
   const submitted = useRef(false)
   const dragRef = useRef<{ pointerId: number; start: Point } | null>(null)
+
+  useEffect(() => {
+    if(stage!=='processing'){setProcessingSeconds(0);return}
+    const began=Date.now()
+    const interval=window.setInterval(()=>setProcessingSeconds(Math.floor((Date.now()-began)/1000)),10000)
+    return()=>window.clearInterval(interval)
+  },[stage])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(track => track.stop())
@@ -377,7 +388,7 @@ export function CaptureStudio({ player, duration, onPrepare, onConfirm, onCancel
           </div>}
           {stage === 'idle' && !preview && <div className="capture-empty"><Camera size={48} strokeWidth={1.2} aria-hidden="true" /><h2>REAL OBJECT. REAL ATTITUDE.</h2><p>Put a mug, bottle or any clear object in the spotlight.</p><button type="button" className="sketch-start-button" onClick={() => void startCamera()}>OPEN CAMERA <span aria-hidden="true">↗</span></button><button className="capture-text-button" onClick={() => inputRef.current?.click()}>or upload a photograph</button></div>}
           {stage === 'permission' && <div className="capture-processing"><Camera size={32} /><strong>CAMERA PERMISSION</strong><span>Choose Allow in your browser. Your timer is paused.</span><button type="button" className="capture-text-button" onClick={() => { discard(); setStage('idle'); inputRef.current?.click() }}>Use an uploaded photo instead</button></div>}
-          {busy && <div className="capture-processing" role="status"><span className="capture-loading-mark" aria-hidden="true">✳</span><strong>{stage === 'normalizing' ? 'DEVELOPING YOUR PHOTO…' : 'MEET YOUR NEW FIGHTER…'}</strong><span>{stage === 'normalizing' ? 'Making a clean, correctly oriented image.' : 'Reading the object. Checking the configuration.'}</span><small>The timer is paused.</small></div>}
+          {busy && <div className="capture-processing" role="status"><span className="capture-loading-mark" aria-hidden="true">✳</span><strong>{stage === 'normalizing' ? 'DEVELOPING YOUR PHOTO…' : 'MEET YOUR NEW FIGHTER…'}</strong><span>{stage === 'normalizing' ? 'Making a clean, correctly oriented image.' : 'Local YOLO + OCR, then Gemini checks the selected photograph.'}</span><small>{stage==='processing'?'Paced AI requests may take several minutes. Your timer is paused.':'Your timer is paused.'}</small>{processingSeconds>=30&&<small>Waiting or checking · {Math.floor(processingSeconds/60)}m {String(processingSeconds%60).padStart(2,'0')}s. Your capture is kept for recovery.</small>}</div>}
           {stage === 'recognized' && <span className="capture-ready-seal"><Check size={16} /> READY TO BATTLE</span>}
           {stage === 'handoff' && <div className="sketch-ready-overlay"><span className="sketch-ready-kicker">{player === 2 ? 'A LITTLE MYSTERY MAKES A GOOD FIGHT' : 'YOUR EVERYDAY. THEIR PROBLEM.'}</span><div className="sketch-ready-sticker">P{player}</div><h2>{player === 2 ? 'PASS THE SKETCHBOOK.' : 'CAMERAS AT THE READY.'}</h2><p>{player === 2 ? 'Player 1, look away. Player 2, choose your secret weapon.' : 'Find one object. Take its photo. Give the ordinary a fighting chance.'}</p><button type="button" className="sketch-start-button" onClick={() => { if(initialResponse){setResponse(initialResponse);setPreview(initialResponse.image_url);setStage('recognized');setMessage('Your fighter was recovered. Review it before continuing.')}else setStage('idle') }}>I'M READY <span aria-hidden="true">↗</span></button><small>Your timer runs only while framing or selecting.</small></div>}
         </div>

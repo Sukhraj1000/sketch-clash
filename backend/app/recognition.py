@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .catalog import CATALOG_VERSION, CharacterCatalog
+from .catalog import CATALOG_VERSION, CharacterCatalog, normalize_key
 from .config import Settings
 from .provider_queue import require_ai_enabled
 from .contracts import Crop, Observation, PendingFighter
@@ -53,6 +53,34 @@ def _json_step(step: Any) -> dict:
 
 def _validation_errors(exc: ValidationError) -> list[str]:
     return [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()][:12]
+
+
+def identity_support(detector: dict, candidates: list[dict], record: dict) -> dict:
+    """Compare labels transparently, never turn detector support into proof of identity."""
+    base = {'scope': 'selected_region', 'detector_labels': [item['label'] for item in candidates],
+            'proposed_type': record['canonical_key'], 'identity_verified': False}
+    aliases = {normalize_key(value) for value in [record['canonical_key'], *record.get('aliases', [])]}
+    # COCO's cup/plant/ball classes are broader than our object kinds. This is
+    # compatible support only; it never merges cup and mug canonical identity.
+    broad = {'cup': {'cup', 'mug'}, 'potted-plant': {'plant'}, 'sports-ball': {'ball'}}
+    vocabulary = {normalize_key(label) for label in detector.get('supported_labels', [])}
+    if vocabulary:
+        covered = bool(vocabulary & aliases) or any(record['canonical_key'] in broad.get(label, set()) for label in vocabulary)
+        base['class_coverage'] = 'supported' if covered else 'not_in_detector_vocabulary'
+    if detector.get('status') not in ('completed', 'empty'):
+        return {**base, 'status': 'unavailable', 'detail': 'Local YOLO support was unavailable. Review the photo and Gemini proposal carefully.'}
+    if not candidates:
+        if base.get('class_coverage') == 'not_in_detector_vocabulary':
+            return {**base, 'status': 'no_detection', 'detail': f"This YOLO model has no {record['canonical_key']} class. It cannot independently confirm that label. Gemini interpreted the photograph; you make the final identity check."}
+        return {**base, 'status': 'no_detection', 'detail': 'YOLO did not find a supported object class in this region. This does not mean the object is absent; check Gemini’s proposed label against your photograph.'}
+    if len(candidates) != 1:
+        return {**base, 'status': 'multiple_candidates', 'detail': 'YOLO found multiple objects inside the selected region. Check which one the proposal describes, or crop more tightly.'}
+    detected = normalize_key(candidates[0]['label'])
+    compatible = detected in aliases or record['canonical_key'] in broad.get(detected, set())
+    if compatible:
+        return {**base, 'status': 'compatible_label', 'detail': 'YOLO and Gemini labels are compatible. They are independent model suggestions, not proof; confirm against your photograph.'}
+    return {**base, 'status': 'different_labels',
+            'detail': f"YOLO suggested {candidates[0]['label']}; Gemini proposed {record['canonical_key']}. These labels differ. Check the photograph before confirming, or correct/crop it."}
 
 
 class RecognitionService:
@@ -172,15 +200,22 @@ class RecognitionService:
                     width=width, height=height, crop=crop, output_id=output_id,
                     pipeline_version_id=pipeline_version_id,
                     parent_output_id=(correction_context or {}).get('parent_output_id'))
-        # A user crop is authoritative for target choice. Detector boxes remain in full canonical coordinates.
-        detector = await self.evidence.detect(image_bytes)
-        candidates = prominent_detections(detector.get("detections", []), width, height)
+        # Run every evidence source on the same target. Previously a crop was sent
+        # to Gemini/OCR while YOLO still described unrelated full-frame objects.
+        selected_image = crop_image(ProcessedImage(image_bytes, width, height), crop) if crop else ProcessedImage(image_bytes, width, height)
+        selected = selected_image.data
+        detector = await self.evidence.detect(selected)
+        detector = {**detector, 'coordinate_space': 'selected_region',
+                    'dimensions': {'width': selected_image.width, 'height': selected_image.height}}
+        region_candidates = prominent_detections(detector.get("detections", []), selected_image.width, selected_image.height)
+        candidates = [{**item, 'box': {**item['box'],
+                      'x': item['box']['x'] + (crop.x if crop else 0),
+                      'y': item['box']['y'] + (crop.y if crop else 0)}} for item in region_candidates]
         evidence: dict = {"detector": detector, "ocr": result("skipped", detail="Awaiting target selection."),
                           "gemini": result("skipped", detail="Awaiting target selection."), "tools": []}
         if crop is None and len(candidates) > 1:
             return Observation(**base, status="needs_selection", candidates=candidates, evidence=evidence,
                                uncertainty=["Choose one detected object, or crop more tightly around your fighter."])
-        selected = crop_image(ProcessedImage(image_bytes, width, height), crop).data if crop else image_bytes
         ocr = await self.evidence.read_text(selected)
         evidence["ocr"] = ocr
         evidence["degraded"] = any(e.get("status") in ("failed", "unavailable", "skipped") for e in (detector, ocr))
@@ -293,6 +328,10 @@ class RecognitionService:
                         continue
                     if accepted is not None and proposal is not None:
                         record = accepted["resolved"]["record"]
+                        support = identity_support(detector, region_candidates, record)
+                        evidence['identity_support'] = support
+                        if support['status'] == 'different_labels':
+                            proposal.uncertainty = [*proposal.uncertainty[:7], support['detail']]
                         if persist_catalog:
                             await self.catalog.ensure_type(record)
                         pending = PendingFighter(battle_id=battle_id, player_slot=player_slot, capture_id=capture_id,

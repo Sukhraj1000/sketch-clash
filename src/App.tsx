@@ -5,7 +5,7 @@ import type { Fighter, Phase } from './types';
 import { PRESET_FIGHTERS } from './game/fixtures';
 import { useTimeline } from './game/director';
 import { CaptureStudio, type CaptureInput, type CaptureResponse } from './components/CaptureStudio';
-import { api, post, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
+import { api, post, prepareCapture, asFighter, asPair, type BattleRecord, type Health, type PendingFighter, type FeedbackInput, type CorrectionInput } from './lib/api';
 import './LiveFlow.css';
 const WorldView = lazy(()=>import('./components/WorldView'));
 const Observatory = lazy(()=>import('./components/Observatory'));
@@ -172,7 +172,7 @@ export default function App() {
     const record=currentBattle.current;if(!record)throw new Error('Create a round before capturing a fighter.');
     const slot=phase==='DRAW_P1'?0:1;
     const form=new FormData();form.append('image',input.file);form.append('capture_id',input.captureId);form.append('slot',String(slot));form.append('source',input.source);if(input.crop)form.append('crop',JSON.stringify(input.crop));
-    const result=await api<any>(`/battles/${record.id}/captures`,{method:'POST',body:form,signal});
+    const result=await prepareCapture<any>(record.id,form,signal);
     if(result.stale)throw new Error('This photograph was replaced. Please use the latest capture.');
     return captureResponse(result);
   },[phase]);

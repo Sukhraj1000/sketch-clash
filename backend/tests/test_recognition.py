@@ -7,13 +7,23 @@ from PIL import Image
 
 from app.config import Settings
 from app.engine import PRESETS
-from app.recognition import RecognitionService
+from app.recognition import RecognitionService, identity_support
 
 
 def jpeg(colour='white', size=(160, 120)):
     buf = BytesIO()
     Image.new('RGB', size, colour).save(buf, 'JPEG')
     return buf.getvalue()
+
+
+def test_unknown_detector_class_is_distinct_from_missing_recognition_evidence():
+    detector = {'status': 'empty', 'supported_labels': ['cup', 'bottle', 'book']}
+    microphone = identity_support(detector, [], {'canonical_key': 'microphone', 'aliases': []})
+    assert microphone['class_coverage'] == 'not_in_detector_vocabulary'
+    assert 'no microphone class' in microphone['detail']
+    mug = identity_support(detector, [], {'canonical_key': 'mug', 'aliases': ['coffee mug']})
+    assert mug['class_coverage'] == 'supported'
+    assert mug['status'] == 'no_detection'
 
 
 def proposal(**updates):
@@ -29,8 +39,10 @@ class FakeEvidence:
     def __init__(self, detections=None):
         self.detections = detections or []
         self.ocr_images = []
+        self.detector_images = []
 
     async def detect(self, data):
+        self.detector_images.append(data)
         return {'status': 'completed' if self.detections else 'empty', 'detections': self.detections}
 
     async def read_text(self, data):
@@ -68,6 +80,8 @@ async def test_no_detector_text_evidence_does_not_block_valid_unfamiliar_photo()
     assert observation.status == 'recognized'
     assert observation.pending_fighter.canonical_type_id == 'mug'
     assert observation.evidence['detector']['status'] == 'empty'
+    assert observation.evidence['identity_support']['status'] == 'no_detection'
+    assert observation.evidence['identity_support']['identity_verified'] is False
     assert observation.evidence['ocr']['status'] == 'empty'
     assert [v['tool'] for v in observation.pending_fighter.validation] == [
         'resolve_character_type', 'validate_fighter_config', 'validate_visual_spec', 'simulate_match_preview']
@@ -125,7 +139,35 @@ async def test_selected_crop_is_the_only_ocr_region_and_seed_is_stable():
     first = await recognize(service, crop=crop)
     second = await recognize(service, crop=crop)
     assert Image.open(BytesIO(local.ocr_images[0])).size == (40, 60)
+    assert Image.open(BytesIO(local.detector_images[0])).size == (40, 60)
+    import json
+    payload = json.loads(client.calls[0]['input'][0]['content'][0]['text'])
+    assert payload['detector_evidence']['coordinate_space'] == 'selected_region'
+    assert payload['detector_evidence']['dimensions'] == {'width': 40, 'height': 60}
     assert first.pending_fighter.visual_spec.appearance_seed == second.pending_fighter.visual_spec.appearance_seed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('label,expected', [('cup', 'compatible_label'), ('bottle', 'different_labels')])
+async def test_detector_support_never_asserts_identity_or_hides_disagreement(label, expected):
+    boxes = [{'id': 'target', 'label': label, 'score': .91,
+              'box': {'x': 0, 'y': 0, 'width': 80, 'height': 90}}]
+    observed = await recognize(RecognitionService(Settings(), client=FakeClient([proposal()]), evidence_runner=FakeEvidence(boxes)))
+    assert observed.status == 'recognized'
+    assert observed.pending_fighter.canonical_type_id == 'mug'
+    assert observed.evidence['identity_support']['status'] == expected
+    assert observed.evidence['identity_support']['identity_verified'] is False
+    assert bool(observed.uncertainty) == (expected == 'different_labels')
+
+
+@pytest.mark.asyncio
+async def test_crop_detections_are_returned_in_original_photo_coordinates():
+    boxes = [{'id': 'target', 'label': 'cup', 'score': .91,
+              'box': {'x': 2, 'y': 3, 'width': 30, 'height': 40}}]
+    crop = {'x': 20, 'y': 10, 'width': 40, 'height': 60}
+    observed = await recognize(RecognitionService(Settings(), client=FakeClient([proposal()]), evidence_runner=FakeEvidence(boxes)), crop=crop)
+    assert observed.candidates[0].box.model_dump() == {'x': 22, 'y': 13, 'width': 30, 'height': 40}
+    assert observed.evidence['detector']['detections'][0]['box']['x'] == 2
 
 
 @pytest.mark.asyncio

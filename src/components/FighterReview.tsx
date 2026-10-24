@@ -74,6 +74,7 @@ export default function FighterReview({response,onFeedback,onCorrect,onRevised,o
   return <section className="fighter-review" aria-label="Review your fighter">
     <div className="review-topline"><span className="review-label">YOUR OBJECT, YOUR CALL</span><span className="review-class">{fighter.archetype} <i/> 100 HP</span></div>
     <div className="review-intro"><div><h2>{fighter.display_name}</h2><p>We see <strong>{response.observed_object?.label??fighter.observed_object?.label??fighter.object_type}</strong>. You decide if we got it right.</p></div><span className="review-output" title={outputId??'Historical output'}>{outputId?`PROPOSAL ${outputId.slice(0,7)}`:'RECOVERED FIGHTER'}</span></div>
+    {response.evidence?.identity_support?.detail&&<p className="review-notice"><strong>YOLO + Gemini cross-check: </strong>{response.evidence.identity_support.detail}</p>}
     <div className="review-visuals">
       <figure className="review-source"><img src={response.image_url} alt={`Source photograph for ${fighter.object_type}`}/><figcaption><span>01</span> YOUR PHOTOGRAPH</figcaption></figure>
       <div className="review-model"><Suspense fallback={<div className="review-preview-loading">Opening the 3D preview…</div>}><CharacterPreview fighter={previewFighter} scope={scope} compact/></Suspense></div>

@@ -109,7 +109,8 @@ class EvidenceRunner:
                                    "score": round(float(box.conf[0]), 4),
                                    "box": {"x": x1, "y": y1, "width": x2 - x1, "height": y2 - y1}})
             return result("completed" if detections else "empty", model=self.config.yolo_model,
-                          detail="Detector scores are model scores, not certainty of identity.", detections=detections)
+                          detail="Detector scores are model scores, not certainty of identity.", detections=detections,
+                          supported_labels=sorted(str(label) for label in prediction.names.values()))
         except Exception as exc:
             return result("failed", detail=f"YOLO inference failed ({_safe_category(exc)}).",
                           model=self.config.yolo_model, detections=[])
