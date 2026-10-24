@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 400" fill="none" role="img" aria-labelledby="graphite-title graphite-desc">
+  <title id="graphite-title">Graphite, the plan maker</title>
+  <desc id="graphite-desc">A sharpened coral pencil with a confident smile, paper gloves and sturdy little boots. Graphite holds a rolled island plan, ready to turn an idea into something useful.</desc>
+  <g stroke="#1E1C29" stroke-linecap="round" stroke-linejoin="round">
+    <!-- The wide barrel and exposed wood keep the object readable at a glance. -->
+    <path d="M129 307L119 337L94 345L89 364L145 366L159 338" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M198 308L216 333L242 340L252 360L196 367L177 339" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M94 348L115 346L130 351L143 350L141 362L91 361Z M215 343L235 343L247 357L201 363L195 352Z" fill="#FF596E" stroke="none"/>
+    <path d="M97 356L113 355M123 357L133 357M209 354L220 352M228 351L237 354M90 369L143 371M200 372L250 365" stroke-width="2.5"/>
+    <!-- Back arm and rolled field notes. -->
+    <path d="M130 196C105 195 92 211 86 230L98 242C107 228 116 222 135 222" fill="#F5EDDC" stroke-width="6"/>
+    <g transform="rotate(-17 85 250)">
+      <path d="M67 204L99 204L101 288C101 298 68 298 67 288Z" fill="#F5EDDC" stroke-width="5"/>
+      <ellipse cx="83" cy="204" rx="16" ry="8" fill="#66E0D4" stroke-width="4"/>
+      <path d="M76 205C76 199 90 199 91 204C91 210 82 212 81 205" stroke-width="2.2"/>
+      <path d="M76 224L91 224M77 232L86 232M79 264L91 264M79 272L92 272M73 284L94 284" stroke-width="1.8"/>
+    </g>
+    <path d="M92 228L80 224L68 232L67 245L75 254L91 251L100 241Z" fill="#F5EDDC" stroke-width="5"/>
+    <path d="M73 235L82 238M73 242L81 244M89 234L91 241" stroke-width="2.5"/>
+    <g transform="rotate(9 177 202)">
+      <path d="M131 121L173 40L218 121L218 279L205 293L145 293L131 279Z" fill="#FF596E" stroke-width="6.5"/>
+      <path d="M131 121L173 40L218 121L196 111L174 123L153 111Z" fill="#EAC79B" stroke-width="5"/>
+      <path d="M159 67L173 40L189 69L174 65Z" fill="#1E1C29" stroke-width="2"/>
+      <path d="M136 127L153 116L153 277L142 286L136 276Z" fill="#D84054" stroke="none"/>
+      <path d="M197 116L212 126L212 276L199 288Z" fill="#FF8B8E" stroke="none"/>
+      <path d="M153 116L153 163M196 116L196 155M153 238L153 279M196 231L196 279" stroke-width="2.5"/>
+      <path d="M131 279L218 279L218 304L207 317L143 317L131 304Z" fill="#D3D8CD" stroke-width="5.5"/>
+      <path d="M132 287L216 287M134 298L216 298M145 282L145 304M204 282L204 304" stroke-width="2.5"/>
+      <path d="M136 306L213 306L211 326C208 344 141 345 138 327Z" fill="#F5EDDC" stroke-width="5.5"/>
+      <path d="M147 325C158 330 189 332 202 326" stroke="#D6CCB7" stroke-width="3"/>
+      <!-- A small face on the object itself, with no extra mascot head. -->
+      <path d="M150 176L165 174M183 172L199 166" stroke-width="5"/>
+      <path d="M160 187L160 199M190 184L190 196" stroke-width="6"/>
+      <path d="M163 214C173 226 189 221 195 209" stroke-width="4.5"/>
+      <path d="M144 205L149 207M203 197L208 196" stroke-width="2.5"/>
+      <path d="M164 249L172 243L181 247L175 253Z" fill="#F5EDDC" stroke-width="2"/>
+      <path d="M161 258L184 258M168 265L177 265M143 134L143 156M205 237L205 268" stroke="#F5EDDC" stroke-width="2" opacity=".7"/>
+    </g>
+    <!-- A forward paper glove gives the slim pencil a bold silhouette. -->
+    <path d="M212 204C231 208 244 198 251 179L269 186C265 219 247 233 219 230" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M247 183L245 164L254 150L268 148L281 156L293 158L302 173L297 191L284 202L262 199Z" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M253 164L267 168L273 179M267 153L266 163M280 161L278 168M290 166L287 173M253 187L266 192" stroke-width="2.8"/>
+    <path d="M247 196L264 202L258 215L241 208Z" fill="#FF596E" stroke-width="3.5"/>
+    <!-- Loose ink echoes, kept away from the face and silhouette. -->
+    <path d="M116 105L124 89M107 109L110 98M298 143L309 137M303 153L319 151M117 313L112 322M141 374L153 373" stroke-width="2.5"/>
+    <path d="M193 42L199 52M223 111L225 130M214 326L211 335M63 264L66 277" stroke-width="1.4" opacity=".5"/>
+  </g>
+</svg>

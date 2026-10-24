@@ -24,7 +24,7 @@
   .hero-logo>span{white-space:nowrap}
   .logo-sketch{font-size:clamp(84px,23vw,110px)}
   .logo-clash{font-size:clamp(94px,27vw,126px);letter-spacing:2px}
-  .hero-fighter{grid-row:2;width:100px;align-self:center;margin:28px 0 0}
+  .hero-fighter{grid-row:2;width:130px;align-self:center;margin:32px 0 0}
   .hero-fighter-left{grid-column:1;justify-self:end}
   .hero-fighter-right{grid-column:2;justify-self:start}
 }
@@ -43,3 +43,23 @@
 .camera-battle-entry{font-size:27px;max-width:100%;gap:14px}.camera-battle-entry:disabled{background:#e8e0ce;color:#625d59;box-shadow:3px 3px var(--ink);cursor:not-allowed}.demo-battle-available{background:var(--yellow);border:1.5px solid var(--ink);box-shadow:3px 3px var(--ink);padding:12px 17px;font-size:11px}.home-capture-paused{line-height:1.7;margin:15px 0 0}
 
 .object-battle-entry{font-size:27px;max-width:100%;gap:14px}.home-arena-label{font-size:8px;letter-spacing:.6px;font-weight:800;margin-top:-7px}.home-other-battles{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}.home-other-battles .demo-button{font-size:9px}.home-other-battles .demo-button:disabled{opacity:.5;cursor:not-allowed}.phase-object_battles .screen-wrap{min-height:65vh}
+
+/* Object-led landing polish; retain the original sketchbook palette and typography. */
+.landing .hero-description{max-width:390px;margin-inline:auto;line-height:1.8}
+.landing .home-arena-label{max-width:310px;line-height:1.6;letter-spacing:.35px}
+.landing .home-colonies-entry small{font-size:7px;line-height:1.5;letter-spacing:.6px;opacity:.8}
+.landing .how-strip{align-items:flex-start}
+.landing .how-strip p>span{line-height:1.7;max-width:230px}
+@media(min-width:781px){.landing .mini-player>span{font-size:clamp(20px,2.2vw,29px)}}
+@media(max-width:520px){
+  .landing .mini-player{font-size:11px;padding-top:5px}
+  .landing .mini-player>span{font-size:17px;letter-spacing:.5px}
+  .landing .fighter-paper>img{height:calc(100% - 30px)}
+  .landing .hero-description{font-size:12px;max-width:290px}
+  .landing .hero-description br{display:none}
+  .landing .home-arena-label{font-size:7px}
+  .landing .how-strip{grid-template-columns:1fr;gap:19px;padding-top:25px}
+  .landing .how-strip>div{flex-direction:row;align-items:center;gap:13px}
+  .landing .how-strip b{font-size:10px;letter-spacing:.6px}
+  .landing .how-strip p>span{font-size:11px;max-width:260px}
+}

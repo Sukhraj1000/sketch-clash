@@ -95,7 +95,7 @@ export default function BattleArena({ fighters, onComplete, playback }: Props) {
   });
 
   return <section className="battle-screen" aria-label="Sketch Clash battle arena">
-    <div className="battle-topline"><span><i /> {playback?.source_label ?? 'LIVE FROM THE SKETCHBOOK'}</span><span>{photographs || fixture ? 'EVERYDAY OBJECTS' : 'ANIMALS'} · ROUND 01</span></div>
+    <div className="battle-topline"><span><i /> {playback?.source_label ?? 'LIVE FROM THE SKETCHBOOK'}</span><span>{photographs || fixture ? 'EVERYDAY OBJECTS' : 'OBJECT DEMO'} · ROUND 01</span></div>
     <div className="battle-hud">
       <HealthBar fighter={fighters[0]} health={frame.health[0]} />
       <div className="battle-round-clock"><span>ROUND 01</span><strong>{frame.ko ? outcome === 'knockout' ? 'KO' : 'FT' : String(frame.second).padStart(2, '0')}</strong><small>{photographs || fixture ? 'OBJECTS IN MOTION' : 'NO ERASERS NOW'}</small></div>

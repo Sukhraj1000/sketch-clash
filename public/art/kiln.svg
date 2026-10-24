@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 400" fill="none" role="img" aria-labelledby="kiln-title kiln-desc">
+  <title id="kiln-title">Kiln, built to carry the crew</title>
+  <desc id="kiln-desc">A sturdy mint-and-cream ceramic mug with an oversized handle, determined eyes, paper gloves and little work boots. A few warm curls rise above the open rim.</desc>
+  <g stroke="#1E1C29" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Open handle: an unmistakable mug silhouette, even at thumbnail size. -->
+    <path d="M250 147C300 126 326 157 321 195C317 229 289 248 251 240L246 216C274 225 293 212 296 191C300 169 283 162 257 174Z" fill="#66E0D4" stroke-width="6.5"/>
+    <path d="M285 143C305 145 315 158 315 176M312 204C305 224 286 234 265 231" stroke="#F5EDDC" stroke-width="3.5"/>
+    <!-- Short legs carry a low, solid body. -->
+    <path d="M139 281L128 325L106 341L101 361L159 365L176 324L177 289" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M210 283L218 321L244 335L254 357L199 367L182 329L180 290" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M108 345L129 337L149 345L153 359L105 358Z M217 337L239 340L249 355L203 363L199 350Z" fill="#66E0D4" stroke="none"/>
+    <path d="M115 351L126 347M134 350L144 353M211 352L223 348M231 347L239 351M105 369L156 372M202 374L253 364" stroke-width="2.5"/>
+    <!-- Back arm nests beside the handle, separate from the ceramic shape. -->
+    <path d="M246 223L265 236L277 220L291 228L282 256L266 264L243 250" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M274 223L272 207L280 197L295 197L307 209L305 225L293 236L280 232Z" fill="#F5EDDC" stroke-width="5.5"/>
+    <path d="M280 205L284 213M290 202L293 211M301 210L296 216M281 224L290 228" stroke-width="2.5"/>
+    <!-- The oval rim and subtle curved base make this a vessel, not a cube. -->
+    <path d="M102 132L112 255C114 287 136 307 184 309C230 310 254 290 257 258L264 132Z" fill="#F5EDDC" stroke-width="6.5"/>
+    <path d="M109 219C145 234 215 239 260 218L257 258C255 288 231 304 185 305C142 304 119 286 115 257Z" fill="#66E0D4" stroke="none"/>
+    <path d="M111 223C147 239 215 242 258 222M118 260C150 275 215 280 251 263" stroke-width="2.8"/>
+    <path d="M116 153L122 208M125 244L128 258M133 275L141 282" stroke="#FFFDF5" stroke-width="5.5"/>
+    <path d="M245 154L242 203M243 245L239 263" stroke="#D7CEBA" stroke-width="3"/>
+    <ellipse cx="183" cy="132" rx="81" ry="27" fill="#F5EDDC" stroke-width="6"/>
+    <ellipse cx="183" cy="133" rx="64" ry="16" fill="#1E1C29" stroke-width="3"/>
+    <path d="M124 136C146 124 211 124 242 137C219 152 148 153 124 136Z" fill="#D2A277" stroke="none"/>
+    <path d="M141 138C161 134 191 134 210 138" stroke="#F5EDDC" stroke-width="2.5"/>
+    <!-- Confident, simple expression on the ceramic wall. -->
+    <path d="M133 175L153 182M180 181L201 175" stroke-width="5"/>
+    <path d="M145 191L145 203M189 191L189 203" stroke-width="6.5"/>
+    <path d="M151 216C159 226 177 228 188 213" stroke-width="4.5"/>
+    <path d="M128 207L134 209M203 205L210 203" stroke="#D6A18E" stroke-width="3"/>
+    <!-- A small maker's stamp reinforces the useful object identity. -->
+    <path d="M164 264L182 256L199 265L198 283L181 291L164 282Z" fill="#F5EDDC" stroke-width="2.5"/>
+    <path d="M173 279L173 269L186 269L186 279ZM186 271L191 271L191 276L186 276" stroke-width="2"/>
+    <!-- Forward fist: ready for a clash, ready to haul supplies afterward. -->
+    <path d="M113 221L93 234L77 222L62 233L84 259L101 261L124 244" fill="#F5EDDC" stroke-width="6"/>
+    <path d="M78 222L76 204L66 195L50 197L38 210L40 228L53 239L68 235Z" fill="#F5EDDC" stroke-width="5.5"/>
+    <path d="M46 207L52 213M57 202L62 210M70 211L65 219M47 226L57 229" stroke-width="2.5"/>
+    <path d="M72 229L85 239L78 249L65 239Z" fill="#66E0D4" stroke-width="3.5"/>
+    <!-- Steam and graphite ticks supply movement without extra decoration. -->
+    <path d="M158 91C143 77 171 68 158 52M191 91C179 79 202 69 192 57M215 99C210 93 219 85 218 81" stroke-width="3.5"/>
+    <path d="M63 178L57 168M51 184L39 177M291 275L301 278M289 286L296 292" stroke-width="2.5"/>
+    <path d="M100 158L102 183M112 276L119 287M263 248L261 263M135 314L145 317M277 138L289 139" stroke-width="1.4" opacity=".5"/>
+  </g>
+</svg>
