@@ -38,7 +38,10 @@ Open [http://127.0.0.1:8080/](http://127.0.0.1:8080/). Only that port is publish
 - `npm run docker:demo` uses temporary in-memory records, like `npm run dev:demo`.
 - `npm run docker:logs` follows both services; `npm run docker:down` stops them.
 - The operator key lives in the `api-data` volume: `npm run docker:operator-token` prints it in your terminal.
-- The first build downloads torch and the vision weights and takes several minutes; later builds reuse the cached layers.
+- The first build downloads torch and the vision weights and takes several minutes; later builds reuse the cached layers. Keep about 5 GB free: a full disk turns Docker's VM read-only mid-build.
+- The stack restarts with Docker Desktop (`restart: unless-stopped`). To keep it running after a reboot, enable Docker Desktop → Settings → General → **Start Docker Desktop when you sign in**.
+- While AI is not paused, the island crews call Gemini automatically, bounded by `ISLAND_AI_REQUESTS_PER_DAY` (legacy `GEMINI_REQUESTS_PER_DAY`). Run `npm run docker:down` or set `SKETCH_AI_PAUSED=true` when you are not playing.
+- Hardening: only `127.0.0.1:8080` is published; both containers have read-only filesystems, drop all Linux capabilities (nginx keeps the four it needs to bind port 80 and switch user), cannot gain privileges, and have memory, process and log-size limits. The backend runs as a non-root user and the installer is not shipped in the image. nginx sends a strict Content-Security-Policy and related headers; `vercel.json` sends the same set.
 
 ## Vercel (frontend only)
 

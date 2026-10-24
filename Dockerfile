@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Two images from one file:
 #   docker build --target api .   FastAPI backend with CPU-only torch, YOLO11n and EasyOCR weights baked in
 #   docker build --target web .   Built Vite frontend served by nginx, proxying /api to the backend
@@ -5,9 +6,9 @@
 
 # ---------- backend ----------
 FROM python:3.12-slim AS api
-COPY --from=ghcr.io/astral-sh/uv:0.11.3 /uv /bin/uv
 # opencv-python (pulled in by ultralytics) needs libGL and glib even when headless.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -18,8 +19,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     MPLCONFIGDIR=/tmp/matplotlib
 WORKDIR /app
 COPY backend/requirements.lock.txt backend/requirements.lock.txt
-# --torch-backend cpu keeps the multi-GB CUDA wheels out of the image.
-RUN uv pip install --system --torch-backend cpu -r backend/requirements.lock.txt
+# --torch-backend cpu keeps the multi-GB CUDA wheels out of the image. uv is mounted
+# for this step only, so the installer binary never ships in the runtime image.
+RUN --mount=from=ghcr.io/astral-sh/uv:0.11.3,source=/uv,target=/bin/uv \
+    uv pip install --system --torch-backend cpu -r backend/requirements.lock.txt
 COPY backend/scripts/setup_vision.py backend/scripts/setup_vision.py
 RUN python backend/scripts/setup_vision.py
 COPY pytest.ini ./
@@ -47,7 +50,9 @@ RUN npm run build
 
 # ---------- frontend server ----------
 FROM nginx:1-alpine AS web
+RUN apk upgrade --no-cache
 ENV API_UPSTREAM=http://api:8000
+COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=web-build /app/dist /usr/share/nginx/html
 EXPOSE 80

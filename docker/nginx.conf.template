@@ -2,10 +2,12 @@
 server {
     listen 80;
     root /usr/share/nginx/html;
+    server_tokens off;
     # Backend accepts 5 MiB images plus multipart overhead.
     client_max_body_size 6m;
 
     location /api/ {
+        include /etc/nginx/snippets/security-headers.conf;
         proxy_pass ${API_UPSTREAM};
         proxy_http_version 1.1;
         # The backend's origin check compares Origin with its own base URL, so keep the browser's Host.
@@ -19,10 +21,12 @@ server {
     }
 
     location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
     location / {
+        include /etc/nginx/snippets/security-headers.conf;
         try_files $uri $uri/ /index.html;
     }
 }
