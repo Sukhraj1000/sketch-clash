@@ -7,6 +7,7 @@ import json
 import pytest
 
 from app.colony_planner import ColonyPlanner, VALIDATION_BACKOFF_MAX_SECONDS
+from app.provider_ledger import ProviderLedger, COLLECTION, LEDGER_ID
 from app.provider_queue import ProviderDiagnostic, ProviderQueue
 from app.repository import MemoryRepository, StoreError
 from test_colony_planner import fixture
@@ -60,6 +61,74 @@ async def test_daily_admission_defers_without_attempt_and_resumes_same_turn(fixt
     await worker.run(second['id'])
     assert repo._data['colonyReasoning'][second['id']]['status'] == 'completed'
     assert len(provider.calls) == len(colonies.applied) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('condition', ['raised_cap', 'unchanged_cap', 'new_reservation', 'unavailable_ledger'])
+async def test_restart_rechecks_local_cap_against_current_durable_allowance(fixture, condition, monkeypatch):
+    repo, colonies, provider, clock, worker = fixture
+    ledger = ProviderLedger(repo)
+    worker.queue = ProviderQueue(clock=clock, requests_per_day=1, ledger=ledger)
+    first = worker.request('first-reservation', 'winners'); await worker.run(first['id'])
+    clock.add(121)
+    deferred = worker.request('deferred-reservation', 'losers'); await worker.run(deferred['id'])
+    saved = deepcopy(repo._data['colonyReasoning'][deferred['id']])
+    reservations = deepcopy(repo._data[COLLECTION][LEDGER_ID]['reservations'])
+    assert saved['status'] == 'retry_wait' and saved['attempts'] == 0
+    assert clock() < saved['retry_at_epoch']
+
+    # Recreate the worker and load the same ledger, as backend startup does.
+    async def sleep(seconds): clock.add(seconds)
+    queue = ProviderQueue(clock=clock, sleep=sleep, requests_per_day=1 if condition == 'unchanged_cap' else 2,
+                          ledger=ProviderLedger(repo))
+    await queue.load_ledger()
+    restarted = ColonyPlanner(repo, colonies, worker.settings, client=provider, clock=clock, provider_queue=queue)
+    if condition == 'new_reservation':
+        admission = ledger.admit('other-worker', clock(), requests_per_minute=4, requests_per_day=2,
+                                 interval_seconds=15, concurrency=1, model='fixture', category='council')
+        assert admission['admitted']
+    elif condition == 'unavailable_ledger':
+        def unavailable(_now): raise RuntimeError('Fixture storage unavailable.')
+        monkeypatch.setattr(queue.ledger, 'snapshot', unavailable)
+    elif condition == 'raised_cap':
+        queue.cooldown_until = clock() + 30
+        earliest_dispatch = queue.cooldown_until
+        dispatch_times = []
+        original_create = provider.aio.interactions.create
+        async def record_dispatch(**kwargs):
+            dispatch_times.append(clock())
+            return await original_create(**kwargs)
+        provider.aio.interactions.create = record_dispatch
+
+    await restarted.run(deferred['id'])
+    current = repo._data['colonyReasoning'][deferred['id']]
+    for reservation in reservations:
+        assert reservation in repo._data[COLLECTION][LEDGER_ID]['reservations']
+    if condition == 'raised_cap':
+        assert current['status'] == 'completed' and current['attempts'] == 1
+        assert current['session_id'] == saved['session_id']
+        assert len(dispatch_times) == 1
+        assert earliest_dispatch <= dispatch_times[0] < saved['retry_at_epoch']
+        assert len(provider.calls) == len(colonies.applied) == 2
+        assert queue.status()['local_usage']['requests_last_24_hours'] == 2
+        await restarted.run(deferred['id']); assert len(provider.calls) == 2
+    else:
+        assert current == saved
+        assert len(provider.calls) == len(colonies.applied) == 1
+        if condition == 'unavailable_ledger': assert queue.status()['admission_ledger_error']
+
+
+@pytest.mark.asyncio
+async def test_available_local_allowance_does_not_shorten_provider_retry_deadline(fixture):
+    repo, colonies, provider, clock, worker = fixture
+    run = worker.request('provider-wait', 'winners')
+    worker._provider_failed(run['id'], ProviderDiagnostic('provider_capacity', 'Provider asked us to wait.',
+                                                         retryable=True, retry_after_seconds=300))
+    before = deepcopy(repo._data['colonyReasoning'][run['id']])
+    assert worker.queue.status()['local_usage']['requests_remaining_day'] > 0
+    await worker.run(run['id'])
+    assert repo._data['colonyReasoning'][run['id']] == before
+    assert not provider.calls and not colonies.applied
 
 
 @pytest.mark.asyncio

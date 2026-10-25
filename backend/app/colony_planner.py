@@ -562,7 +562,21 @@ class ColonyPlanner:
             run = await asyncio.to_thread(self.repo.transaction, recover_response)
         if run['status'] == 'applying':
             await self._apply(run); return
-        if run['status'] == 'retry_wait' and self.clock() < run.get('retry_at_epoch', 0): return
+        if run['status'] == 'retry_wait' and self.clock() < run.get('retry_at_epoch', 0):
+            # A local-cap deadline reflects the allowance configured when the
+            # turn was deferred. A restart may raise it without erasing usage.
+            # Recheck only that known-undispatched case; provider retry dates
+            # remain authoritative, and ordinary admission still gates dispatch.
+            if (run.get('provider_diagnostic', {}).get('category') != 'local_daily_cap'
+                    or self.queue.status()['local_usage']['requests_remaining_day'] <= 0):
+                return
+            try:
+                await self.queue.load_ledger()
+            except ProviderFailure:
+                return
+            allowance = self.queue.status()
+            if allowance['admission_ledger_error'] or allowance['local_usage']['requests_remaining_day'] <= 0:
+                return
         dispatched, received = False, False
         try:
             payload, encoded = await asyncio.to_thread(self._input, run)
