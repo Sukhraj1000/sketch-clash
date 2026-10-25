@@ -31,8 +31,13 @@ THEMES = [
 ]
 
 
-def theme_for_round(index: int) -> dict:
-    return {**deepcopy(THEMES[index % len(THEMES)]), 'rotation_index': index,
+def theme_for_round(index: int, *, theme_id: str | None = None) -> dict:
+    theme = THEMES[index % len(THEMES)]
+    if theme_id is not None:
+        theme = next((value for value in THEMES if value['id'] == theme_id), None)
+        if theme is None:
+            raise ValueError(f'Unknown round theme: {theme_id}')
+    return {**deepcopy(theme), 'rotation_index': index,
             'policy_version': POLICY_VERSION, 'enforced': True}
 
 

@@ -136,6 +136,19 @@ class Repository:
             return public(pointer)
         return self.transaction(operation)
 
+    def reset_round_rotation(self, *, next_theme_id: str | None = None) -> dict:
+        """Local operator reset of future numbering; saved rounds remain unchanged."""
+        theme_for_round(0, theme_id=next_theme_id)  # Validate before touching durable state.
+        rotation_key = key_for(self.world_id, 'round-theme-rotation')
+        def operation(tx):
+            rotation = {'_id': rotation_key, 'id': 'round-theme-rotation',
+                        'world_id': self.world_id, 'next_index': 0, 'updated_at': self.clock()}
+            if next_theme_id is not None:
+                rotation['next_theme_id'] = next_theme_id
+            tx.put('qualityState', rotation)
+            return rotation
+        return public(self.transaction(operation))
+
     def create_battle(self, request_id: str) -> dict:
         battle_id = key_for(self.world_id, request_id)[:32]
         def operation(tx):
@@ -151,7 +164,7 @@ class Repository:
             rotation_key = key_for(self.world_id, 'round-theme-rotation')
             rotation = tx.get('qualityState', rotation_key) or {'_id': rotation_key,
                 'id': 'round-theme-rotation', 'world_id': self.world_id, 'next_index': 0}
-            theme = theme_for_round(rotation['next_index'])
+            theme = theme_for_round(rotation['next_index'], theme_id=rotation.pop('next_theme_id', None))
             rotation.update(next_index=rotation['next_index'] + 1, updated_at=timestamp)
             tx.put('qualityState', rotation)
             battle = {'_id': battle_id, 'id': battle_id, 'request_id': request_id, 'world_id': self.world_id,

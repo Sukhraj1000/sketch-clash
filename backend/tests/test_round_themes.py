@@ -23,7 +23,8 @@ def judgment(theme_id, label, canonical=None, player_confirmed=False, **extra):
 
 @pytest.mark.parametrize('theme,label,canonical', [
     ('kitchen', 'ceramic mug', 'mug'), ('kitchen', 'silicone ladle', 'ladle'),
-    ('desk', 'computer mouse', 'mouse'), ('tools', 'metal spanner', 'spanner'),
+    ('desk', 'computer mouse', 'mouse'), ('desk', 'ceramic mug', 'mug'),
+    ('desk', 'AA battery', 'battery'), ('tools', 'metal spanner', 'spanner'),
     ('animals', 'cat', None), ('animals', 'dog', None), ('animals', 'axolotl', None),
     ('animals', 'African elephant', 'elephant'), ('animals', 'parrot', None),
     ('nature', 'pine cone', None), ('nature', 'gecko', None),
@@ -98,6 +99,36 @@ def test_theme_rotation_is_atomic_durable_world_scoped_and_idempotent():
     assert repo._data == before
     other = MemoryRepository(Settings(repository='memory', world_id='themes-b'), Clock())
     assert other.create_battle('same')['theme'] == first['theme']
+
+
+def test_reset_selects_next_theme_without_changing_history_or_consuming_on_retry():
+    repo = MemoryRepository(Settings(repository='memory', world_id='reset-demo'), Clock())
+    saved = repo.create_battle('old-round')
+    reset = repo.reset_round_rotation(next_theme_id='desk')
+    assert reset['next_index'] == 0
+    assert reset['next_theme_id'] == 'desk'
+    assert repo.create_battle('old-round') == saved
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        rounds = list(pool.map(repo.create_battle, ['recording'] * 8))
+    assert all(battle == rounds[0] for battle in rounds)
+    assert rounds[0]['theme'] == theme_for_round(0, theme_id='desk')
+    Battle.model_validate(rounds[0])
+    rotation = repo.read(lambda tx: tx.get('qualityState', key_for(repo.world_id, 'round-theme-rotation')))
+    assert rotation['next_index'] == 1
+    assert 'next_theme_id' not in rotation
+    assert repo.create_battle('following')['theme'] == theme_for_round(1)
+    assert repo.get_battle(saved['id']) == saved
+
+
+def test_invalid_reset_leaves_rotation_unchanged_and_default_reset_clears_override():
+    repo = MemoryRepository(Settings(repository='memory'), Clock())
+    repo.reset_round_rotation(next_theme_id='desk')
+    before = deepcopy(repo._data)
+    with pytest.raises(ValueError, match='Unknown round theme'):
+        repo.reset_round_rotation(next_theme_id='missing')
+    assert repo._data == before
+    repo.reset_round_rotation()
+    assert repo.create_battle('default')['theme'] == theme_for_round(0)
 
 
 def add_capture(repo, battle, label, slot, capture_id, **extra):
