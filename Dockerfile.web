@@ -1,0 +1,22 @@
+# Frontend image for hosts whose builder rejects the bind mount in ./Dockerfile's api stage (Railway:
+# set RAILWAY_DOCKERFILE_PATH=Dockerfile.web on the web service). Mirrors the web-build and web stages
+# of ./Dockerfile; keep them in step.
+FROM node:24-alpine AS web-build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY index.html tsconfig.json vite.config.ts ./
+COPY public public
+COPY src src
+RUN npm run build
+
+FROM nginx:1-alpine
+RUN apk upgrade --no-cache
+ENV API_UPSTREAM=http://api:8000
+COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
+COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Optional hosted password gate: set SITE_PASSWORD (and SITE_USER) to require basic auth.
+COPY docker/40-basic-auth.sh /docker-entrypoint.d/40-basic-auth.sh
+RUN chmod 755 /docker-entrypoint.d/40-basic-auth.sh
+COPY --from=web-build /app/dist /usr/share/nginx/html
+EXPOSE 80

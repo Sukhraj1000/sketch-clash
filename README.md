@@ -8,6 +8,19 @@ The research question is **“Can human feedback help AI create more reliable an
 
 **Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public deployment or public account system. Optional Vercel hosting for the static frontend is configured but not deployed (see [Vercel](#vercel-optional-not-deployed)).
 
+## Live demo
+
+**[https://web-production-42890.up.railway.app](https://web-production-42890.up.railway.app)** is hosted on Railway for judging and may be taken down afterwards.
+
+Your browser asks for a login before showing the page:
+
+| | |
+| --- | --- |
+| Username | `judge` |
+| Password | `clash-197dd1d4` |
+
+The hosted copy is the full app: camera recognition with Gemini, the two islands with their saved residents and conversations in MongoDB Atlas, the Observatory and the object arena. Island agents keep their normal AI limits, and the password stops anyone without it from using the Gemini key. Please use a laptop or phone camera over HTTPS. The page asks for camera permission the first time.
+
 ## Quick start with Docker (any computer)
 
 Docker runs the whole app, the 3D game in your browser plus the Python engine behind it, without installing Node, Python or the vision models yourself.
