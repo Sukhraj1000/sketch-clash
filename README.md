@@ -8,7 +8,165 @@ The research question is **“Can human feedback help AI create more reliable an
 
 **Local only.** React/Vite and Python/FastAPI bind to `127.0.0.1`. Your selected photographs and supporting evidence are sent by the backend to Gemini; game records and compact images are stored in MongoDB Atlas. There is no public deployment or public account system. Optional Vercel hosting for the static frontend is configured but not deployed (see [Vercel](#vercel-optional-not-deployed)).
 
-## Start on this computer
+## Quick start with Docker (any computer)
+
+Docker runs the whole app, the 3D game in your browser plus the Python engine behind it, without installing Node, Python or the vision models yourself.
+
+**You need**
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose v2) and about 5 GB of free disk space.
+- *Optional:* a [Gemini API key](https://aistudio.google.com/apikey) for photo recognition and the AI agents' discussions.
+- *Optional:* a [MongoDB Atlas](https://www.mongodb.com/atlas) cluster so islands, battles and memories are saved between restarts.
+
+### 1. Get the code
+
+The [repository](https://github.com/Sukhraj1000/sketch-clash) is private, so you need access from its owner.
+
+```bash
+git clone https://github.com/Sukhraj1000/sketch-clash.git
+```
+
+```bash
+cd sketch-clash
+```
+
+### 2a. Try it without any accounts (demo mode)
+
+```bash
+docker compose -f compose.yaml -f compose.demo.yaml up --build -d
+```
+
+Open **[http://127.0.0.1:8080](http://127.0.0.1:8080)**. The first build downloads CPU-only PyTorch and the YOLO11n and EasyOCR weights, so it takes several minutes; later starts reuse the cache.
+
+Demo mode keeps everything in memory and forgets it when the containers stop. Without a Gemini key you can still use **WATCH DEMO**, **PLAY OBJECT BATTLE** (ready-made objects) and the **Island Playground**. Camera recognition and the agents' Gemini discussions need a key.
+
+### 2b. Run the full version with your own keys
+
+1. Copy the example settings. `.env.local` is git-ignored and never copied into an image.
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. Open `.env.local` in an editor and fill in:
+   - `GEMINI_API_KEY`: your Gemini key.
+   - `MONGODB_URI`: your Atlas connection string. Keep `MONGODB_DATABASE=sketch_clash` or choose your own name.
+   - Optional: `SKETCH_AI_PAUSED=true` stops all automatic Gemini calls while you set things up.
+
+   Keep this file private (`chmod 600 .env.local`). Never give a secret a `VITE_` prefix, because that would put it in the browser bundle.
+3. In Atlas, allow your computer's public IP under **Network Access** and give the database user read/write access to the database.
+4. Start the stack:
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+5. Open **[http://127.0.0.1:8080](http://127.0.0.1:8080)**. Use exactly this address, because the engine only accepts actions from the page it serves.
+
+### 3. Play
+
+1. **NEW CAMERA BATTLE**: two players photograph objects (the camera works on `127.0.0.1`), check what the AI recognised, then battle.
+2. **ENTER THE ISLANDS** → **START BOTH ISLANDS** once. Both fighters move onto Winner Island or Loser Island and keep working as agents.
+3. **Observatory** ([/#/observatory](http://127.0.0.1:8080/#/observatory)) shows live events, AI pace controls and saved replays.
+4. **Quality Lab** needs a local operator key. The engine creates it on first start in `backend/data/operator-token`. Print it in a private terminal with `cat backend/data/operator-token` (or `npm run operator:token` if you have Node) and paste it into the lab. Never share it in chat or screenshots.
+
+### 4. Everyday commands
+
+| Task | Docker command | npm shortcut |
+| --- | --- | --- |
+| Start or rebuild | `docker compose up --build -d` | `npm run docker:up` |
+| Demo mode (memory only) | `docker compose -f compose.yaml -f compose.demo.yaml up --build -d` | `npm run docker:demo` |
+| Status | `docker compose ps` | |
+| Follow logs | `docker compose logs -f` | `npm run docker:logs` |
+| Stop | `docker compose down` | `npm run docker:down` |
+
+While the AI isn't paused, island agents call Gemini by themselves. By default that's at most 4 calls a minute and 200 a day (`ISLAND_AI_REQUESTS_PER_MINUTE`, `ISLAND_AI_REQUESTS_PER_DAY`). Stop the stack, or set `SKETCH_AI_PAUSED=true` and run `docker compose up -d` again, when you aren't playing.
+
+### Troubleshooting
+
+- **The page loads but says the engine or islands can't be reached.** The `api` container is still starting (its health check allows about 90 seconds) or it stopped. Check `docker compose ps` and `docker compose logs api`. The usual cause is a missing or wrong `MONGODB_URI`, or your IP isn't allowed in Atlas. Fix it, or use demo mode.
+- **Port 8080 is already in use.** Change `127.0.0.1:8080:80` in `compose.yaml` and set `FRONTEND_ORIGIN` to the matching address.
+- **The build fails partway through.** Free up disk space. A full disk turns Docker's virtual machine read-only mid-build.
+- **Linux: the operator key can't be written.** The engine runs as user ID 1000 and writes only to `backend/data`, so that folder must be writable by UID 1000.
+- **Optional, meaning search for object types:** set `EMBEDDING_MODEL=gemini-embedding-2` in `.env.local`, restart, then run `docker compose exec api python backend/scripts/setup_retrieval.py`. This needs an Atlas cluster that supports Vector Search.
+
+## How it works
+
+```mermaid
+flowchart TB
+  subgraph screen["Your browser · React + Three.js · served by nginx (web container)"]
+    UI["Capture · battle · 3D islands · Observatory · Quality Lab"]
+  end
+  subgraph engine["The engine · FastAPI on your machine (api container)"]
+    direction LR
+    subgraph play["PLAY · seconds"]
+      V["On-device vision<br/>YOLO11n + EasyOCR"] --> R["Recognition<br/>Gemini proposal + checks"] --> B["Referee<br/>seeded battle"]
+    end
+    subgraph world["WORLD · never stops"]
+      C["Agent councils"] --> VAL["Rules check"] --> EX["Executor + receipts"]
+    end
+    subgraph improve["IMPROVE · human-gated"]
+      F["Consented feedback"] --> E["Baseline vs candidate"] --> H["Human activates"]
+    end
+    GW["AI gateway<br/>metered · paced · pausable"]
+  end
+  G["Gemini<br/>4 Argon · 3.8 Flash · Embedding 2"]
+  A[("MongoDB Atlas<br/>transactions · Change Streams · Vector Search")]
+  UI -- "HTTP /api" --> engine
+  engine -- "live updates (SSE)" --> UI
+  B -- "both fighters move in" --> C
+  R -- "player feedback" --> F
+  H -- "approved version" --> R
+  R & C & E --> GW --> G
+  B & EX & F --> A
+  GW -- "call ledger" --> A
+```
+
+The browser is a thin client. One local engine makes every decision, in three lanes that run at different speeds:
+
+- **Play** (seconds) turns a photo into a checked fighter and a server-refereed battle.
+- **World** (never stops) runs the island agents: they discuss plans, the rules check them, and finished work is recorded with receipts.
+- **Improve** (human-gated) tests a better recognition pipeline against held-out photos, and only a person can switch it on.
+
+Gemini is reached only through the AI gateway. MongoDB Atlas is the memory everything shares.
+
+### How Gemini is used
+
+| Part of the app | What it sends | Model | What comes back | What checks it |
+| --- | --- | --- | --- | --- |
+| Camera check | Cropped photo, YOLO boxes, OCR text (as untrusted evidence) | `gemini-4-argon`, or `gemini-3.8-flash` with the `camera-fast-v2` profile | Identity plus a fighter card | Schema and identity validation (at most two repairs), then the player |
+| Island councils | One resident's abilities, island stock, evidence dossier and the real earlier messages | `gemini-4-argon` proposes, `gemini-3.8-flash` replies | A typed proposal, support or objection | The rules engine's feasibility check; at least two residents must agree |
+| Memory | Catalogue descriptions and reviewed photos | Gemini Embedding 2 (768 dimensions) | Vectors | Stored and searched in Atlas Vector Search |
+| Review lab | Reviewed development failures | `gemini-4-argon` in a bounded tool loop | One candidate configuration | Frozen held-out evaluation, then explicit human activation |
+| Price check | A short list of curated retailer URLs | `gemini-3.8-flash` with URL Context | Price references | Approved URLs and matching evidence only; otherwise neutral |
+
+Every call uses the official `google-genai` SDK and Interactions API with `store=False` and automatic SDK retries off. The gateway reserves each call in Atlas before sending it, and paces island agents (at most 4 calls a minute and 200 a day by default). It never blindly repeats an uncertain call, honours the pause switches, and keeps the API key on the server.
+
+### How MongoDB Atlas is used
+
+```mermaid
+flowchart LR
+  W1["Battle referee"] & W2["Island executor"] & W3["Agent councils"] & W4["Review lab"] --> TX{{"One transaction<br/>change + receipt + event"}}
+  TX --> C1[("Live world")] & C2[("Object memory")] & C3[("Object catalogue")] & C4[("Ledger + versions")]
+  C1 -- "Change Stream" --> R1["Live screens"]
+  C2 -- "Vector Search" --> R2["Agents recall past tests"]
+  C3 -- "Vector Search" --> R3["New photos matched to types"]
+  C4 -- "shared ledger" --> R4["AI gateway limits"]
+```
+
+| Atlas feature | What it does here | Example collections |
+| --- | --- | --- |
+| Multi-document transactions | A change, its receipt and its event commit together or not at all | `islandState`, `islandEvents`, `agentEvents` |
+| Change Streams | One backend watcher pushes committed events to the Observatory over SSE, with resync and labelled polling as fallbacks | `agentEvents` |
+| Vector Search | Two separate indexes: the object-type catalogue and human-reviewed reference photos | `characterTypes` (`character_types_vector`), `qualityReferenceVectors` (`quality_references_vector`) |
+| Object memory | Dossiers keep what was observed apart from assumptions and test results; findings become reusable blueprints | `colonyObjectDossiers`, `colonyFindings`, `colonyBlueprints` |
+| Admission ledger | Every Gemini call is reserved atomically across workers and survives restarts | `providerAdmission`, `providerControls` |
+| Immutable versions | Pipeline configurations are frozen, with an atomic pointer to the active one | `pipelineVersions`, `qualityState`, `qualityActivation` |
+| Telemetry with expiry | Sanitized OpenTelemetry spans and metrics expire after 7 and 30 days | `agentSpans`, `agentMetrics` |
+
+Python runs the agents; Atlas holds the truth across 50+ collections. For more detail, see [the runtime architecture](docs/architecture/agent-observatory.md), [the colonies implementation](docs/COLONIES_IMPLEMENTATION.md) and [the quality policy](docs/Design.md).
+
+## Run without Docker (original development Mac)
 
 Dependencies, vision weights and backend credentials are already configured. Preserve the ignored `.env.local`.
 
@@ -25,7 +183,7 @@ The MacBook can use the same URL through the existing SSH tunnel over Tailscale.
 
 The default repository is MongoDB and fails clearly if unavailable. `npm run dev:demo` explicitly selects temporary memory for development, labelled in the UI; its island disappears on backend restart. It is not a persistence demonstration.
 
-## Run with Docker
+## Docker details
 
 Docker Desktop runs the whole stack without the local `.venv` or vision setup. The `api` image installs CPU-only torch and bakes in the YOLO11n and EasyOCR weights; the `web` image builds the frontend and serves it with nginx, proxying `/api` to the backend.
 
