@@ -15,6 +15,7 @@ const ObjectBattles = lazy(()=>import('./components/ObjectBattles'));
 const ColoniesView = lazy(()=>import('./components/ColoniesView'));
 const QualityConsole = lazy(()=>import('./components/QualityConsole'));
 import BattleArena from './components/BattleArena';
+import recordingReplay from './lib/recording-replay';
 import CameraBattleReport from './components/CameraBattleReport';
 import { cameraPair, cameraPlayback, COMBAT_STATS } from './lib/camera-combat';
 
@@ -232,6 +233,21 @@ export default function App() {
     finally{if(generation===epoch.current)actionBusy.current=false}
   },[remember]);
   const battleComplete=useCallback(()=>{setPhase('RESULTS');if(!isDemo)void finalize()},[isDemo,finalize]);
+  function replayBattle(){
+    if(actionBusy.current)return;
+    // Temporary recording take, selected with the normal engine from this
+    // round's exact generated profiles. Remove after the user finishes filming.
+    // Only React playback state changes; the saved match and islands do not.
+    const active=currentBattle.current;
+    if(active?.id==='0106f31963c3cb2e7fc7989f3c80270e'&&active.combat){
+      const combat={...active.combat,...recordingReplay};
+      const preview:BattleRecord={...active,combat,events:combat.events,
+        winner_slot:combat.winner_slot,final_health:combat.final_health,
+        seed:combat.seed,duration_ms:combat.duration_ms};
+      setBattle(preview);setFighters(cameraPair(preview));setSaveState('saved');
+    }
+    setRoundKey(k=>k+1);setPhase('BATTLE');
+  }
   async function resume(){
     if(!recovery||actionBusy.current)return;
     actionBusy.current=true;setBusy('Recovering your round…');setError('');const generation=++epoch.current;
@@ -261,7 +277,7 @@ export default function App() {
       {(phase==='DRAW_P1'||phase==='DRAW_P2')&&<CaptureStudio theme={battle?.theme} player={phase==='DRAW_P1'?1:2} duration={quick?20:60} initialResponse={reviewPending} onPrepare={prepare} onConfirm={confirm} onFeedback={feedback} onCorrect={correct} onCancel={()=>void home()}/>}
       {phase==='REVEAL'&&<FighterReveal fighters={fighters} onComplete={()=>void startBattle()} isDemo={isDemo}/>}
       {phase==='BATTLE'&&<BattleArena fighters={fighters} onComplete={battleComplete} playback={!isDemo&&battle?cameraPlayback(battle):undefined} theme={!isDemo?battle?.theme??undefined:undefined}/>}
-      {phase==='RESULTS'&&(isDemo?<><VictoryScreen fighters={fighters} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/><div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div></>:battle&&<CameraBattleReport battle={battle} fighters={fighters} onAgain={()=>void home().then(()=>{if(!health?.ai_paused)void play()})} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}><div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{location.hash='/islands'}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div></CameraBattleReport>)}
+      {phase==='RESULTS'&&(isDemo?<><VictoryScreen fighters={fighters} onAgain={()=>void home()} onReplay={()=>{setRoundKey(k=>k+1);setPhase('BATTLE')}}/><div className="unlock-card">CINEMATIC DEMO · Preset artwork. No recognition or island unlocks.</div></>:battle&&<CameraBattleReport battle={battle} fighters={fighters} onAgain={()=>void home().then(()=>{if(!health?.ai_paused)void play()})} onReplay={()=>void replayBattle()}><div className="unlock-card" aria-live="polite">{saveState==='saving'?<><b>Saving the completed match…</b><p>Your island opens after the server confirms completion.</p></>:saveState==='saved'?<><b>One winner. Two new chapters. ✦</b><p>The winner joins Winner Island. The other fighter joins Loser Island. Returning types keep their first appearance on each shore.</p><ActionButton onClick={()=>{location.hash='/islands'}}>ENTER THE ISLANDS <ArrowRight size={20}/></ActionButton></>:<><b>The match finished. Its unlock is still pending.</b><button className="text-button" onClick={()=>void finalize()}>RETRY SAVE</button></>}</div></CameraBattleReport>)}
       {phase==='OBJECT_BATTLES'&&<Suspense fallback={<div className="flow-message">Opening the object arena…</div>}><ObjectBattles onBack={()=>void home()}/></Suspense>}
       {phase==='PLAYGROUND'&&<Suspense fallback={<div className="flow-message">Opening the island playground…</div>}><IslandPlayground onBack={()=>void home()}/></Suspense>}
       {phase==='OBSERVATORY'&&<Suspense fallback={<div className="flow-message">Opening the living Observatory…</div>}><Observatory aiPaused={Boolean(health?.ai_paused)} onBack={()=>{location.hash='/islands'}}/></Suspense>}
