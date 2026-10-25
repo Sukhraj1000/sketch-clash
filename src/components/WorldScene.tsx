@@ -29,7 +29,7 @@ import type { Object3D } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { WorldCharacter } from './WorldView'
 
-type SceneProps = { presentation?: 'island' | 'factory'; characters: WorldCharacter[]; layoutSeed: number; selectedId: string | null; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arrivalIds: string[]; onArrived: (id: string) => void; onFailure: () => void; simulation?: IslandSimulation; selectedProjectId?: string | null; onProjectSelect?: (id: string) => void; cameraResetKey?: number; followSelected?: boolean }
+type SceneProps = { presentation?: 'island' | 'factory'; characters: WorldCharacter[]; layoutSeed: number; selectedId: string | null; onSelect: (id: string) => void; active: boolean; reducedMotion: boolean; arrivalIds: string[]; onArrived: (id: string) => void; onFailure: () => void; simulation?: IslandSimulation; selectedProjectId?: string | null; onProjectSelect?: (id: string) => void; cameraResetKey?: number; cameraZoomStep?: number; followSelected?: boolean }
 type WorldClock = { serverMs: number; receivedAt: number; paused: boolean }
 const worldTime = (clock: WorldClock) => clock.serverMs + (clock.paused ? 0 : performance.now() - clock.receivedAt)
 const INK = '#1E1C29'
@@ -395,14 +395,29 @@ function Atmosphere({ active, reducedMotion }: { active: boolean; reducedMotion:
   </group>
 }
 
-function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, selectedProjectId, projectTarget, positions, active, reducedMotion }: { onFailure: () => void; resetKey: number; followSelected: boolean; selectedId: string | null; selectedProjectId?: string | null; projectTarget?: { x: number; z: number }; positions: Map<string, Vector3>; active: boolean; reducedMotion: boolean }) {
+function CameraAndContext({ onFailure, resetKey, zoomStep, followSelected, selectedId, selectedProjectId, projectTarget, positions, active, reducedMotion }: { onFailure: () => void; resetKey: number; zoomStep: number; followSelected: boolean; selectedId: string | null; selectedProjectId?: string | null; projectTarget?: { x: number; z: number }; positions: Map<string, Vector3>; active: boolean; reducedMotion: boolean }) {
   const { camera, size, gl, invalidate } = useThree()
   const orbit = useRef<OrbitControlsImpl>(null)
   const previousTarget = useRef(new Vector3())
   const projectFocus = useRef<Vector3 | null>(null)
+  const previousZoomStep = useRef(zoomStep)
+  const zoomTarget = useRef<number | null>(null)
   useEffect(() => {
+    zoomTarget.current = null
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix(); invalidate() }
   }, [camera, size.width, size.height, invalidate])
+  useEffect(() => {
+    const steps = zoomStep - previousZoomStep.current
+    previousZoomStep.current = zoomStep
+    if (!steps || !(camera instanceof OrthographicCamera)) return
+    const target = clamp((zoomTarget.current ?? camera.zoom) * Math.pow(1.2, steps), 12, 115)
+    if (reducedMotion) {
+      zoomTarget.current = null
+      camera.zoom = target
+      camera.updateProjectionMatrix()
+    } else zoomTarget.current = target
+    invalidate()
+  }, [zoomStep, camera, reducedMotion, invalidate])
   useEffect(() => {
     // A plain wheel scrolls the page past the island; pinch (sent as Ctrl+wheel) or Ctrl/⌘ + scroll zooms, as embedded maps do.
     const element = gl.domElement
@@ -412,6 +427,7 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, sel
   }, [gl])
   useEffect(() => {
     projectFocus.current = null
+    zoomTarget.current = null
     camera.position.set(9, 11, 13)
     if (camera instanceof OrthographicCamera) { camera.zoom = Math.max(12, Math.min(size.width / 14.2, size.height / 10.8)); camera.updateProjectionMatrix() }
     orbit.current?.target.set(0, .25, 0); orbit.current?.update(); invalidate()
@@ -426,6 +442,14 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, sel
     return () => gl.domElement.removeEventListener('webglcontextlost', failure)
   }, [gl, onFailure])
   useFrame((_, delta) => {
+    if (!active) return
+    if (zoomTarget.current !== null && camera instanceof OrthographicCamera) {
+      const target = zoomTarget.current
+      camera.zoom += (target - camera.zoom) * (reducedMotion ? 1 : 1 - Math.exp(-delta * 12))
+      if (Math.abs(camera.zoom - target) < .01) { camera.zoom = target; zoomTarget.current = null }
+      camera.updateProjectionMatrix()
+      invalidate()
+    }
     const target = followSelected && selectedId ? positions.get(selectedId) : projectFocus.current
     if (!active || !target || !orbit.current) return
     previousTarget.current.copy(orbit.current.target)
@@ -435,10 +459,10 @@ function CameraAndContext({ onFailure, resetKey, followSelected, selectedId, sel
     orbit.current.update()
     if (projectFocus.current && orbit.current.target.distanceTo(projectFocus.current) < .02) projectFocus.current = null
   })
-  return <OrbitControls ref={orbit} makeDefault target={[0, .25, 0]} onStart={() => { projectFocus.current = null }} enabled={active} enablePan enableZoom minZoom={12} maxZoom={115} minPolarAngle={.42} maxPolarAngle={1.25} enableDamping={!reducedMotion && active} dampingFactor={.09} />
+  return <OrbitControls ref={orbit} makeDefault target={[0, .25, 0]} onStart={() => { projectFocus.current = null; zoomTarget.current = null }} enabled={active} enablePan enableZoom minZoom={12} maxZoom={115} minPolarAngle={.42} maxPolarAngle={1.25} enableDamping={!reducedMotion && active} dampingFactor={.09} />
 }
 
-export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, followSelected = false, presentation = 'island' }: SceneProps) {
+export default function WorldScene({ characters, layoutSeed, selectedId, onSelect, active, reducedMotion, arrivalIds, onArrived, onFailure, simulation, selectedProjectId, onProjectSelect, cameraResetKey = 0, cameraZoomStep = 0, followSelected = false, presentation = 'island' }: SceneProps) {
   const factory = presentation === 'factory'
   const positions = useRef(new Map<string, Vector3>())
   const slots = useMemo(() => residentDisplaySlots(characters.slice(0, 40).map(character => character.id)), [characters])
@@ -460,7 +484,7 @@ export default function WorldScene({ characters, layoutSeed, selectedId, onSelec
   // Server time drives task paths; frame callbacks only animate meshes and never write progress.
   return <Canvas orthographic camera={{ position: [9, 11, 13], zoom: 45, near: .1, far: 100 }} shadows="percentage" dpr={[1, 1.5]} frameloop={active && !reducedMotion ? 'always' : 'demand'} gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }} fallback={<span>Saved residents and projects. Use the crew and project controls for accessible details.</span>} aria-label={factory ? "Interactive 3D factory: drag to orbit, pinch or Ctrl + scroll to zoom, click a robot or workstation" : "Interactive 3D island: drag to orbit, pinch or Ctrl + scroll to zoom, click a resident or building"}>
     <color attach="background" args={[factory ? '#333D44' : '#82CDE8']} />
-    <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} followSelected={followSelected} selectedId={selectedId} selectedProjectId={selectedProjectId} projectTarget={simulation?.projects.find(project => project.id === selectedProjectId)?.position} positions={positions.current} active={active} reducedMotion={reducedMotion} />
+    <CameraAndContext onFailure={onFailure} resetKey={cameraResetKey} zoomStep={cameraZoomStep} followSelected={followSelected} selectedId={selectedId} selectedProjectId={selectedProjectId} projectTarget={simulation?.projects.find(project => project.id === selectedProjectId)?.position} positions={positions.current} active={active} reducedMotion={reducedMotion} />
     <ambientLight intensity={factory ? .25 : .55} />
     <fog attach="fog" args={[factory ? '#333D44' : '#9DDDEF', 25, 60]} />
     <hemisphereLight args={[factory ? '#DBE7EF' : '#FFF9DC', factory ? '#42494D' : '#83AA67', factory ? .75 : 1.4]} />
