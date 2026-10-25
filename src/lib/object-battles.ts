@@ -58,10 +58,41 @@ export const fixtureImage = (fixture: ArenaFixture) => `/fixtures/${fixture.id}.
 export const humanize = (value: string) => value.replaceAll('_', ' ').replaceAll('-', ' ');
 export const pounds = (amount: number | null) => amount === null ? 'Unknown' : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: amount % 1 ? 2 : 0 }).format(amount);
 export const signed = (value: number, suffix = '') => `${value > 0 ? '+' : value < 0 ? '−' : ''}${Number(Math.abs(value).toFixed(2))}${suffix}`;
+
+type FixtureAppearance = { template: NonNullable<Fighter['characterVisual']>['visual_spec']['template_id']; palette: [string, string]; accessories?: string[] };
+const FIXTURE_APPEARANCES: Record<string, FixtureAppearance> = {
+  'ceramic-mug': { template: 'mug', palette: ['#F4A196', '#FFD166'], accessories: ['handle'] },
+  'steel-bottle': { template: 'bottle', palette: ['#A7BEC7', '#426078'], accessories: ['cap'] },
+  'kitchen-sponge': { template: 'generic', palette: ['#FFD166', '#5B9671'] },
+  'wooden-ruler': { template: 'generic', palette: ['#DEAF71', '#7C4E32'] },
+  'rubber-ball': { template: 'ball', palette: ['#FF596E', '#FFD166'] },
+  'hardback-book': { template: 'book', palette: ['#6C92C5', '#FFD166'] },
+  'filled-water-jug': { template: 'generic', palette: ['#A7DCD8', '#438CAF'], accessories: ['handle'] },
+  'wooden-spoon': { template: 'generic', palette: ['#C58C56', '#E6BD86'] },
+  'coiled-rope': { template: 'generic', palette: ['#C9A676', '#795B3D'] },
+  'smartphone': { template: 'generic', palette: ['#4E6175', '#83D9D4'] },
+  'foam-block': { template: 'generic', palette: ['#AA9DD8', '#C9C0EA'] },
+  'metal-whisk': { template: 'generic', palette: ['#A7BEC7', '#556A7C'] },
+};
+
+/** Authored practice presentation, never a camera observation or game profile. */
+export function fixtureCharacterVisual(fixture: ArenaFixture): NonNullable<Fighter['characterVisual']> {
+  const appearance = FIXTURE_APPEARANCES[fixture.id] ?? { template: 'generic', palette: ['#66E0D4', '#FFD166'] };
+  return {
+    image_ref: fixtureImage(fixture), display_name: fixture.name, object_type: fixture.object_type, canonical_type_id: fixture.object_type,
+    visual_spec: {
+      template_id: appearance.template, palette: [...appearance.palette], scale: 1, proportions: { width: 1, height: 1 },
+      accessories: ['eyes', 'arms', 'feet', ...(appearance.accessories ?? [])], animation_style: 'bouncy',
+      schema_version: 'authored-arena-1', appearance_seed: [...fixture.id].reduce((seed, char) => (seed * 31 + char.charCodeAt(0)) >>> 0, 0),
+    },
+  };
+}
+
 export const arenaFighters = (match: ArenaBattle): [Fighter, Fighter] => match.fighters.map((fixture, slot) => ({
   id: `${match.id}:${slot}`, name: fixture.name, image: fixtureImage(fixture),
   subtitle: `${humanize(fixture.object_type)} · sample object`, side: slot as 0 | 1,
   color: slot === 0 ? 'var(--coral)' : 'var(--mint)',
+  combatStats: { ...fixture.stats }, characterVisual: fixtureCharacterVisual(fixture),
 })) as [Fighter, Fighter];
 export const arenaPlayback = (match: ArenaBattle): BattlePlayback => ({
   duration_ms: match.duration_ms, winner_slot: match.winner_slot, outcome: match.outcome, source_label: 'OBJECT LAB · SAVED REPLAY',
