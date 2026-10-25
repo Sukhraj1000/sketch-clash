@@ -33,6 +33,46 @@ assert.match(priceComparisonTitle({ ...combat, fighters: [profile(0, { price: { 
 assert.equal(cameraPlayback({ ...battle, combat: undefined }).events[0], event, 'Historical playback has no invented receipt explanation')
 assert.equal(cameraPlayback({ ...battle, duration_ms: null }), undefined)
 assert.equal(JSON.stringify(battle), original, 'Rendering helpers never mutate saved evidence')
+
+const savedVisualSpec = { template_id: 'mug', palette: ['#342B25', '#D7AA6B'], scale: 1.1,
+  proportions: { width: 1.2, height: .9 }, accessories: ['eyes', 'arms', 'feet', 'handle'],
+  animation_style: 'calm', schema_version: 'visual-spec-v1', appearance_seed: 417 }
+const savedAppearance = { ...pending(0), canonical_type_id: 'mug', object_type: 'mug',
+  display_name: 'Accepted bronze mug', image_ref: '/api/media/accepted-photo', visual_spec: savedVisualSpec,
+  observed_object: { canonical_type_id: 'mug', label: 'Bronze mug', visible_features: ['one loop handle', 'open rim'] } }
+const appearanceBefore = JSON.stringify(savedAppearance)
+const mappedAppearance = cameraFighter(savedAppearance)
+assert.deepEqual(mappedAppearance.characterVisual, {
+  visual_spec: savedAppearance.visual_spec, image_ref: savedAppearance.image_ref,
+  display_name: savedAppearance.display_name, object_type: savedAppearance.object_type,
+  canonical_type_id: savedAppearance.canonical_type_id, observed_object: savedAppearance.observed_object,
+}, '3D identity, geometry, colours and observed features come from the accepted battle snapshot')
+for (const key of ['palette', 'accessories', 'proportions']) {
+  assert.notEqual(mappedAppearance.characterVisual.visual_spec[key], savedVisualSpec[key], `${key} is detached from the saved record`)
+}
+assert.notEqual(mappedAppearance.characterVisual.observed_object, savedAppearance.observed_object)
+assert.notEqual(mappedAppearance.characterVisual.observed_object.visible_features, savedAppearance.observed_object.visible_features)
+mappedAppearance.characterVisual.visual_spec.palette[0] = '#000000'
+mappedAppearance.characterVisual.visual_spec.accessories.push('cap')
+mappedAppearance.characterVisual.visual_spec.proportions.width = .7
+mappedAppearance.characterVisual.observed_object.visible_features.push('renderer-only change')
+assert.equal(JSON.stringify(savedAppearance), appearanceBefore, 'Scene-owned visual changes cannot mutate the saved appearance')
+const pairWithAppearance = cameraPair({ ...battle, fighters: [savedAppearance, pending(1)] })
+assert.deepEqual(pairWithAppearance[0].characterVisual.visual_spec, savedVisualSpec)
+assert.equal(pairWithAppearance[0].name, combat.fighters[0].name, 'Visual geometry cannot replace authoritative combat presentation')
+assert.equal(pairWithAppearance[0].image, combat.fighters[0].image_ref)
+for (const visual_spec of [undefined, null, {},
+  { ...savedVisualSpec, template_id: 'unrecognized-mesh' },
+  { ...savedVisualSpec, palette: [] }, { ...savedVisualSpec, palette: ['not-a-colour'] },
+  { ...savedVisualSpec, accessories: ['unrecognized-rig-part'] },
+  { ...savedVisualSpec, proportions: { width: .2, height: 1 } },
+  { ...savedVisualSpec, scale: Infinity }, { ...savedVisualSpec, appearance_seed: NaN },
+  { ...savedVisualSpec, animation_style: 'unrecognized-animation' }]) {
+  const fallback = cameraFighter({ ...savedAppearance, visual_spec })
+  assert.equal(fallback.characterVisual, undefined, 'Missing or malformed appearance never reaches the procedural renderer as trusted geometry')
+  assert.equal(fallback.image, savedAppearance.combat_profile.image_ref)
+  assert.deepEqual(fallback.combatStats, savedAppearance.combat_profile.stats, 'Render fallback does not change battle attributes')
+}
 const pairedEvents = [event, { ...event, id: 'round-1-1', attacker: 1, receipt: { ...receipt, luck: -1, rounding_adjustment: .2 } }]
 assert.equal(equalDamageBeforeLuck({ ...combat, events: pairedEvents }), true)
 assert.equal(equalDamageBeforeLuck(combat), false, 'A single actor cannot establish an even match')
@@ -113,7 +153,8 @@ try {
   assert.doesNotMatch(tie, /THE RESULT IS IN · BY KNOCKOUT/)
   const { default: Arena } = await import(await sourceModule(new URL('../src/components/BattleArena.tsx', import.meta.url)))
   const arenaHtml = renderToStaticMarkup(createElement(Arena, { fighters, playback: cameraPlayback(battle), onComplete() {} }))
-  assert.match(arenaHtml, /original player photograph/)
+  assert.match(arenaHtml, /3D fighters are taking their places/, 'The 3D stage loads before playback, including legacy fighters without saved geometry')
+  assert.doesNotMatch(arenaHtml, /<img\b|original player photograph/, 'The normal arena does not show photo sprites while its 3D stage loads')
   assert.match(arenaHtml, /CAMERA OBJECTS · SAVED ATTRIBUTE BATTLE/)
   assert.doesNotMatch(arenaHtml, /illustrated practice object|SAMPLE OBJECTS/)
   const quickPlayback = { ...cameraPlayback(battle), events: [{ ...event, at: 5350 }] }
@@ -122,4 +163,4 @@ try {
   const normalArena = renderToStaticMarkup(createElement(Arena, { fighters, playback: { ...quickPlayback, duration_ms: 12800, events: [{ ...event, at: 10700 }] }, onComplete() {} }))
   assert.match(normalArena, /battle-round-clock[^>]*><span>ROUND 01<\/span><strong>11<\/strong>/)
 } finally { globalThis.fetch = originalFetch }
-console.log('Camera combat presentation passed: immutable profiles, quick replay timing, outcomes, neutral unknown prices, conditional receipts, counterfactuals, legacy fallback and real-photo attribution. No network calls or state writes.')
+console.log('Camera combat presentation passed: immutable profiles, detached accepted 3D appearances, invalid-geometry fallback, quick replay timing, outcomes, conditional receipts, source evidence and 3D loading state. No network calls or state writes.')
