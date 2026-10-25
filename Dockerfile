@@ -34,9 +34,10 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=5 \
   CMD python -c "import os,urllib.request;urllib.request.urlopen(f'http://127.0.0.1:{os.getenv(\"PORT\",\"8000\")}/api/health',timeout=4)"
-# PORT lets container hosts (Render, Cloud Run, Fly) choose the port. Graceful shutdown stays bounded
-# because observatory SSE connections would otherwise keep an old worker alive.
-CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --timeout-graceful-shutdown 5"]
+# PORT lets container hosts (Render, Cloud Run, Fly) choose the port; HOST=:: listens on IPv6 too,
+# which Railway's private network needs. Graceful shutdown stays bounded because observatory SSE
+# connections would otherwise keep an old worker alive.
+CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host ${HOST:-0.0.0.0} --port ${PORT:-8000} --proxy-headers --timeout-graceful-shutdown 5"]
 
 # ---------- frontend build ----------
 FROM node:24-alpine AS web-build
@@ -54,5 +55,7 @@ RUN apk upgrade --no-cache
 ENV API_UPSTREAM=http://api:8000
 COPY docker/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Optional hosted password gate: set SITE_PASSWORD (and SITE_USER) to require basic auth.
+COPY --chmod=755 docker/40-basic-auth.sh /docker-entrypoint.d/40-basic-auth.sh
 COPY --from=web-build /app/dist /usr/share/nginx/html
 EXPOSE 80
