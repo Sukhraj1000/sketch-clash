@@ -52,10 +52,13 @@ export function startTimeline(durationMs: number, onTick: (elapsed: number) => v
 }
 
 /** One clock owns a scene. Hidden pages pause playback; unmount cancels both RAF and listeners. */
-export function useTimeline(durationMs: number, onComplete?: () => void): MotionValue<number> {
+export function useTimeline(durationMs: number, onComplete?: () => void, enabled = true): MotionValue<number> {
   const elapsed = useMotionValue(0);
   const completion = useRef(onComplete);
   completion.current = onComplete;
-  useEffect(() => startTimeline(durationMs, value => elapsed.set(value), () => completion.current?.()), [durationMs, elapsed]);
+  useEffect(() => {
+    if (!enabled) return;
+    return startTimeline(durationMs, value => elapsed.set(value), () => completion.current?.());
+  }, [durationMs, elapsed, enabled]);
   return elapsed;
 }

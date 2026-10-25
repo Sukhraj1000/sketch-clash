@@ -20,3 +20,20 @@
 .battle-event-dots{max-width:36%;gap:4px}.battle-event-dots i{width:clamp(6px,1.4vw,17px);flex-shrink:1}
 @media(max-width:760px){.battle-winner-crown-1{left:calc(75% - 32px)}}
 .battle-decision strong{font-size:clamp(62px,10vw,120px);-webkit-text-stroke:3px var(--ink)}.battle-live-receipt{display:flex;align-items:flex-start;gap:14px;border:1px solid #1e1c2940;background:#fff5dd;padding:14px 17px;margin-top:20px;min-height:66px}.battle-live-receipt>span{font-size:8px;font-weight:800;letter-spacing:.7px;white-space:nowrap;background:var(--yellow);padding:5px 7px;border:1px solid var(--ink)}.battle-live-receipt>p{font-size:11px;line-height:1.8}.battle-decision>small{letter-spacing:2px}@media(max-width:580px){.battle-live-receipt{gap:9px;padding:12px}.battle-live-receipt>span{font-size:6px;padding:4px}.battle-live-receipt>p{font-size:9px}.battle-decision strong{font-size:60px!important;-webkit-text-stroke:2px var(--ink)!important}}
+
+/* The same saved objects now share a lit 3D stage; HUD and receipts still use the battle clock. */
+.battle-scene{position:absolute;inset:0;z-index:3;pointer-events:none}
+.battle-scene>div,.battle-scene canvas{width:100%!important;height:100%!important}
+.battle-scene-loading{position:absolute;inset:0;z-index:7;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#eee5d3e8}
+.battle-scene-loading>span{font-family:var(--battle-display);font-size:clamp(30px,5vw,60px);letter-spacing:2px}
+.battle-scene-loading>small{font-size:11px;opacity:.65}
+.battle-stage-player{position:absolute;bottom:12%;z-index:4;font-family:var(--battle-display);font-size:22px;text-shadow:1px 1px 0 var(--ink);transform:translateX(-50%) rotate(-6deg);pointer-events:none}
+.battle-stage-player-0{left:28%}.battle-stage-player-1{left:72%}
+.battle-render-status{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);z-index:6;font-size:9px;font-weight:700;background:var(--paper);padding:5px 9px;border:1px solid #1e1c2940;white-space:nowrap}
+.battle-arena-3d .battle-floor-grid,.battle-arena-3d .battle-horizon{display:none}
+.battle-arena-3d .battle-impact-burst{width:155px;height:155px;left:-78px;top:-78px}
+.battle-arena-3d .battle-hit-word{top:-95px;font-size:55px}
+.battle-arena-3d .battle-impact-heavy .battle-hit-word{font-size:67px}
+.battle-arena-3d .battle-ko{top:6%}.battle-arena-3d .battle-ko strong{font-size:clamp(75px,10vw,125px)}
+.battle-arena-3d .battle-ko>span{margin-bottom:6px}.battle-arena-3d .battle-ko small{font-size:20px;margin-top:8px}
+@media(max-width:640px){.battle-arena-3d{height:360px}.battle-arena-3d .battle-hit-word{font-size:40px;left:-82px;width:165px}.battle-arena-3d .battle-impact-heavy .battle-hit-word{font-size:47px}.battle-stage-player{bottom:22%;font-size:18px}.battle-arena-3d .battle-ko>span{font-size:7px}}

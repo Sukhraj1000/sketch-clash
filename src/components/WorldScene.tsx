@@ -68,7 +68,7 @@ function PhotoBadge({ image, onAssetState }: { image: string; onAssetState?: (st
 
 export type CharacterVisual = Pick<WorldCharacter, 'visual_spec' | 'image_ref'> & Partial<Pick<WorldCharacter, 'display_name' | 'object_type' | 'canonical_type_id' | 'observed_object'>>
 
-export function CharacterShape({ character, onAssetState }: { character: CharacterVisual; onAssetState?: (state: 'ready' | 'failed') => void }) {
+export function CharacterShape({ character, onAssetState, showSourceImage = true }: { character: CharacterVisual; onAssetState?: (state: 'ready' | 'failed') => void; showSourceImage?: boolean }) {
   const spec = character.visual_spec
   const palette = spec.palette.filter(color => /^#[0-9A-Fa-f]{6}$/.test(color))
   const color = palette[0] ?? '#66E0D4'
@@ -114,7 +114,7 @@ export function CharacterShape({ character, onAssetState }: { character: Charact
       {eyes && <Face y={.93} z={.56} />}{arms && <Arms color={accent} width={.66} />}
     </group> : <group>
       <mesh position={[0, .83, 0]} castShadow><boxGeometry args={[.93, 1.3, .6]} /><Material color={color} /></mesh>
-      <PhotoBadge image={character.image_ref} onAssetState={onAssetState} />
+      {showSourceImage && <PhotoBadge image={character.image_ref} onAssetState={onAssetState} />}
       {eyes && <Face y={1.29} z={.31} />}{arms && <Arms color={accent} width={.50} />}
     </group>}
   </group>

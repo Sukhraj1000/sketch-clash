@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useTransform, type MotionValue } from 'motion/react';
 import type { Fighter } from '../types';
 import type { RoundTheme } from '../lib/api';
@@ -7,6 +8,14 @@ import { useTimeline } from '../game/director';
 import './BattleArena.css';
 
 type Props = { fighters: [Fighter, Fighter]; onComplete: () => void; playback?: BattlePlayback; theme?: RoundTheme };
+const BattleScene = lazy(() => import('./BattleScene'));
+
+class BattleSceneBoundary extends Component<{ children: ReactNode; onFailure: () => void }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch() { this.props.onFailure(); }
+  render() { return this.state.failed ? null : this.props.children; }
+}
 
 function FighterSprite({ fighter, elapsed, width, reduced, events, winnerSlot, outcome, fixture }: { fighter: Fighter; elapsed: MotionValue<number>; width: number; reduced: boolean; events: readonly BattleEvent[]; winnerSlot: 0 | 1; outcome: BattleOutcome; fixture: boolean }) {
   const x = useTransform(elapsed, t => getFighterPose(t, fighter.side, reduced, events, winnerSlot, outcome).x * width);
@@ -55,6 +64,10 @@ function ImpactEffects({ event, reduced }: { event: BattleEvent; reduced: boolea
 
 export default function BattleArena({ fighters, onComplete, playback, theme }: Props) {
   const reduced = !!useReducedMotion();
+  const [arenaReady, setArenaReady] = useState(false);
+  const [sceneFailed, setSceneFailed] = useState(false);
+  const sceneReady = useCallback(() => setArenaReady(true), []);
+  const sceneFailure = useCallback(() => { setSceneFailed(true); setArenaReady(true); }, []);
   const duration = playback?.duration_ms ?? BATTLE_DURATION;
   const winnerSlot = playback?.winner_slot ?? 0;
   const outcome = playback?.outcome ?? 'knockout';
@@ -62,7 +75,7 @@ export default function BattleArena({ fighters, onComplete, playback, theme }: P
   const explained = Boolean(playback?.source_label);
   const outcomeLabel = outcome === 'knockout' ? 'K.O.' : outcome === 'points' ? 'POINTS' : 'TIEBREAK';
   const events = useMemo(() => playback ? playback.events.map(event => ({ ...event, at: event.at * BATTLE_DURATION / duration })) : BATTLE_EVENTS, [playback, duration]);
-  const physicalElapsed = useTimeline(duration, onComplete);
+  const physicalElapsed = useTimeline(duration, onComplete, arenaReady);
   // One RAF drives both normal and quick playback; choreography retains its authored 12.8s coordinate system.
   const elapsed = useTransform(physicalElapsed, value => value * BATTLE_DURATION / duration);
   const finalTime = (events.at(-1)?.at ?? 9900) + 100;
@@ -107,7 +120,7 @@ export default function BattleArena({ fighters, onComplete, playback, theme }: P
       <HealthBar fighter={fighters[1]} health={frame.health[1]} />
     </div>
     <div className="battle-arena-wrap" ref={root}>
-      <motion.div className="battle-arena" style={{ x: shake }}>
+      <motion.div className={`battle-arena ${sceneFailed ? '' : 'battle-arena-3d'}`} style={{ x: shake }}>
         <div className="battle-page-fold" /><div className="battle-paper-grid" />
         <div className="battle-arena-watermark" aria-hidden="true">MAKE A<br/>MESS.</div>
         <svg className="battle-background-scribble battle-background-scribble-left" viewBox="0 0 220 220" aria-hidden="true"><path d="M22 180L66 143 35 112 110 130 108 54 140 115 196 71 160 145 211 167 142 173 130 214 99 170 22 180Z"/><path d="M14 23Q100 100 58 31Q35 0 88 42M170 208l27-8M183 220l29-8"/></svg>
@@ -115,9 +128,16 @@ export default function BattleArena({ fighters, onComplete, playback, theme }: P
         <div className="battle-horizon" /><div className="battle-floor-grid" />
         <div className="battle-arena-stamp"><span>SKETCH CLASH</span><small>EST. JUST NOW</small></div>
         <div className="battle-arena-corner">A LITTLE ROUGH<br/><strong>BY DESIGN.</strong></div>
-        {fighters.map(fighter => <FighterSprite key={fighter.id} fighter={fighter} elapsed={elapsed} width={width} reduced={reduced} events={events} winnerSlot={winnerSlot} outcome={outcome} fixture={fixture} />)}
+        {sceneFailed ? <>
+          {fighters.map(fighter => <FighterSprite key={fighter.id} fighter={fighter} elapsed={elapsed} width={width} reduced={reduced} events={events} winnerSlot={winnerSlot} outcome={outcome} fixture={fixture} />)}
+          <span className="battle-render-status" role="status">3D unavailable · simplified replay</span>
+        </> : <BattleSceneBoundary onFailure={sceneFailure}>
+          <Suspense fallback={null}><BattleScene fighters={fighters} elapsed={elapsed} events={events} reduced={reduced} winnerSlot={winnerSlot} outcome={outcome} onReady={sceneReady} onFailure={sceneFailure} /></Suspense>
+        </BattleSceneBoundary>}
+        {!arenaReady && <div className="battle-scene-loading" role="status" aria-label={`Preparing animated 3D fighters: ${fighters[0].name} versus ${fighters[1].name}`}><span>TAKING THEIR PLACES…</span><small>3D fighters are taking their places</small></div>}
+        {!sceneFailed && fighters.map(fighter => <span key={fighter.id} className={`battle-stage-player battle-stage-player-${fighter.side}`} style={{ color: fighter.color }}>P{fighter.side + 1}</span>)}
         <AnimatePresence>{frame.impact && <ImpactEffects key={frame.impact.id} event={frame.impact} reduced={reduced} />}</AnimatePresence>
-        <AnimatePresence>{frame.intro && <motion.div key={frame.intro} className={`battle-intro ${frame.intro === 'CLASH!' ? 'battle-intro-clash' : ''}`} initial={{ scale: reduced ? 1 : .45, opacity: 0, rotate: reduced ? -5 : -8 }} animate={{ scale: 1, opacity: 1, rotate: -5 }} exit={{ scale: reduced ? 1 : 1.35, opacity: 0 }} transition={{ type: 'spring', stiffness: 350, damping: 19 }}>{frame.intro}</motion.div>}</AnimatePresence>
+        <AnimatePresence>{arenaReady && frame.intro && <motion.div key={frame.intro} className={`battle-intro ${frame.intro === 'CLASH!' ? 'battle-intro-clash' : ''}`} initial={{ scale: reduced ? 1 : .45, opacity: 0, rotate: reduced ? -5 : -8 }} animate={{ scale: 1, opacity: 1, rotate: -5 }} exit={{ scale: reduced ? 1 : 1.35, opacity: 0 }} transition={{ type: 'spring', stiffness: 350, damping: 19 }}>{frame.intro}</motion.div>}</AnimatePresence>
         <AnimatePresence>{frame.ko && <motion.div className={`battle-ko ${outcome !== 'knockout' ? 'battle-decision' : ''}`} initial={{ opacity: 0, scale: reduced ? 1 : 2.5, rotate: reduced ? -8 : -12 }} animate={{ opacity: 1, scale: 1, rotate: -8 }} transition={{ type: 'spring', stiffness: 280, damping: 15 }}><span>THAT’S A WRAP.</span><strong>{outcomeLabel}</strong><small>{outcome === 'knockout' ? 'INK CREDIBLE.' : 'EVERY HIT COUNTED.'}</small></motion.div>}</AnimatePresence>
         {frame.ko && <motion.svg className={`battle-winner-crown battle-winner-crown-${winnerSlot}`} viewBox="0 0 100 75" initial={reduced ? {opacity:0} : { opacity: 0, y: -25, rotate: -15 }} animate={reduced ? {opacity:1} : { opacity: 1, y: 0, rotate: -8 }} transition={{ delay: .35, type: 'spring' }} aria-label="Winner crown"><path d="M15 56 8 15 34 33 50 6 66 33 92 15 84 56Z" fill="var(--yellow)" stroke="var(--ink)" strokeWidth="5" strokeLinejoin="round"/><path d="M18 66Q50 59 81 66" fill="none" stroke="var(--ink)" strokeWidth="5" strokeLinecap="round"/></motion.svg>}
         <motion.div className="battle-contact-flash" style={{ opacity: flash }} />
