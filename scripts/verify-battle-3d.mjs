@@ -52,6 +52,18 @@ for (const event of BATTLE_EVENTS) {
   assert.equal(getBattleFighter3DPose(event.at - 200, event.attacker).action, 'windup');
   assert.equal(getBattleFighter3DPose(event.at, event.attacker).action, 'attack');
   assert.equal(getBattleFighter3DPose(event.at, 1 - event.attacker).action, 'hit');
+  const direction = event.attacker === 0 ? 1 : -1;
+  const windup = getBattleFighter3DPose(event.at - 200, event.attacker);
+  const attack = getBattleFighter3DPose(event.at, event.attacker);
+  const recoil = getBattleFighter3DPose(event.at, 1 - event.attacker);
+  assert.ok(windup.rotationY * direction < .55, 'Windup turns the body away before the punch');
+  assert.ok(attack.rotationY * direction > 1.1, 'Either attacker visibly turns toward the opponent');
+  assert.ok(recoil.rotationY * -direction < .55, 'The defender recoils away from the contact');
+  const leadArm = event.attacker === 0 ? 'armRightX' : 'armLeftX';
+  const guardArm = event.attacker === 0 ? 'armLeftX' : 'armRightX';
+  assert.ok(windup[leadArm] > 0 && attack[leadArm] < -1.5, 'Both mirrored leading arms extend from windup into the punch');
+  assert.ok(attack[leadArm] < attack[guardArm], 'The leading arm punches farther than the guarded arm');
+  assert.equal(attack[event.attacker === 0 ? 'armRightZ' : 'armLeftZ'], event.attacker === 0 ? .12 : -.12);
 }
 
 // Saved fights can have closely spaced hits and either recorded winner. A new

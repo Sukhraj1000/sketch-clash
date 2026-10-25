@@ -55,18 +55,21 @@ export function getBattleFighter3DPose(elapsed: number, side: 0 | 1, reduced = f
 
   if (action === 'windup') {
     const windup = clamp((relative + 440) / 270);
-    pose.armLeftX = -.7;
-    pose.armRightX = .55 * windup;
+    pose.armLeftX = side === 0 ? -.7 : .55 * windup;
+    pose.armRightX = side === 0 ? .55 * windup : -.7;
     pose.rotationX = -.08 * windup;
+    pose.rotationY = direction * (.55 - .2 * windup);
     pose.footLeftX = -.2 * windup;
     pose.footRightX = .2 * windup;
   } else if (action === 'attack') {
     const extension = relative < 0 ? clamp((relative + 170) / 170)
       : 1 - clamp((relative - 105) / 570);
-    pose.armLeftX = -.8;
-    pose.armRightX = .55 - extension * 2.2;
-    pose.armRightZ = .12;
+    pose.armLeftX = side === 0 ? -.8 : .55 - extension * 2.2;
+    pose.armRightX = side === 0 ? .55 - extension * 2.2 : -.8;
+    if (side === 0) pose.armRightZ = .12;
+    else pose.armLeftZ = -.12;
     pose.rotationX = .12 * extension;
+    pose.rotationY = direction * (.55 + .65 * extension);
     pose.footLeftX = beat * .38;
     pose.footRightX = -beat * .38;
   } else if (action === 'hit') {
@@ -76,6 +79,7 @@ export function getBattleFighter3DPose(elapsed: number, side: 0 | 1, reduced = f
     pose.armLeftZ = -.55;
     pose.armRightZ = .55;
     pose.rotationX = -.12 * recoil;
+    pose.rotationY = direction * (.55 - .2 * recoil);
     pose.footLeftX = -.2 * recoil;
     pose.footRightX = .2 * recoil;
   } else if (action === 'win') {
